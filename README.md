@@ -1,8 +1,216 @@
 # Spatial Video Agent (sva)
 
-Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance and fleet dashcams. You ask a question in one sentence. The agent finds the moment to one-second precision, gets more camera views when it needs them, and shows the evidence in 3D or on a map.
+Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance and fleet dashcams. You ask a question in one sentence. The agent finds the moment to one-second precision, gets more camera views when it needs them, and shows the evidence in 3D or on a map. Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
 
-Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
+![A warehouse answer: the measured distance between worker P1 and forklift F1 drawn on the 3D floor, the answer panel with the verdict, key frame, claim and model note, and the timeline with the Evidence lane](docs/screenshots/01-warehouse-answer.png)
+
+*The deployed app answering "When did the worker start to dodge the forklift, and how far was it?" in warehouse scene `wh-sdg-001e5345_run_1`.*
+
+## Contents
+
+- [Features](#features)
+- [How to use](#how-to-use)
+- [Questions to try](#questions-to-try)
+- [Deployed version](#deployed-version)
+- [Repository layout](#repository-layout)
+- [Development run](#development-run)
+- [Tests](#tests)
+- [Pipeline](#pipeline)
+- [Site deployment](#site-deployment)
+
+## Features
+
+### Question-first agent
+
+- One question box. `POST /api/agent/ask` streams the run as server-sent events (`step`, `tool_call`, `tool_result`, `hits`, `model_result`, `ui`, `claim`, `answer`, `status`, `done`; [CONTRACT.md §7](CONTRACT.md#7-sse-spec-73-schemasask_ssejson)). The panel fills in as frames arrive.
+- The agent works in fixed states: parse, plan, retrieve, inspect, measure, assess, answer. While it runs, a narration card over the stage shows `STEP n OF 6` with the segments Parse, Search, Inspect, Measure, Check, Answer, and the moments and claims found so far.
+- Each claim has predicates with a status and the evidence they were decided on. A claim is SUPPORTED, CONTRADICTED or UNRESOLVED, and the panel shows when a step changed it (for example `UNRESOLVED -> SUPPORTED`).
+- The final verdict is one of Supported, Contradicted, Unresolved, No match, Out of range or Out of scope (UNSUPPORTED). For the last three, the panel says why and offers questions that can be answered instead.
+- Every number in an answer sentence comes from an evidence field. Each one is a button that opens its evidence.
+- Every source is labelled: Measured, Map, Model or Human. Model output (Cosmos situation, prediction, timing, sign reading) "describes only, no numbers" and shows whether a measurement checked it.
+- While the agent moves the view, a pill says "Agent is steering the view". **Take over** (or a click on the stage) gives you the camera; the agent can still seek the clock and highlight objects.
+
+### Warehouse 3D stage
+
+![The warehouse workspace before a question: 3D stage with camera frustums, blind-spot hatching, the Worth a look pin and the Layers popover; preset questions in the panel](docs/screenshots/03-warehouse.png)
+
+- A full-bleed three.js stage: the scene as block massing (the raw point cloud is an extra layer), people as 3D skeletons, the forklift as a box with a bright front face, and one frustum per camera. A frustum base shows that camera's thumbnail of the current second.
+- **Camera rail** on the left: a strip of dots that expands to thumbnails on hover. Click a camera to view the scene from it. Cameras the agent used are marked "used by agent".
+- **Views**: Free and Top, plus the view from any camera.
+- **Layers** popover: People + skeletons, Forklift, Agent measures, Blind spots, Point cloud, Camera frustums, and the source legend. The choice is kept across reloads.
+- **Blind spots**: from the per-second visibility grid, floor cells that no camera sees are hatched and cells that fewer cameras see get a stronger tint. A person seen by one camera only is tagged "single view".
+- **Distances**: a measured ground distance is drawn as a line between the two actors, labelled with value and sigma (for example `3.208 m ±0.09`), for the time span of the moment.
+- **Explore | Evidence** modes. Evidence mode keeps the cited actors at full strength, dims the rest, frames them, and docks the source frame of the camera the evidence was read from (with a **clip** button that plays from 2.5 s before). A focus chip names the evidence; its x returns to Explore.
+- **Worth a look** pins mark rule events of severity 2 or more; a click seeks to them.
+- Click a person or the forklift to outline it everywhere and get an **Ask about this** button, which puts its id into the question box.
+- **Videos** tab (after an answer): the moment's cameras, synced to the timeline, primary camera large, boxes drawn on each frame, "No video" hatching where a camera has none; **Pin to stage** opens one camera as a picture-in-picture on the stage.
+- **Draw zone**: click floor points, double-click to close; the timeline then keeps only the events inside the zone. Drawing a zone stores it on the server (`POST /api/scene/<key>/zone`).
+- Watch mode: when playback crosses a severity 2+ event while no question is open, the app creates one review task and a hazard zone for it (`POST /api/actions/trigger`, once per event) and shows a toast with **View**.
+
+![Evidence mode after a click on the measured 3.208 m: the distance label with what was measured and when, the focus chip, and the source frame of ceiling_00 docked top right](docs/screenshots/04-warehouse-evidence.png)
+
+### Fleet map
+
+![The fleet workspace before a question: all trips on the offline map of Toronto, each in its own colour, event clusters with counts, a car with its dashcam thumbnail, the simulated clock and trip lanes](docs/screenshots/06-fleet.png)
+
+- A full-bleed MapLibre map from local PMTiles (basemap and 3D building massing); the app requests no outside tiles.
+- **Trips**: each trip has its own colour on route, car arrow and timeline lane. Click a car or its trip tag to select it; the selected trip draws its trail and the others fade.
+- **Replay clock**: trips were not filmed at the same time, so they play on one simulated clock ("Simulated clock"). Cars move with it, and a trip outside its time hides its car. Cars with video show a dashcam thumbnail chip.
+- **GPS gaps**: a gap longer than 2 s is not interpolated. The car is drawn as last known, with its age ("last fix 1.5 s ago"); gaps also show on the trip lane.
+- **Event pins and clusters**: crowded pins merge into a counted cluster; a cluster click zooms in, a pin click selects its trip and seeks to the event.
+- **Building card**: click a building (on the map, in the dashcam frame or in the 3D view) for its name, address, height and floors, points of interest, map source and snapshot date, and the Cosmos sign reading with its check against the map ("Sign check").
+- **Intersection view** (after an answer on a trip with video): a 2x2 layout of dashcam video | map, over ego-frame 3D | place card.
+  - Dashcam: detection boxes and building facade columns, **Pinhole crop** for the fisheye camera, and a fact line (time, GPS state and sigma, speed, place, playback rate).
+  - Map: the car in a dashed ring whose radius is the GPS sigma ("Dashed ring = GPS uncertainty").
+  - Ego-frame 3D: the car at the origin, pedestrians and vehicles with labels and sigma, buildings; views **Chase**, **Top**, **Dashcam**; badge "Monocular range: indicative only".
+  - Place card: the place under the car from the map, its side and distance ("Ahead · 6 m"), and the Cosmos C5 reading with "checked by map".
+- **Trip** tab: the trip, whether GPS had a live fix during the moment, other passes near the same place, duration and distance.
+
+![A fleet answer: dashcam with detections and facade columns, map with the GPS ring, ego-frame 3D and the place card, next to the answer "The building on the right at Queen & Spadina is MAC Cosmetics."](docs/screenshots/07-fleet-answer.png)
+
+### Timeline
+
+- A ruler you can drag to seek, a play/pause button and the current time.
+- **Agent looked**: the time ranges each tool call read.
+- **Evidence · N**: one mark per evidence, styled by its kind. Hover an answer number to outline its mark; click a mark to focus that evidence.
+- Warehouse: **Cameras · N** opens one coverage lane per camera (ok, occluded, no video) and the **Events** lane. After an answer, model lanes **Cosmos C4** and **Prediction** appear.
+- Fleet: a lane per trip (GPS fix or gap; the open trip, or the first, stays; the others fold behind **Other trips · N** until it is clicked) and the events of all trips.
+
+### Run page
+
+![The run page of a warehouse answer: verdict, cited sentence, section nav, and the step timeline with tool calls, exec state and duration](docs/screenshots/08-run-page.png)
+
+- `#/run/<run_id>` shows one stored run: the question, verdict, run id, date, step count and time, and the answer sentences with their cites (a sentence without cites is muted and marked "Not supported").
+- A section nav: **Verdict**, **What changed** (the step that changed the verdict, with before and after frames), **Steps · N**, **Evidence · N**, **Model notes · N**, **VSS comparison**.
+- Steps: name, summary, exec state (live, cached, waiting, failed) and duration per step and tool call; a click expands its input and output, the Request and Response JSON, and its evidence.
+- Evidence: source, a readable label, cameras and time, value, and **raw** fields.
+- Model notes: Cosmos C1 situation, C2 prediction, C4 timing, each with "Checked by measure" or a conflict.
+- VSS comparison: what the site VSS native search returned for the same question, with its SQL, "For comparison only · not used in the answer".
+- **Open in Weave** links to the W&B Weave trace when the run has one. A cached replay names the original run.
+- `#/runs` lists recent runs with verdict, question, run id, date, steps and time, and marks cached replays.
+
+### Evidence levels
+
+Each scene has a level that decides what the agent may claim ([CONTRACT.md §8.5](CONTRACT.md#85-agent-per-evidence-level-t4) has the full table):
+
+| Question type | L3: synthetic warehouse (SDG) | L2: SmartSpaces warehouse | L2: PIE dashcam trip | L1: street camera |
+|---|---|---|---|---|
+| find / event / presence | events, detections, Cosmos C1 | same | events, C1 | 2D presence; caption is model evidence |
+| distance / near miss / closest | ground distance in m with sigma | UNRESOLVED (`scene_not_metric`) | ego-frame distance | UNRESOLVED (`no_geometry`) |
+| where | world position | ground position | GPS place and ego position | UNRESOLVED (`no_geometry`) |
+| blind spot | visibility grid | visibility grid if present | not checked | not checked |
+| speeding / building | not checked | not checked | OBD vs map limit / OSM facade | not checked |
+| same person (link) | entity association | entity association | entity association | UNRESOLVED (`no_track_ids`) |
+| identity / intent / blame | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED |
+
+- **L3**: synthetic warehouse scenes (NVIDIA SDG) with calibrated cameras, depth and ground truth. Metric distances, world positions and blind spots.
+- **L2**: real scenes with partial geometry. SmartSpaces warehouse cameras (ground position, not metric) and PIE dashcam trips (GPS, OBD speed, ego-frame distance, building facades).
+- **L1**: street video with only 2D detections and captions. Spatial questions end UNRESOLVED (`no_geometry`). The fixtures include one L1 scene; the deployed corpus has none, and the UI has no street page yet (street scenes are left out of the scene lists).
+
+## How to use
+
+### 1. Home page and asking
+
+![The home page: one question box over the last warehouse scene, three example questions and the principle line](docs/screenshots/02-home.png)
+
+Open the app at `/app/` (`#/`). The home page has one box, "Ask about any moment in the footage", and three example questions (two warehouse, one fleet). Type a question and press Enter, or click an example.
+
+- Type `@` in the box to pick the source: one list of warehouse scenes and fleet trips (`set01·0001` is trip `fl-pie-set01_video_0001`), filtered by what you type after `@`. Use the Up and Down arrows and Enter (or a click) to pick one; it becomes a chip in the box, and its x removes it. The last row, "Leave empty and the agent picks the scene", clears the chip. Escape closes the list.
+- Without a chip, the question runs against your last workspace route (the default is the first warehouse scene).
+- The question keeps running while its workspace opens on the first hits.
+- A question the agent declines stays on the home page with a "Not answerable from footage" card and two questions to ask instead.
+- If you were in a warehouse scene before, the home page draws that scene behind the box and names it top right.
+
+### 2. Workspaces and the ⌘K palette
+
+- The top bar has the Ask box with a source tag (the current scene key, trip, or `all trips`), **Runs**, and **⌘K**.
+- Press ⌘K (Ctrl+K on Windows and Linux), click the **⌘K** button, or click the source tag to open the palette. It lists every warehouse scene, **All trips**, every trip and **Recent runs**. Type to filter (for example `set03`), Up and Down to move, Enter to open; Esc closes. When text is typed, the last row is "Ask the agent: <your text>". The footer shows the data backend and its row count.
+- Routes: `#/warehouse/<scene_key>`, `#/fleet` (all trips), `#/fleet/<trip_id>@<t_ms>` (one trip at a time), `#/runs`, `#/run/<run_id>`.
+
+![The command palette filtered to set03: trips with their keys, the data badge in the footer](docs/screenshots/09-command-palette.png)
+
+### 3. Presets
+
+The right panel of a workspace starts with "Ask about this scene" and three preset questions:
+
+| Workspace | Presets |
+|---|---|
+| Warehouse | When did the worker start to dodge the forklift, and how far was it? · Was anyone where ceiling_00 cannot see in these 10 seconds? · Who is the person in eye_00? |
+| Fleet | Near the ROM, did a pedestrian cross in front of the car? · At Queen and Spadina, what is the building on the right? · Was this car speeding? |
+
+The third warehouse preset is an identity question; it shows how the agent declines.
+
+### 4. While the agent runs
+
+- The narration card shows the current step, a 6-segment progress bar, **Steps** (the list of steps so far) and **Stop**. Stop ends the run as "Stopped" and keeps what arrived.
+- The answer slot is reserved at the top of the panel; moments found ("MOMENTS FOUND · N") and "CLAIMS SO FAR" fill in below.
+- **Take over** in the pill "Agent is steering the view" (or any click on the stage) stops the agent from moving your camera.
+
+### 5. The answer panel and its tabs
+
+- Header: verdict, step count and time, and **Reasoning** (opens the run page). The answer sentence follows, then the source badges.
+- **Answer** tab: the key frame of the top moment with **Play** (from 2.5 s before), the claims with before -> after and their predicates and measured values, the model note (click it to expand all model rows), and **Other moments · N**.
+- **Evidence · N** tab: evidence grouped by kind (MEASURED, MAP, MODEL, HUMAN). Each row has a label, value with sigma, cameras and time; **raw** shows the stored fields.
+- **Steps · N** tab: every step and tool call with its duration and exec state, the step that changed a claim, a duration bar, the link "Full reasoning, tool calls and VSS comparison", and the "VSS native search" block when the site adds one.
+- **Videos** (warehouse) or **Trip** (fleet) as the last tab.
+- A new question resets the panel to the Answer tab.
+
+### 6. Clicking evidence and numbers
+
+- Hover an underlined number in the answer: its evidence row, its timeline mark and (for a distance) the 3D line light up.
+- Click the number, a cite, an evidence row or a timeline mark: the clock seeks to the evidence, the stage enters Evidence mode, and the evidence rows flash.
+- Click a moment card to seek to it and select its actors.
+
+### 7. Esc steps back one layer
+
+Each Esc press goes back one layer, in this order:
+
+1. closes the ⌘K palette;
+2. closes the run page and returns to the workspace under it;
+3. leaves Evidence mode (back to Explore);
+4. goes back to the Answer tab;
+5. clears the answer (the stage returns to its default state);
+6. with no answer open, goes to the home page.
+
+On the home page, Esc closes the `@` list. The top bar reminds you: "Esc steps back".
+
+### 8. Follow-up questions
+
+After an answer, the panel ends with two follow-up chips and the box "Ask a follow-up". Its context label shows what will be sent with the question: the selected object ids and the clock time (for example `P1 · F1 · 00:01.6`). A follow-up sends both, so "how far was it from the forklift?" refers to the selection at that moment. A question typed in the top bar sends the selection, not the time. Changing workspace clears the selection.
+
+### 9. Runs and the run page
+
+- **Runs** in the top bar (or **Recent runs** in ⌘K) opens `#/runs`; click a row to open that run.
+- **Reasoning** in the answer header opens the run page of the current answer.
+- The back button at the top left (or Esc) returns to the workspace; **All runs** goes to the list; **Open in Weave** opens the trace in W&B.
+
+## Questions to try
+
+These are the presets. The verdicts are what the deployed app returned on 2026-10-09:
+
+| Workspace and source | Question | Result |
+|---|---|---|
+| Warehouse, `wh-sdg-001e5345_run_1` | When did the worker start to dodge the forklift, and how far was it? | Supported: "The worker started to dodge at 1.633 s, 3.208 m (±0.09 m) from the forklift." |
+| Warehouse, `wh-sdg-001e5345_run_1` | Was anyone where ceiling_00 cannot see in these 10 seconds? | Contradicted: "Checked frame by frame: nobody is present in the ceiling_00 blind spot." |
+| Fleet, all trips | At Queen and Spadina, what is the building on the right? | Supported: "The building on the right at Queen & Spadina is MAC Cosmetics." |
+| Fleet, all trips | Was this car speeding? | Supported: "The vehicle was speeding: OBD speed 72.02 km/h, map speed limit 40 km/h." From trip `fl-pie-set06_video_0003`: Unresolved, "This road segment lacks map speed limit data". |
+| Fleet | Near the ROM, did a pedestrian cross in front of the car? | No match from all trips; Out of range from a single trip. |
+| Warehouse | Who is the person in eye_00? | Out of scope: "Identity, intent or responsibility questions are out of scope." |
+
+![The blind-spot preset in the warehouse: the answer Contradicted, and the 3D floor with hatched cells that no camera sees](docs/screenshots/05-warehouse-blind-spot.png)
+
+Phrasings the question parser recognizes (`app/core/llm.py`):
+
+- **Find, when, how far**: find, show, list, when, did, was, is there, distance, gap, closest, how close, how far, nearest, speed, speeding, dodge, yield, give way, step back. Examples: "How far was it from the forklift?", "Was this car speeding?".
+- **Blind spot**: blind, can't see, cannot see. Example: "Was anyone where ceiling_04 cannot see?".
+- **Where**: where, near, building, junction, intersection. Example: "At Queen and Spadina, what is the building on the right?".
+- **What happened**: what happened, describe, explain.
+- **Same person**: link, same person, before ... after.
+- Entity ids such as `P1` (person), `F1` (forklift) and `V7` (vehicle) name objects in the open scene.
+
+The agent declines (verdict Out of scope, UNSUPPORTED) questions about identity, intent or blame: anything with "who is", "who was", "identity", "name of", "intent", "purpose", "trying to", "wants to", "motive", "who caused", "deliberately", "why", "fault" or "responsible". Example: "Who is the person in eye_00?", "Why did the driver stop?", "Whose fault was the near miss?". Ask what can be measured instead: when, where, how far apart, whether it appears.
+
+A question about a place or time outside the footage ends Out of range; a search with no hits ends No match ("That does not mean it did not happen").
 
 ## Deployed version
 
@@ -17,13 +225,7 @@ Checked on: 2026-10-09.
 | `/app/health` | `ok: true`, `libs_ready: true`, `assets_ok: true`; VastDB rows: clips 4653, detections 1297456, tracks 332, events 1254, gps 60632, places 5378, scene_manifest 146, vss_collection 3315 |
 | Workspaces | Warehouse: 80 scenes (79 L3, 1 L2). Fleet: 53 trips (L2). |
 
-Evidence levels:
-
-- **L3**: synthetic warehouse scenes (NVIDIA SDG) with calibrated cameras, depth and ground truth. Metric distances, world positions and blind spots.
-- **L2**: real scenes with partial geometry. SmartSpaces warehouse cameras (ground position, not metric) and PIE dashcam trips (GPS, OBD speed, ego-frame distance, building facades).
-- **L1**: street video with only 2D detections and captions. Spatial questions end UNRESOLVED (`no_geometry`). The fixtures include one L1 scene; the deployed corpus has none.
-
-[CONTRACT.md](CONTRACT.md) §8.5 gives the full table of what each level can answer.
+The screenshots in this README were taken from this deployment.
 
 ## Repository layout
 
@@ -37,6 +239,7 @@ Evidence levels:
 | `pipeline/` | Offline pipeline: `warehouse/`, `fleet/`, `street/`, `map/`, `common/` (schema check, publish, upload, index build, site map), `eval/` |
 | `schemas/` | JSON Schemas of the artifacts, SSE events and API bodies; SQL of the index and app tables |
 | `fixtures/` | Small synthetic scenes and the generator `gen_fixture.py`, used by the tests and by dev mode |
+| `docs/screenshots/` | The screenshots in this README |
 
 The real scene artifacts (`sva-out/`), the index and the source videos are not in Git. Dev mode and all tests use only `fixtures/`.
 
@@ -70,6 +273,8 @@ bash app/scripts/gate.sh
 ```
 
 `gate.sh` runs all pytest suites, the fixture schema check, the fixture determinism check, the vendor manifest check, the Playwright e2e (root path and `/app` prefix), the ConfigMap size check and a secret scan. Set `SVA_E2E_PORT` to give a parallel run its own port.
+
+The e2e specs in `app/tests/e2e/` describe each interaction of the UI above: `home.spec.js`, `shell.spec.js`, `kernel.spec.js`, `warehouse.spec.js`, `fleet.spec.js`, `fleet-intersection.spec.js`, `timeline.spec.js`, `run.spec.js`, `runpage.spec.js`.
 
 ## Pipeline
 
