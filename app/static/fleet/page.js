@@ -1,0 +1,309 @@
+// Fleet workspace page (spec §9.3, board v2-4a). Default: full-bleed overview map under the simulated replay clock (trips
+// were not recorded at the same time). A hit opens the result layout at once: dashcam | map (the overview map moved into
+// its cell) over ego-frame 3D | place card. Esc (view state back to default) closes it and restores the map camera.
+import { icon } from '../kernel/badges.js';
+import { esc, sec, tc } from '../kernel/format.js';
+import { createBuildings } from './buildings.js';
+import { en, posAt, tripT, wallOf } from './geo.js';
+import { createIntersection } from './intersection.js';
+import { createOverview } from './overview.js';
+import { createVideo } from './videooverlay.js';
+
+const FLY_MS = 800;
+const STATE = { observed: 'fix', interpolated: 'interpolated', last_known: 'last fix', unknown: 'unknown' };
+const CHECKED = { verified: 'yes', conflict: 'conflict', unverified: 'no' };
+// Read by the e2e spec: {overview, ix}.
+export const view = {};
+let ctx, root, trips, places, ov, card, ix = null, saved = null, offs = [];
+// Resolves once mount has the trips, the map and the building card; the agent's hits can arrive before that.
+let ready;
+
+const byId = (id) => trips.find((t) => t.id === id);
+const asset = (trip, rel) => ctx.api.get(`api/assets/${trip.id}/${rel}`);
+
+async function loadTrips() {
+  return Promise.all((await ctx.api.get('api/fleet/trips')).map(async (tr) => {
+    const [gj, mf] = await Promise.all([ctx.api.get(tr.geojson_url), ctx.api.get(`api/scene/${tr.trip_id}/manifest`)]);
+    const trip = { id: tr.trip_id, title: tr.title, mf, cam: mf.cams[0] ?? null, chunks: new Map(), names: new Map() };
+    const a = mf.assets;
+    const [ev, bl, ents, tl, pl] = await Promise.all([a.events && asset(trip, a.events), a.buildings && asset(trip, a.buildings), a.entities && asset(trip, a.entities), a.timeline && asset(trip, a.timeline), a.places && asset(trip, a.places)]);
+    for (const e of ents?.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam.id) trip.names.set(o.local_track_id, e.entity_id);
+    return Object.assign(trip, {
+      replay: gj.features[0].properties.replay, line: gj.features[0].geometry.coordinates, pts: gj.features.slice(1).map((f) => f.properties),
+      events: ev?.events ?? [], buildings: bl?.buildings ?? {}, timeline: tl, places: pl?.places ?? [],
+    });
+  }));
+}
+
+// fl-pie-set04_video_0007 → set04·0007; other ids unchanged.
+const shortId = (id) => id.replace(/^fl-pie-(set\d+)_video_(\d+)$/, '$1·$2');
+
+// Timeline: one lane per trip in replay wall time (GPS fix vs. last_known gap), trips with video first, and every trip's events.
+function addLanes() {
+  const tl = ctx.timeline;
+  for (const t of [...trips].sort((a, b) => !!b.cam - !!a.cam)) {
+    const items = [];
+    t.pts.forEach((p, i) => {
+      const s = p.state === 'last_known' ? 'gap' : 'ok', a = wallOf(t.replay, p.t_ms);
+      const b = wallOf(t.replay, t.pts[i + 1]?.t_ms ?? t.replay.coverage_intervals.at(-1)[1]);
+      if (items.at(-1)?.[2] === s) items.at(-1)[1] = b;
+      else items.push([a, b, s]);
+    });
+    tl.addLane(`trip:${t.id}`, { label: shortId(t.id), kind: 'trip' });
+    tl.setLaneData(`trip:${t.id}`, items);
+    document.querySelector(`#timeline [data-lane="trip:${t.id}"]`).style.setProperty('--trip', t.color);
+  }
+  tl.setEvents(trips.flatMap((t) => t.events.map((e) => ({ ...e, id: `${t.id}:${e.id}`, t0_ms: wallOf(t.replay, e.t0_ms), t1_ms: wallOf(t.replay, e.t1_ms) }))));
+}
+
+function chunk(trip, kind, t) {
+  const n = String(Math.floor(t / 10000)).padStart(5, '0'), key = `${kind}:${n}`;
+  if (!trip.chunks.has(key)) {
+    trip.chunks.set(key, kind === 'ego'
+      ? asset(trip, `${trip.mf.assets.ego_dir}/${n}.json`).then((j) => j.frames)
+      // A 10 s chunk with no detections may have no boxes file.
+      : asset(trip, `${trip.mf.assets.boxes_dir}/${trip.cam.id}/${n}.json`).then((j) => j.rows, () => []));
+  }
+  return trip.chunks.get(key);
+}
+
+// Place card: the place under the car (map data), its side and distance from the car, and the C5 reading nearest in time.
+function placeHtml(p, t, c5) {
+  const pl = places.get(p.place_id);
+  if (!pl) return '';
+  let meta = [];
+  if (pl.lat != null && pl.lon != null) {
+    const [e, n] = en([p.lon, p.lat], [pl.lon, pl.lat]);
+    const rel = ((((Math.atan2(e, n) * 180) / Math.PI - p.heading) % 360) + 540) % 360 - 180;
+    meta = [Math.abs(rel) <= 30 ? 'Ahead' : Math.abs(rel) >= 150 ? 'Behind' : rel > 0 ? 'Right side' : 'Left side', `${Math.round(Math.hypot(e, n))} m`];
+  }
+  if (pl.geom) meta.push('OSM footprint');
+  const r = c5.reduce((best, x) => (!best || Math.abs(x.t_ms - t) < Math.abs(best.t_ms - t) ? x : best), null);
+  return `<span class="p-label fl-place-h">${icon('map')}PLACE</span>
+    <span class="fl-place-name">${esc(pl.name)}</span>
+    ${meta.length ? `<span class="fl-place-meta muted">${meta.join(' · ')}</span>` : ''}
+    ${r ? `<div class="fl-model">${icon('cpu')}<div><span>${esc(r.payload.text)}</span>
+      <span class="muted" title="${esc(r.verification.method)}">Cosmos C5 · checked by map: ${CHECKED[r.verification.status]}</span></div></div>` : ''}`;
+}
+
+async function ixTick(wall) {
+  const cur = ix, t = tripT(cur.trip.replay, wall);
+  if (t == null) return;
+  cur.video.sync(t, ctx.clock.playing);
+  const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
+  const f = frames.findLast((x) => x.t_ms <= t) ?? frames[0];
+  if (ix !== cur || f === cur.frame) return;
+  cur.frame = f;
+  const p = posAt(cur.trip.pts, t), pl = places.get(p.place_id), stale = p.state === 'last_known';
+  cur.scene.setFrame(f, ctx.selection.ids);
+  if (cur.frames !== frames) cur.scene.setPath((cur.frames = frames));
+  cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - f.t_ms) < 50));
+  ov.gps([p.lon, p.lat], f.ego.sigma_m);
+  if (cur.placeId !== p.place_id) ov.place(places.get((cur.placeId = p.place_id))?.geom);
+  cur.facts.innerHTML = `<span class="fl-ft">${tc(t)}</span>
+    <span class="fl-fgps${stale ? ' stale' : ''}"><i></i>GPS ${STATE[p.state]}${stale ? ` ${sec(p.age_ms)} ago` : ''} ±${f.ego.sigma_m.toFixed(1)} m</span>
+    <span>${p.speed.toFixed(1)} m/s</span>${p.place_id ? `<span>${esc(pl?.name ?? p.place_id)}</span>` : ''}
+    <span class="fl-rate">${icon('play')}${ctx.clock.rate}×</span>`;
+  const html = placeHtml(p, t, cur.c5);
+  if (html !== cur.placeHtml) cur.place.innerHTML = cur.placeHtml = html;
+}
+
+function tick(wall) {
+  root.querySelector('.fl-wall').textContent = tc(wall);
+  ov.update(wall);
+  if (ix) ixTick(wall);
+}
+
+// Trip tab: the result's trip, its GPS quality over the moment, other trips passing the same place, duration and distance.
+async function renderTrip() {
+  const el = document.getElementById('tab-trip'), cur = ix;
+  if (!cur) return el.replaceChildren();
+  const { trip, moment: m } = cur;
+  const n = [Math.floor(m.t0_ms / 10000), Math.floor(m.t1_ms / 10000)];
+  const frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
+    .filter((f) => f.t_ms >= m.t0_ms && f.t_ms <= m.t1_ms);
+  if (ix !== cur) return;
+  const stale = trip.pts.some((q) => q.t_ms >= m.t0_ms && q.t_ms <= m.t1_ms && q.state === 'last_known');
+  const sigma = frames.length ? Math.max(...frames.map((f) => f.ego.sigma_m)) : null;
+  const placeId = trip.events.find((e) => e.place_id && e.t0_ms < m.t1_ms && e.t1_ms > m.t0_ms)?.place_id ?? posAt(trip.pts, m.t0_ms)?.place_id;
+  const pl = places.get(placeId);
+  const others = placeId ? trips.filter((t) => t !== trip && t.pts.some((q) => q.place_id === placeId)) : [];
+  const withVideo = others.filter((t) => t.cam).length;
+  const meta = [withVideo && `${withVideo} with video`, others.length - withVideo && `${others.length - withVideo} GPS only`].filter(Boolean).join(' · ');
+  const dist = trip.line.reduce((s, ll, i) => (i ? s + Math.hypot(...en(trip.line[i - 1], ll)) : 0), 0);
+  el.innerHTML = `
+    <div class="tt-head"><span class="mono">${esc(trip.id)}</span><b>${esc(trip.title)}</b></div>
+    <div class="tt-gps${stale ? ' warn' : ''}"><i></i><span>${stale ? 'GPS lost its live fix during the crossing' : 'GPS had a live fix for the whole crossing'}</span>${sigma != null ? `<span class="mono muted">±${sigma.toFixed(1)} m</span>` : ''}</div>
+    ${placeId ? `<details class="tt-other"><summary>${icon('chevron-right')}<b>Other passes near ${esc(pl?.name ?? placeId)}</b><span class="mono muted">${others.length}</span><span class="muted tt-meta">${meta}</span></summary>
+      <ul>${others.map((t) => `<li><span class="mono">${esc(shortId(t.id))}</span> ${esc(t.title)} <span class="muted">${t.cam ? 'video' : 'GPS only'} · ${tc(t.pts.find((q) => q.place_id === placeId).t_ms)}</span></li>`).join('')}</ul></details>` : ''}
+    <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
+}
+
+function enterIx(trip, m) {
+  if (ix?.moment === m) return;
+  leaveIx();
+  saved ??= ov.camera();
+  root.classList.add('ix');
+  const el = document.createElement('div');
+  el.className = 'fl-ix';
+  el.innerHTML = '<div class="fl-vid"><div class="fl-vwrap"></div><div class="fl-facts mono"></div></div><div class="fl-3d"></div><div class="fl-place"></div>';
+  root.querySelector('.fl-map').after(el);
+  const p = posAt(trip.pts, m.t0_ms);
+  ov.frame([p.lon, p.lat]);
+  ov.result(trip.id);
+  const pick = (bid) => card.focus(bid);
+  const cite = m.actor_refs?.[0]?.entity_id ?? null;
+  const scene = createIntersection(el.querySelector('.fl-3d'), { cam: trip.cam, origin: trip.line[0], buildings: trip.buildings, onPick: pick, cite });
+  const cur = view.ix = ix = {
+    trip, moment: m, el, scene, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
+    facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
+    video: createVideo(el.querySelector('.fl-vwrap'), {
+      cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
+      src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
+    }),
+  };
+  const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
+  ctx.api.get(`api/model-results?${q}`).then((rs) => {
+    if (ix !== cur) return;
+    cur.c5 = rs.filter((r) => r.task === 'C5');
+    cur.frame = null;
+    ixTick(ctx.clock.t);
+  });
+  ixTick(ctx.clock.t);
+  if (!document.getElementById('tab-trip').hidden) renderTrip();
+}
+
+function leaveIx() {
+  if (!ix) return;
+  ix.scene.dispose();
+  ix.video.dispose();
+  ix.el.remove();
+  view.ix = ix = null;
+  root.classList.remove('ix');
+  ov.gps(null);
+  ov.place(null);
+  ov.result(null);
+  document.getElementById('tab-trip').replaceChildren();
+}
+
+function toOverview() {
+  leaveIx();
+  card.close();
+  ov.hit(null);
+  if (saved) ov.restore(saved);
+  saved = null;
+}
+
+// The result layout keeps its map on the car; only the overview flies.
+function flyTo(lngLat) {
+  saved ??= ov.camera();
+  ov.hit(lngLat);
+  if (!ix) ov.fly(lngLat, FLY_MS);
+}
+
+export async function mount(el, c) {
+  let loaded;
+  ready = new Promise((r) => (loaded = r));
+  ctx = c;
+  root = el;
+  const links = [ctx.api.url('lib/maplibre/maplibre-gl.css'), new URL('./fleet.css', import.meta.url).href].map((href) =>
+    document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'stylesheet', href })));
+  root.innerHTML = `
+    <div class="fl-root">
+      <div class="fl-map"></div>
+      <div class="fl-clock"><span class="fl-sim" title="Simulated replay clock: trips were not filmed at the same time">Simulated clock</span><span class="mono fl-wall"></span></div>
+      <div class="fl-card" hidden></div>
+    </div>`;
+  root = root.firstElementChild;
+  [trips] = await Promise.all([loadTrips(), new Promise((r) => (links[1].onload = r))]);
+  places = new Map(trips.flatMap((t) => t.places.map((p) => [p.place_id, p])).reverse());
+  // fleet.css's --route-1…8 by order in the trip list; MapLibre paint cannot read CSS variables.
+  const css = getComputedStyle(root);
+  trips.forEach((t, i) => (t.color = css.getPropertyValue(`--route-${(i % 8) + 1}`).trim()));
+  ctx.clock.bind({ kind: 'fleet', replay: trips.map((t) => t.replay) });
+  ctx.clock.setRange(
+    Math.min(...trips.map((t) => wallOf(t.replay, t.replay.coverage_intervals[0][0]))),
+    Math.max(...trips.map((t) => wallOf(t.replay, t.replay.coverage_intervals.at(-1)[1]))),
+  );
+  addLanes();
+  view.overview = ov = await createOverview(root.querySelector('.fl-map'), {
+    trips, api: ctx.api,
+    onCar: (id) => ov.select(id),
+    onEvent(trip, e) {
+      ov.select(trip.id);
+      ctx.timeline.highlight(`${trip.id}:${e.id}`);
+      ctx.clock.seek(wallOf(trip.replay, e.t0_ms));
+    },
+    onBuilding: (bid) => card.focus(bid),
+  });
+  // Added after the map is created: MapLibre wants an empty container.
+  root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: 'Dashed ring = GPS uncertainty' }));
+  card = createBuildings(root.querySelector('.fl-card'), {
+    api: ctx.api,
+    tripOf: (bid) => trips.find((t) => bid in t.buildings),
+    onFocus(bid, on) {
+      ov.focusBuilding(bid, on);
+      if (ix) ix.scene.focus(on ? bid : null);
+    },
+  });
+  loaded();
+  const onView = (s) => s === 'default' && toOverview();
+  const onPlay = (on) => ix?.video.play(on);
+  const onTab = (name) => name === 'trip' && renderTrip();
+  ctx.bus.on('view:state', onView);
+  ctx.bus.on('clock:play', onPlay);
+  ctx.bus.on('panel:tab', onTab);
+  offs = [
+    ctx.clock.onTick(tick),
+    ctx.selection.onChange(() => ix && ((ix.frame = null), ixTick(ctx.clock.t))),
+    () => ctx.bus.off('view:state', onView),
+    () => ctx.bus.off('clock:play', onPlay),
+    () => ctx.bus.off('panel:tab', onTab),
+    () => links.forEach((l) => l.remove()),
+  ];
+  if (ctx.route.trip_id) loadScene(ctx.route.trip_id);
+  else tick(ctx.clock.t);
+  return () => {
+    leaveIx();
+    ov.dispose();
+    offs.forEach((off) => off());
+    view.overview = null;
+  };
+}
+
+// The agent's moment: select its trip, seek to it and open the result layout at once (a GPS-only trip: fly the map to it).
+export async function applyHits(moments) {
+  await ready;
+  const m = moments.find((x) => byId(x.scene_key));
+  if (!m) return;
+  const trip = byId(m.scene_key), p = posAt(trip.pts, m.t0_ms);
+  ov.select(trip.id);
+  ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
+  if (trip.cam) enterIx(trip, m);
+  else flyTo([p.lon, p.lat]);
+}
+
+export async function applyUI({ cmd, args }) {
+  await ready;
+  if (cmd === 'seek') {
+    const trip = byId(args.trip_id ?? args.scene_key) ?? ix?.trip;
+    ctx.clock.seek(trip ? wallOf(trip.replay, args.t_ms) : args.t_ms);
+  } else if (cmd === 'focus' && args.latlon) flyTo([args.latlon[1], args.latlon[0]]);
+  else if (cmd === 'highlight') ctx.selection.set(args.ids, { source: 'agent' });
+  else if (cmd === 'setView') ix?.scene.setView(args.view);
+  else if (cmd === 'loadScene') loadScene(args.scene_key);
+}
+
+// Model results are shown by the shell's model panel; the building and place cards fetch their own C5 records.
+export function applyModelResults() {}
+
+// #/fleet/<trip_id>@<t_ms>: select the trip, seek to t_ms and fly to the car. The shell cleared the timeline before calling.
+export function loadScene(id) {
+  const trip = byId(id);
+  addLanes();
+  if (!trip) return;
+  ov.select(id);
+  if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
+  const p = posAt(trip.pts, tripT(trip.replay, ctx.clock.t) ?? trip.pts[0].t_ms);
+  ov.fly([p.lon, p.lat], FLY_MS);
+}

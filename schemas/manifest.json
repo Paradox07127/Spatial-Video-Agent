@@ -1,0 +1,631 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/manifest.json",
+  "title": "Scene manifest (§6.3). One per scene directory.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "scene_id": {
+      "type": "string",
+      "pattern": "^((wh|fl)/[a-z0-9_]+/[a-z0-9_-]+|st/[a-z0-9_]+/[A-Za-z0-9_-]+)$"
+    },
+    "scene_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "workspace": {
+      "enum": [
+        "warehouse",
+        "fleet",
+        "street"
+      ]
+    },
+    "evidence_level": {
+      "enum": [
+        "L1",
+        "L2",
+        "L3"
+      ],
+      "description": "overrides the level derived from workspace and metric (models.level_of)"
+    },
+    "title": {
+      "type": "string"
+    },
+    "t0_ms": {
+      "const": 0
+    },
+    "t1_ms": {
+      "type": "integer"
+    },
+    "fps": {
+      "type": "number"
+    },
+    "world_frame_id": {
+      "type": "string"
+    },
+    "metric": {
+      "type": "boolean"
+    },
+    "cams": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "street: items are $defs/cam2d; warehouse and fleet: items are $defs/cam"
+    },
+    "ground": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "cell_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "nx": {
+          "type": "integer"
+        },
+        "ny": {
+          "type": "integer"
+        },
+        "cam_bit_order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "minItems": 1
+        },
+        "texture": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "texture_from_world": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 9,
+              "maxItems": 9
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "3x3 row-major, world (x,y,1) -> texture px"
+        }
+      },
+      "required": [
+        "origin",
+        "cell_m",
+        "nx",
+        "ny",
+        "cam_bit_order"
+      ],
+      "additionalProperties": false
+    },
+    "points_meta": {
+      "type": "object",
+      "properties": {
+        "n": {
+          "type": "integer"
+        },
+        "voxel_m": {
+          "type": "number"
+        },
+        "depth_kind": {
+          "const": "euclidean_range"
+        }
+      },
+      "required": [
+        "n",
+        "voxel_m",
+        "depth_kind"
+      ],
+      "additionalProperties": false
+    },
+    "assets": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "skeleton": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "forklift": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "visibility": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "tracks": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "entities": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "boxes_dir": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "events": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "cosmos": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "timeline": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "trip": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "ego_dir": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "buildings": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "replay": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "places": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        },
+        "dets_dir": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "object"
+    },
+    "pipeline": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "object"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "models",
+        "created"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "scene_id",
+    "scene_key",
+    "workspace",
+    "title",
+    "t0_ms",
+    "t1_ms",
+    "fps",
+    "world_frame_id",
+    "metric",
+    "cams",
+    "assets",
+    "sources",
+    "pipeline"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workspace": {
+            "const": "warehouse"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ground"
+        ],
+        "properties": {
+          "assets": {
+            "required": [
+              "entities",
+              "timeline",
+              "events",
+              "tracks",
+              "boxes_dir",
+              "skeleton"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workspace": {
+            "const": "fleet"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "assets": {
+            "required": [
+              "trip"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workspace": {
+            "const": "street"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "metric": {
+            "const": false
+          },
+          "cams": {
+            "items": {
+              "$ref": "#/$defs/cam2d"
+            }
+          },
+          "assets": {
+            "required": [
+              "dets_dir"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "cams": {
+            "items": {
+              "$ref": "#/$defs/cam"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "cam": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "w": {
+          "type": "integer"
+        },
+        "h": {
+          "type": "integer"
+        },
+        "K": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "[fx, fy, cx, cy] in source pixels (w x h)"
+        },
+        "model": {
+          "enum": [
+            "pinhole",
+            "fisheye"
+          ]
+        },
+        "dist": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "description": "pinhole: [] ; fisheye: cv2.fisheye [k1,k2,k3,k4]"
+        },
+        "camera_basis": {
+          "const": "opengl"
+        },
+        "cam2world": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 16,
+          "maxItems": 16,
+          "description": "4x4 column-major; camera +X right, +Y up, looks -Z. Fleet: camera->ego frame"
+        },
+        "fov_deg": {
+          "type": "number",
+          "description": "vertical, = 2*atan(h/(2*fy))"
+        },
+        "video": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frame_ref": {
+          "type": "object",
+          "properties": {
+            "video_w": {
+              "type": "integer"
+            },
+            "video_h": {
+              "type": "integer"
+            },
+            "thumb_w": {
+              "type": "integer"
+            },
+            "thumb_h": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "video_w",
+            "video_h",
+            "thumb_w",
+            "thumb_h"
+          ],
+          "additionalProperties": false,
+          "description": "video/thumb pixel size; boxes and K are in source pixels, scale = video_w / w"
+        },
+        "offset_ms": {
+          "type": "integer",
+          "description": "t_scene_ms = offset_ms + media_pts_ms"
+        },
+        "thumbs": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "dir; file = <dir>/<floor(t_ms/1000):05d>.jpg"
+        },
+        "sync_method": {
+          "enum": [
+            "sdg_frame_index",
+            "timestamp",
+            "manual",
+            "single_camera",
+            "unknown"
+          ]
+        },
+        "sync_residual_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "w",
+        "h",
+        "K",
+        "model",
+        "dist",
+        "camera_basis",
+        "cam2world",
+        "fov_deg",
+        "video",
+        "frame_ref",
+        "offset_ms",
+        "thumbs",
+        "sync_method",
+        "sync_residual_ms"
+      ],
+      "additionalProperties": false
+    },
+    "cam2d": {
+      "type": "object",
+      "description": "2D camera without geometry (workspace street, level L1): no K, cam2world or fov_deg; the video comes as chunks",
+      "properties": {
+        "kind": {
+          "const": "cam2d"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "w": {
+          "type": "integer"
+        },
+        "h": {
+          "type": "integer"
+        },
+        "video": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chunks": {
+          "type": "array",
+          "minItems": 1,
+          "description": "sorted and contiguous; chunk i covers [t0_ms, t1_ms) of scene time; uri is a relative asset path (fixtures) or s3:// (site)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "t0_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "t1_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "uri": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^s3://[a-z0-9.-]+/.+$"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "t0_ms",
+              "t1_ms",
+              "uri"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "frame_ref": {
+          "type": "object",
+          "properties": {
+            "video_w": {
+              "type": "integer"
+            },
+            "video_h": {
+              "type": "integer"
+            },
+            "thumb_w": {
+              "type": "integer"
+            },
+            "thumb_h": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "video_w",
+            "video_h",
+            "thumb_w",
+            "thumb_h"
+          ],
+          "additionalProperties": false,
+          "description": "video/thumb pixel size; boxes and K are in source pixels, scale = video_w / w"
+        },
+        "offset_ms": {
+          "type": "integer",
+          "description": "t_scene_ms = offset_ms + media_pts_ms"
+        },
+        "thumbs": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "dir; file = <dir>/<floor(t_ms/1000):05d>.jpg"
+        },
+        "sync_method": {
+          "enum": [
+            "sdg_frame_index",
+            "timestamp",
+            "manual",
+            "single_camera",
+            "unknown"
+          ]
+        },
+        "sync_residual_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "w",
+        "h",
+        "video",
+        "chunks",
+        "frame_ref",
+        "offset_ms",
+        "thumbs",
+        "sync_method",
+        "sync_residual_ms"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

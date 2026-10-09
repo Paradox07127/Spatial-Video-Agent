@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/ego.json",
+  "title": "ego/<chunk_t0_ms//10000:05d>.json, 10 fps. Ego frame: x forward, y left, z up, metres. kpts2d [u, v, conf] source px.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "trip_id": {
+      "type": "string"
+    },
+    "chunk_t0_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "multipleOf": 10000
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "ego": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              },
+              "heading": {
+                "type": "number"
+              },
+              "sigma_m": {
+                "type": "number"
+              },
+              "state": {
+                "enum": [
+                  "observed",
+                  "interpolated",
+                  "last_known",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "lat",
+              "lon",
+              "heading",
+              "sigma_m",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          "peds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entity_id": {
+                  "type": "string",
+                  "pattern": "^[PFV][0-9]+$"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "h": {
+                  "type": "number"
+                },
+                "sigma_m": {
+                  "type": "number"
+                },
+                "kpts2d": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "minItems": 17,
+                      "maxItems": 17
+                    }
+                  ]
+                },
+                "source": {
+                  "const": "fisheye_ground"
+                }
+              },
+              "required": [
+                "entity_id",
+                "x",
+                "y",
+                "h",
+                "sigma_m",
+                "kpts2d",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "vehs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entity_id": {
+                  "type": "string",
+                  "pattern": "^[PFV][0-9]+$"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "yaw": {
+                  "type": "number",
+                  "description": "rad, CCW from ego +x"
+                },
+                "cls": {
+                  "enum": [
+                    "car",
+                    "truck",
+                    "bus",
+                    "bicycle",
+                    "motorcycle"
+                  ]
+                },
+                "dims": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "sigma_m": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "entity_id",
+                "x",
+                "y",
+                "yaw",
+                "cls",
+                "dims",
+                "sigma_m"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "buildings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bid": {
+                  "type": "string"
+                },
+                "u0": {
+                  "type": "number"
+                },
+                "u1": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "bid",
+                "u0",
+                "u1"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "t_ms",
+          "ego",
+          "peds",
+          "vehs",
+          "buildings"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "trip_id",
+    "chunk_t0_ms",
+    "frames"
+  ],
+  "additionalProperties": false
+}

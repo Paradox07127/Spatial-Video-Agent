@@ -1,0 +1,348 @@
+{
+"schema_version": "1",
+"analysis_rev": "px-1",
+"producer_commit": "worktree",
+"input_artifact_hashes": {},
+"labels": [
+{
+"scene_key": "fl-pie-set02_video_0002",
+"t_ms": 550567,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set02_video_0002",
+"entity_id": "P44",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "crossing",
+"source": "rule",
+"rule_id": "pie_crossing",
+"annotator": null,
+"note": "PIE ped 2_2_174"
+},
+{
+"scene_key": "fl-pie-set02_video_0002",
+"t_ms": 550567,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set02_video_0002",
+"entity_id": "P44",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "stop,slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0001",
+"t_ms": 121600,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0001",
+"entity_id": "P16",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "walking_along",
+"source": "rule",
+"rule_id": "pie_walking",
+"annotator": null,
+"note": "PIE ped 3_1_235"
+},
+{
+"scene_key": "fl-pie-set03_video_0001",
+"t_ms": 121600,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0001",
+"entity_id": "P16",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0005",
+"t_ms": 101000,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0005",
+"entity_id": "P13",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "crossing",
+"source": "rule",
+"rule_id": "pie_crossing",
+"annotator": null,
+"note": "PIE ped 3_5_398"
+},
+{
+"scene_key": "fl-pie-set03_video_0005",
+"t_ms": 101000,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0005",
+"entity_id": "P13",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0010",
+"t_ms": 54400,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0010",
+"entity_id": "P5",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0015",
+"t_ms": 182433,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0015",
+"entity_id": "P33",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0016",
+"t_ms": 85567,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0016",
+"entity_id": "P7",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "crossing",
+"source": "rule",
+"rule_id": "pie_crossing",
+"annotator": null,
+"note": "PIE ped 3_16_919"
+},
+{
+"scene_key": "fl-pie-set03_video_0016",
+"t_ms": 85567,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0016",
+"entity_id": "P7",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set03_video_0016",
+"t_ms": 85300,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set03_video_0016",
+"entity_id": "P8",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set04_video_0002",
+"t_ms": 425433,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0002",
+"entity_id": "P42",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "crossing",
+"source": "rule",
+"rule_id": "pie_crossing",
+"annotator": null,
+"note": "PIE ped 4_2_1092"
+},
+{
+"scene_key": "fl-pie-set04_video_0002",
+"t_ms": 425433,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0002",
+"entity_id": "P42",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set04_video_0002",
+"t_ms": 426633,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0002",
+"entity_id": "P43",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set04_video_0010",
+"t_ms": 28433,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0010",
+"entity_id": "P6",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "waiting",
+"source": "rule",
+"rule_id": "pie_waiting",
+"annotator": null,
+"note": "PIE ped 4_10_1477"
+},
+{
+"scene_key": "fl-pie-set04_video_0010",
+"t_ms": 28433,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0010",
+"entity_id": "P6",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set04_video_0014",
+"t_ms": 554833,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0014",
+"entity_id": "P10",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "waiting",
+"source": "rule",
+"rule_id": "pie_waiting",
+"annotator": null,
+"note": "PIE ped 4_14_1668"
+},
+{
+"scene_key": "fl-pie-set04_video_0014",
+"t_ms": 554833,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set04_video_0014",
+"entity_id": "P10",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+},
+{
+"scene_key": "fl-pie-set06_video_0004",
+"t_ms": 12467,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set06_video_0004",
+"entity_id": "P3",
+"kind": "person"
+}
+],
+"task": "C1",
+"label": "crossing",
+"source": "rule",
+"rule_id": "pie_crossing",
+"annotator": null,
+"note": "PIE ped 6_4_1823"
+},
+{
+"scene_key": "fl-pie-set06_video_0004",
+"t_ms": 12467,
+"actor_refs": [
+{
+"scene_key": "fl-pie-set06_video_0004",
+"entity_id": "P3",
+"kind": "person"
+}
+],
+"task": "C2",
+"label": "slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": "ego OBD"
+}
+]
+}

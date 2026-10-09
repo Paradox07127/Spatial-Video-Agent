@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/dets2d.json",
+  "title": "dets/<cam_id>/<chunk_index:04d>.json of a street scene; rows [t_ms, label, x1, y1, x2, y2, conf] in source pixels, any COCO label, no track id; t_ms (scene time) lies inside chunk chunk_index of the cam.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "cam_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "chunk_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "index into manifest cams[].chunks"
+    },
+    "chunk_t0_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "= cams[].chunks[chunk_index].t0_ms"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "detector, e.g. yolo11_coco"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          {
+            "type": "string",
+            "minLength": 1,
+            "description": "COCO label"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        ],
+        "minItems": 7,
+        "maxItems": 7
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "cam_id",
+    "chunk_index",
+    "chunk_t0_ms",
+    "source",
+    "rows"
+  ],
+  "additionalProperties": false
+}

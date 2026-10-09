@@ -1,0 +1,31 @@
+{
+  "comment": "Browser libraries fetched into LIB_DIR by scripts/vendor.py and served at /lib/<name>; every file is SHA-256 checked.",
+  "importmap": {
+    "three": "./lib/three/three.module.js",
+    "three/addons/": "./lib/three/addons/",
+    "maplibre-gl": "./lib/maplibre/maplibre-gl.mjs",
+    "pmtiles": "./lib/pmtiles/index.js",
+    "fflate": "./lib/fflate/browser.js"
+  },
+  "files": [
+    {"name": "three/three.module.js", "url": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js", "sha256": "9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea", "size": 662772},
+    {"name": "three/three.core.js", "url": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.core.js", "sha256": "9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6", "size": 1458113},
+    {"name": "three/addons/controls/OrbitControls.js", "url": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/controls/OrbitControls.js", "sha256": "3d79d07ecb686b4e5d93232eedab255331c1beef711e13164eaa1f68655a5f2b", "size": 40755},
+    {"name": "three/addons/renderers/CSS2DRenderer.js", "url": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/renderers/CSS2DRenderer.js", "sha256": "256abfc6ae1aa20eb83c10d7a0e26534527df65872e4d52da6354bee78288c34", "size": 7990},
+    {"name": "three/LICENSE", "url": "https://cdn.jsdelivr.net/npm/three@0.186.0/LICENSE", "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc", "size": 1081},
+    {"name": "maplibre/maplibre-gl.mjs", "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.mjs", "sha256": "389731e8581cc59d484e867b051db73ae034a76f0691d2890a2a1a7d2495bdf3", "size": 1079357},
+    {"name": "maplibre/maplibre-gl-worker.mjs", "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl-worker.mjs", "sha256": "53a2dd60f76c7b9201a3cc007b755d98ce4b52403843fef5c90c41780fe62e91", "size": 508314},
+    {"name": "maplibre/maplibre-gl.css", "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.css", "sha256": "20fc3054e6c769ae9502ec5c7ea46dae05b544fdc4fca2108553fb8c07265bf3", "size": 83290},
+    {"name": "maplibre/LICENSE.txt", "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/LICENSE.txt", "sha256": "ee5fc05a0677eaf69601d2c7db0d9ecd6cc27c3abc1d0733bc9ed34707cf8ef2", "size": 5984},
+    {"name": "pmtiles/index.js", "url": "https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/esm/index.js", "sha256": "751d3f5250d565db7f9ee6bf5ba58ba471cac586cce88f0e3a3834da407f402b", "size": 14882},
+    {"name": "pmtiles/LICENSE", "url": "https://cdn.jsdelivr.net/gh/protomaps/PMTiles@3b10e67edb65c6b04549f74c0279cef8328d859c/LICENSE", "sha256": "0371c38f338835f7fc13ed71176f3d92144e22c8b736a31cced57adbbeb647b3", "size": 1713},
+    {"name": "fflate/browser.js", "url": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js", "sha256": "8cc1f687e0159e977addb6b85e274dbd11e622cf151f4fcb7b85d49622ea43e7", "size": 89198},
+    {"name": "fflate/LICENSE", "url": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/LICENSE", "sha256": "805f6cb28bb8b6d3a0badd83c93bccd9671fa01a3b4b92b7042b0743325ac243", "size": 1069},
+    {"name": "fonts/geist-400.woff2", "url": "https://cdn.jsdelivr.net/npm/@fontsource/geist@5.3.0/files/geist-latin-400-normal.woff2", "sha256": "ead637fd0b6b887d829b3ce3f25fdc242b1de0cfb69c0d97987933675d1315ba", "size": 12956},
+    {"name": "fonts/geist-500.woff2", "url": "https://cdn.jsdelivr.net/npm/@fontsource/geist@5.3.0/files/geist-latin-500-normal.woff2", "sha256": "6145bf6706dbc1b6686f04f871489cf724951f00b752745896ccdcac07639a53", "size": 13296},
+    {"name": "fonts/GEIST-LICENSE", "url": "https://cdn.jsdelivr.net/npm/@fontsource/geist@5.3.0/LICENSE", "sha256": "71609cbb5c78b5870d712eab73a31d76622635c6ed034ab5cee3b9ecbda8685f", "size": 4486},
+    {"name": "fonts/ibm-plex-mono-400.woff2", "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.3.0/files/ibm-plex-mono-latin-400-normal.woff2", "sha256": "08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7", "size": 14708},
+    {"name": "fonts/ibm-plex-mono-500.woff2", "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.3.0/files/ibm-plex-mono-latin-500-normal.woff2", "sha256": "01d285447409c8a588692162439a038b8cbd7871309ee20267b0d2d91c6e8e22", "size": 14888},
+    {"name": "fonts/IBM-PLEX-MONO-LICENSE", "url": "https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-mono@5.3.0/LICENSE", "sha256": "23b0a9d0c6d3f140a0b77e483c5cfa6bba574325ef5cb189ed9f2fec4884533f", "size": 5299}
+  ]
+}

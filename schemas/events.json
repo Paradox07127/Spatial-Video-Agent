@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/events.json",
+  "title": "Scene events (§6.3).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^E[0-9]+$"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z_]+$",
+            "description": "warehouse: near_miss, dodge, zone_entry; fleet: ped_near, ped_crossing, hard_brake, intersection_pass"
+          },
+          "t0_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "t1_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "actor_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[PFV][0-9]+$"
+            }
+          },
+          "place_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "severity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "source": {
+            "enum": [
+              "rule",
+              "gt",
+              "model"
+            ]
+          },
+          "params": {
+            "type": "object"
+          },
+          "clip_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "eids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^e_[0-9a-f]{16}$"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "t0_ms",
+          "t1_ms",
+          "actor_ids",
+          "severity",
+          "source",
+          "params",
+          "clip_ids",
+          "eids"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "events"
+  ],
+  "additionalProperties": false
+}

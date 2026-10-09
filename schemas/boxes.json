@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/boxes.json",
+  "title": "boxes/<cam>/<chunk_t0_ms//10000:05d>.json; rows [t_ms, local_track_id, cls, x1, y1, x2, y2, conf] in source pixels; t_ms in [chunk_t0_ms, chunk_t0_ms+10000).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "cam_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "chunk_t0_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "multipleOf": 10000
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "enum": [
+              "person",
+              "forklift",
+              "car",
+              "truck",
+              "bus",
+              "bicycle",
+              "motorcycle"
+            ]
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "minItems": 8,
+        "maxItems": 8
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "cam_id",
+    "chunk_t0_ms",
+    "rows"
+  ],
+  "additionalProperties": false
+}

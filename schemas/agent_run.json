@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/agent_run.json",
+  "title": "GET /api/agent/runs/{run_id}: the full persisted trace (workflow panel and export share it).",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-z]{12,}$"
+    },
+    "kind": {
+      "enum": [
+        "ask",
+        "watch"
+      ]
+    },
+    "q": {
+      "type": "string"
+    },
+    "context": {
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "done",
+        "error",
+        "aborted"
+      ]
+    },
+    "final": {
+      "anyOf": [
+        {
+          "enum": [
+            "SUPPORTED",
+            "CONTRADICTED",
+            "UNRESOLVED",
+            "UNSUPPORTED",
+            "NO_MATCH",
+            "OUT_OF_RANGE"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "elapsed_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "source_run_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^r_[0-9a-z]{12,}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "weave_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_revs": {
+      "type": "object"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step_id": {
+            "type": "string"
+          },
+          "parent_step_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "i": {
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "parse",
+              "plan",
+              "retrieve",
+              "inspect",
+              "measure",
+              "assess",
+              "answer"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^(parse|retrieve|plan|assess|answer|policy\\.plan_next|tool\\.[a-z_.]+|llm\\.[a-z_]+|vlm\\.[a-z_]+|cache_replay)$"
+          },
+          "started_ms": {
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          },
+          "input": {},
+          "output": {},
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^e_[0-9a-f]{16}$"
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exec_state": {
+            "enum": [
+              "cached",
+              "live",
+              "waiting",
+              "failed"
+            ]
+          },
+          "weave_call_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trace_delivery_state": {
+            "enum": [
+              "local",
+              "weave_pending",
+              "weave_ok",
+              "weave_failed",
+              "disabled"
+            ]
+          },
+          "blob_ref": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "uri",
+                  "sha256",
+                  "size"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "step_id",
+          "parent_step_id",
+          "i",
+          "state",
+          "name",
+          "started_ms",
+          "elapsed_ms",
+          "input",
+          "output",
+          "evidence_ids",
+          "exec_state",
+          "trace_delivery_state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "ask_sse.json#/$defs/claim"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "ask_sse.json#/$defs/evidence"
+      }
+    },
+    "hits": {
+      "type": "array",
+      "items": {
+        "$ref": "ask_sse.json#/$defs/moment_card"
+      }
+    }
+  },
+  "required": [
+    "run_id",
+    "kind",
+    "q",
+    "context",
+    "status",
+    "final",
+    "created",
+    "elapsed_ms",
+    "source_run_id",
+    "weave_url",
+    "model_revs",
+    "steps",
+    "claims",
+    "evidence"
+  ],
+  "additionalProperties": false
+}

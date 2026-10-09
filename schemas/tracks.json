@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/tracks.json",
+  "title": "World-frame tracks; pts [t_ms, wx, wy, sigma_m, state].",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "pattern": "^[PFV][0-9]+$"
+          },
+          "cls": {
+            "enum": [
+              "person",
+              "forklift",
+              "vehicle"
+            ]
+          },
+          "t0_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "t1_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "cam_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            }
+          },
+          "pts": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "enum": [
+                    "observed",
+                    "interpolated",
+                    "last_known",
+                    "unknown"
+                  ]
+                }
+              ],
+              "minItems": 5,
+              "maxItems": 5
+            }
+          },
+          "source": {
+            "enum": [
+              "tri",
+              "ankle",
+              "boxbottom",
+              "yolo_wedge",
+              "gt",
+              "fisheye_ground"
+            ]
+          }
+        },
+        "required": [
+          "entity_id",
+          "cls",
+          "t0_ms",
+          "t1_ms",
+          "cam_ids",
+          "pts",
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "tracks"
+  ],
+  "additionalProperties": false
+}

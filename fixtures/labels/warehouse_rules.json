@@ -1,0 +1,9275 @@
+{
+"schema_version": "1",
+"analysis_rev": "px-1",
+"producer_commit": "worktree",
+"input_artifact_hashes": {},
+"labels": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 1633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 2800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 5100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 2800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 5100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-001e5345_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1633, 4867) ms"
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 3300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 5800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 3300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 5800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-005bc639_run_21",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.300",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3300, 8200) ms"
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 3600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 6133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 3600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 6133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00e0991f_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.600",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3600, 8233) ms"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 2100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 3333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 6933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 8933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 9467,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 2100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 3333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 6933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-00f2bbb8_run_25",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.100",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2100, 4933) ms"
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 5100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 7400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 5100,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 7400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01021d39_run_10",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "5.100",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [5100, 6833) ms"
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 3867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 6600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 7367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 3867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 6600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 7367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0137e00c_run_2",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2633, 5833) ms"
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"t_ms": 4600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"t_ms": 7933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"t_ms": 4600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"t_ms": 7933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-014f5a0f_run_13",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 2867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 5600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 2867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 5600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-016c1396_run_3",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"t_ms": 6667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"t_ms": 6667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-018461e5_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 1600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 2467,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 4700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 2467,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 4700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ce771b_run_13",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.600",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1600, 4667) ms"
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 2600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 3667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 7933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 2600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 3667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 7933,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01d845d2_run_11",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 3133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 7433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 3133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 7433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01ef74f9_run_10",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-01f95a36_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 4400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 4400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 6533,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-02191b34_run_19",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "4.400",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [4400, 6233) ms"
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 1733,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 2433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 6500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 2433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 6500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-027324c5_run_3",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.733",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1733, 6500) ms"
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"t_ms": 6567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"t_ms": 6567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-030a3619_run_27",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 1400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 6967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 6967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03346ff4_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.400",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1400, 3033) ms"
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 3967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 4767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 3967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 4767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-036c3835_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.967",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3967, 8267) ms"
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 3600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 4633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 3600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 4633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03a29379_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.600",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3600, 7000) ms"
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"t_ms": 4900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"t_ms": 4900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03ce3613_run_14",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"t_ms": 7700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"t_ms": 7700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-03dde994_run_16",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"t_ms": 2333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"t_ms": 5667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"t_ms": 2333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"t_ms": 5667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04573755_run_46",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"t_ms": 633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-047fca61_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"t_ms": 6600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"t_ms": 6600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-049c83ec_run_20",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"t_ms": 4033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"t_ms": 4033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04ea2364_run_27",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"t_ms": 5833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"t_ms": 5833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-04eb0ba1_run_12",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 3700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 5733,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 3700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 5733,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0505436a_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.700",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3700, 5567) ms"
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 3533,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 4867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 3533,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 4867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-050ce71e_run_9",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.533",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3533, 6733) ms"
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 1767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 2367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 6633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 2367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 6633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-054b0c8f_run_5",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.767",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1767, 6100) ms"
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"t_ms": 133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"t_ms": 1233,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"t_ms": 6433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"t_ms": 6433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05601faa_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 4667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 7433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 4667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 7433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05761a14_run_21",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2633, 4267) ms"
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"t_ms": 6067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"t_ms": 6067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-059b6b08_run_6",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 2133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 6400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 2133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 6400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-05f91749_run_19",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 5167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 5167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 6033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0624a7b3_run_53",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "5.167",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [5167, 8467) ms"
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 4233,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 4233,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0729fd10_run_26",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"t_ms": 4367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"t_ms": 4367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0763f0bf_run_22",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"t_ms": 4900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"t_ms": 7600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"t_ms": 4900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"t_ms": 7600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-076bf43a_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"t_ms": 4167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"t_ms": 4167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-07759db6_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"t_ms": 6767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"t_ms": 6767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0816bfea_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 2567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 3333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 7167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 2567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 3333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 7167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-081ed27c_run_2",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.567",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2567, 7000) ms"
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"t_ms": 6133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"t_ms": 6133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0835bfb5_run_12",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 2067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 4133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 7500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 2067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 4133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 7500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-084d41bb_run_3",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.067",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2067, 3633) ms"
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 2267,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 3400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 2267,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 3400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-08aacd4f_run_52",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.267",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2267, 5133) ms"
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 5433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 5433,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0910eda0_run_17",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "4.567",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [4567, 7767) ms"
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 6900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 6900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0975c6c6_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 2133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 4300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 2133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 4300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-09789d14_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.133",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2133, 7000) ms"
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 2800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 2800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a11e2e6_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.800",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2800, 5833) ms"
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 1233,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 3067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 7133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 3067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 7133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0a1e12e7_run_16",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.233",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1233, 2900) ms"
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"t_ms": 4700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"t_ms": 4700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b1485eb_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"t_ms": 7033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"t_ms": 4067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"t_ms": 7033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b434eb2_run_12",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 5633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 6367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 5633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 6367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b682159_run_13",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "5.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [5633, 8800) ms"
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"t_ms": 400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"t_ms": 4200,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"t_ms": 4200,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0b7c5e63_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "0.867",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [867, 4167) ms"
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"t_ms": 5133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"t_ms": 5133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bba20b8_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"t_ms": 5500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"t_ms": 5500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0bc572e9_run_5",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"t_ms": 4000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"t_ms": 4000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c00e6ff_run_14",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 1900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 3900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 3900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c0ccd29_run_9",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.900",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1900, 3633) ms"
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 5033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 5767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 5033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 5767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c1aef21_run_37",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "5.033",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [5033, 8200) ms"
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"t_ms": 133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"t_ms": 6700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"t_ms": 6700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c240296_run_3",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "0.133",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [133, 1533) ms"
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 1600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 3000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 3000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0c5adf75_run_57",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.600",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1600, 4467) ms"
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 3567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 4400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 3567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 4400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cb68fc0_run_15",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.567",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3567, 8433) ms"
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"t_ms": 4133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"t_ms": 4133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0cf209b8_run_8",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 4833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 4833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d23e2e6_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2633, 7167) ms"
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 5300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 6033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 5300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 6033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d3bcadc_run_42",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "5.300",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [5300, 8467) ms"
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 2033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 2833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 5367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 2033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 2833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 5367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0d91190f_run_7",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.033",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2033, 5033) ms"
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 4033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 4033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0da71e07_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 3633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 5800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 3633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 5800,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0dddad85_run_30",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.633",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3633, 5433) ms"
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 3500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 4300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 6833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 3500,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 4300,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 6833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0e642664_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.500",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3500, 6433) ms"
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 2900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 5067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 2900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 5067,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ed5a06d_run_24",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.900",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2900, 4833) ms"
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 2667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 4633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 2667,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 4633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0ef77f47_run_27",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.667",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2667, 4300) ms"
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 2033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 2867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 7967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 2033,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 2867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 7967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f05d52d_run_17",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.033",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2033, 3700) ms"
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"t_ms": 700,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"t_ms": 1333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"t_ms": 7833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "unrelated",
+"source": "rule",
+"rule_id": "wh_unrelated",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"t_ms": 7833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f788233_run_2",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "1.333",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [1333, 4700) ms"
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 2167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 2900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 5333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 2167,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 2900,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 5333,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f8152cf_run_5",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "2.167",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [2167, 5333) ms"
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"t_ms": 4367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"t_ms": 4367,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f85d9f2_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 3733,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 4600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 3733,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 4600,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0f9d28ad_run_12",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.733",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3733, 8300) ms"
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "passing",
+"source": "rule",
+"rule_id": "wh_passing",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "interaction",
+"source": "rule",
+"rule_id": "wh_interaction",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"t_ms": 4567,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fc4477f_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "abstain",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 6767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 2000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 6767,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-0fe54b48_run_1",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"t_ms": 1967,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"t_ms": 2633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"t_ms": 8000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-1086edae_run_2",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 3400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 6633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 3400,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 6633,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-10c36c4b_run_4",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "boundary_censored",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [0, 10000) ms"
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"t_ms": 0,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"t_ms": 833,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"t_ms": 5133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"t_ms": 5133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-111dac6b_run_4",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 3133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 4267,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "P1",
+"kind": "person"
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C1",
+"label": "yielding",
+"source": "rule",
+"rule_id": "wh_dodge",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 3133,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 4267,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "continue",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 6867,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "F1",
+"kind": "forklift"
+}
+],
+"task": "C2",
+"label": "stop,slow,turn",
+"source": "rule",
+"rule_id": "c2_rules",
+"annotator": null,
+"note": null
+},
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"t_ms": 5000,
+"actor_refs": [
+{
+"scene_key": "wh-sdg-112008f8_run_22",
+"entity_id": "P1",
+"kind": "person"
+}
+],
+"task": "C4",
+"label": "3.133",
+"source": "rule",
+"rule_id": "c4_dodge_start",
+"annotator": null,
+"note": "first Dodge run [3133, 6300) ms"
+}
+]
+}

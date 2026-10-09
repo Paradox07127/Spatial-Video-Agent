@@ -1,0 +1,1265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/ask_sse.json",
+  "title": "One SSE frame of POST /api/agent/ask as {event, data}. Order: step(parse) first; status, then vss_native (site only), then done last.",
+  "type": "object",
+  "required": [
+    "event",
+    "data"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event": {
+      "enum": [
+        "step",
+        "tool_call",
+        "tool_result",
+        "hits",
+        "model_result",
+        "ui",
+        "claim",
+        "answer",
+        "vss_native",
+        "status",
+        "done"
+      ]
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "step"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "step_id": {
+                "type": "string"
+              },
+              "i": {
+                "type": "integer"
+              },
+              "state": {
+                "enum": [
+                  "parse",
+                  "plan",
+                  "retrieve",
+                  "inspect",
+                  "measure",
+                  "assess",
+                  "answer"
+                ]
+              },
+              "elapsed_ms": {
+                "type": "integer"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "exec_state": {
+                "enum": [
+                  "cached",
+                  "live",
+                  "waiting",
+                  "failed"
+                ]
+              }
+            },
+            "required": [
+              "run_id",
+              "step_id",
+              "i",
+              "state",
+              "elapsed_ms",
+              "summary"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "tool_call"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "step_id": {
+                "type": "string"
+              },
+              "call_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "args": {
+                "type": "object"
+              },
+              "why": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "run_id",
+              "step_id",
+              "call_id",
+              "name",
+              "args",
+              "why"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "tool_result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "step_id": {
+                "type": "string"
+              },
+              "call_id": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "envelope": {
+                "$ref": "#/$defs/envelope"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/evidence"
+                }
+              }
+            },
+            "required": [
+              "run_id",
+              "step_id",
+              "call_id",
+              "ok",
+              "envelope",
+              "evidence"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "hits"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "query_id": {
+                "type": "string"
+              },
+              "moments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/moment_card"
+                }
+              }
+            },
+            "required": [
+              "run_id",
+              "query_id",
+              "moments"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "model_result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "scene_key": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "results": {
+                "type": "array",
+                "items": {
+                  "$ref": "cosmos.json#/$defs/record"
+                }
+              }
+            },
+            "required": [
+              "run_id",
+              "scene_key",
+              "t_ms",
+              "results"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "ui"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "ui_cmd.json"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "run_id"
+                ],
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "pattern": "^r_[0-9a-z]{12,}$"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "claim"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/claim"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "answer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "sentence_id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "claim_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cites": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^e_[0-9a-f]{16}$"
+                }
+              },
+              "measure_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "eid": {
+                      "type": "string",
+                      "pattern": "^e_[0-9a-f]{16}$"
+                    },
+                    "field": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "eid",
+                    "field"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "evidence_level": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "L1",
+                      "L2",
+                      "L3"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "level group of the sentence; null for an overall sentence"
+              }
+            },
+            "required": [
+              "run_id",
+              "sentence_id",
+              "text",
+              "claim_ids",
+              "cites",
+              "measure_refs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "vss_native"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Site VSS /search for the same question, shown for comparison; the answer does not use it.",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "timeout",
+                  "error"
+                ]
+              },
+              "elapsed_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sql_query": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hits": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rank": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "scene_key": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-z0-9_-]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cam_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-z0-9_-]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "t_ms": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "ms relative to scene t0_ms"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "similarity": {
+                      "type": "number"
+                    },
+                    "caption": {
+                      "type": "string",
+                      "maxLength": 200
+                    }
+                  },
+                  "required": [
+                    "rank",
+                    "source",
+                    "scene_key",
+                    "cam_id",
+                    "t_ms",
+                    "similarity",
+                    "caption"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "run_id",
+              "status",
+              "elapsed_ms",
+              "sql_query",
+              "hits"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "status"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "final": {
+                "enum": [
+                  "SUPPORTED",
+                  "CONTRADICTED",
+                  "UNRESOLVED",
+                  "UNSUPPORTED",
+                  "NO_MATCH",
+                  "OUT_OF_RANGE"
+                ]
+              },
+              "cached": {
+                "type": "boolean"
+              },
+              "source_run_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^r_[0-9a-z]{12,}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "weave_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stop_reason": {
+                "enum": [
+                  "enough_evidence",
+                  "no_new_info",
+                  "budget_exhausted",
+                  "abstained",
+                  "error"
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "run_id",
+              "final",
+              "cached",
+              "weave_url",
+              "stop_reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "done"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              }
+            },
+            "required": [
+              "run_id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "eid": {
+          "type": "string",
+          "pattern": "^e_[0-9a-f]{16}$"
+        },
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "L1",
+                "L2",
+                "L3"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "level of the scene_key's scene (models.level_of)"
+        },
+        "cam_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "t0_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "t1_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scene_key": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "cam_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "local_track_id": {
+                "type": "integer"
+              },
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              }
+            },
+            "required": [
+              "scene_key",
+              "cam_id",
+              "local_track_id",
+              "t_ms"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "analysis_rev": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "measure",
+            "map",
+            "model",
+            "human"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "description": "e.g. ground_distance_tri, caption_embed1_rrf (model); street scenes: yolo_coco_2d (measure, value {counts, frames_read, source})"
+        },
+        "value": {},
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sigma": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "artifact_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "eid",
+        "scene_key",
+        "cam_id",
+        "t0_ms",
+        "t1_ms",
+        "observation_ids",
+        "analysis_rev",
+        "kind",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "observation_ref": {
+      "type": "object",
+      "properties": {
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "cam_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "local_track_id": {
+          "type": "integer"
+        },
+        "t_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        }
+      },
+      "required": [
+        "scene_key",
+        "cam_id",
+        "local_track_id",
+        "t_ms"
+      ],
+      "additionalProperties": false
+    },
+    "moment_card": {
+      "type": "object",
+      "properties": {
+        "moment_id": {
+          "type": "string"
+        },
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "t0_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "t1_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "cams": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "minItems": 1
+        },
+        "primary_cam": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "actor_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "cosmos.json#/$defs/entity_ref"
+          }
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^e_[0-9a-f]{16}$"
+          }
+        },
+        "score": {
+          "type": "number"
+        },
+        "why": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "thumb": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exec_state": {
+          "enum": [
+            "cached",
+            "live",
+            "waiting",
+            "failed"
+          ]
+        },
+        "backend": {
+          "enum": [
+            "duckdb",
+            "vastdb",
+            "vss"
+          ]
+        },
+        "clip_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vss_rank": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "time_filter": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "workspace": {
+          "anyOf": [
+            {
+              "enum": [
+                "warehouse",
+                "fleet",
+                "street"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "L1",
+                "L2",
+                "L3"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "moment_id",
+        "scene_key",
+        "t0_ms",
+        "t1_ms",
+        "cams",
+        "primary_cam",
+        "actor_refs",
+        "evidence_ids",
+        "score",
+        "why",
+        "thumb"
+      ],
+      "additionalProperties": false
+    },
+    "envelope": {
+      "type": "object",
+      "properties": {
+        "input_range": {
+          "type": "object",
+          "properties": {
+            "scene_key": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            },
+            "cam_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "t0_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            },
+            "t1_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            }
+          },
+          "required": [
+            "scene_key",
+            "t0_ms",
+            "t1_ms"
+          ],
+          "additionalProperties": false
+        },
+        "pts_read": {
+          "type": "integer"
+        },
+        "model_rev": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output": {},
+        "coverage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "minItems": 3,
+            "maxItems": 3
+          }
+        },
+        "quality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "elapsed_ms": {
+          "type": "integer"
+        },
+        "exec_state": {
+          "enum": [
+            "cached",
+            "live",
+            "waiting",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "input_range",
+        "pts_read",
+        "model_rev",
+        "output",
+        "coverage",
+        "gaps",
+        "quality",
+        "elapsed_ms",
+        "exec_state"
+      ],
+      "additionalProperties": false
+    },
+    "claim": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "claim_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "predicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "predicate_id": {
+                "type": "string"
+              },
+              "subject_refs": {
+                "type": "array",
+                "items": {
+                  "$ref": "cosmos.json#/$defs/entity_ref"
+                }
+              },
+              "operator": {
+                "type": "string"
+              },
+              "value": {},
+              "unit": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "supported",
+                  "contradicted",
+                  "unknown"
+                ]
+              },
+              "eids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^e_[0-9a-f]{16}$"
+                }
+              }
+            },
+            "required": [
+              "predicate_id",
+              "subject_refs",
+              "operator",
+              "value",
+              "unit",
+              "status",
+              "eids"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "aggregate": {
+          "enum": [
+            "SUPPORTED",
+            "CONTRADICTED",
+            "UNRESOLVED"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "enum": [
+                "SUPPORTED",
+                "CONTRADICTED",
+                "UNRESOLVED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "enum": [
+            "SUPPORTED",
+            "CONTRADICTED",
+            "UNRESOLVED"
+          ]
+        },
+        "examined_eids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^e_[0-9a-f]{16}$"
+          }
+        },
+        "available_eids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^e_[0-9a-f]{16}$"
+          }
+        },
+        "explain": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "{c1?: record_id, c2?: record_id} bound to the evidence card; abstain marks a claim that does not count toward status.final",
+          "properties": {
+            "abstain": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "no_geometry",
+                    "scene_not_metric",
+                    "no_track_ids",
+                    "no_gps",
+                    "no_visibility"
+                  ]
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "reason",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "scene_key": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "moment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "enum": [
+                "L1",
+                "L2",
+                "L3"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "claim_id",
+        "text",
+        "predicates",
+        "aggregate",
+        "before",
+        "after",
+        "examined_eids",
+        "available_eids"
+      ],
+      "additionalProperties": false
+    },
+    "predicate": {
+      "type": "object",
+      "properties": {
+        "predicate_id": {
+          "type": "string"
+        },
+        "subject_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "cosmos.json#/$defs/entity_ref"
+          }
+        },
+        "operator": {
+          "type": "string"
+        },
+        "value": {},
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "contradicted",
+            "unknown"
+          ]
+        },
+        "eids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^e_[0-9a-f]{16}$"
+          }
+        }
+      },
+      "required": [
+        "predicate_id",
+        "subject_refs",
+        "operator",
+        "value",
+        "unit",
+        "status",
+        "eids"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

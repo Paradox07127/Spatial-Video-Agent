@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/situation_map.json",
+  "title": "fixtures/labels/*.json: C1/C2/C4/C5 truth labels; x-sva-rules is the rule table the labels cite by rule_id.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "t_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ms relative to scene t0_ms"
+          },
+          "actor_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "cosmos.json#/$defs/entity_ref"
+            },
+            "minItems": 1
+          },
+          "task": {
+            "enum": [
+              "C1",
+              "C2",
+              "C4",
+              "C5"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "rule",
+              "human"
+            ]
+          },
+          "rule_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "annotator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "scene_key",
+          "t_ms",
+          "actor_refs",
+          "task",
+          "label",
+          "source",
+          "rule_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "labels"
+  ],
+  "additionalProperties": false,
+  "x-sva-rules": {
+    "C1_warehouse": [
+      {
+        "rule_id": "wh_dodge",
+        "if": "worker has SDG Dodge label in window",
+        "label": "yielding"
+      },
+      {
+        "rule_id": "wh_interaction",
+        "if": "forklift moving (speed >= 0.3 m/s) and person-forklift distance < 2 m",
+        "label": "interaction"
+      },
+      {
+        "rule_id": "wh_passing",
+        "if": "same run and distance >= 2 m",
+        "label": "passing"
+      },
+      {
+        "rule_id": "wh_unrelated",
+        "if": "otherwise",
+        "label": "unrelated"
+      }
+    ],
+    "C1_fleet": [
+      {
+        "rule_id": "pie_crossing",
+        "if": "PIE cross == crossing",
+        "label": "crossing"
+      },
+      {
+        "rule_id": "pie_waiting",
+        "if": "PIE cross == not-crossing and action == standing",
+        "label": "waiting"
+      },
+      {
+        "rule_id": "pie_walking",
+        "if": "PIE action == walking and not crossing",
+        "label": "walking_along"
+      },
+      {
+        "rule_id": "pie_unrelated",
+        "if": "otherwise",
+        "label": "unrelated"
+      }
+    ],
+    "C2": [
+      {
+        "rule_id": "c2_stop",
+        "if": "future 2 s speed < 0.3 m/s (fleet: < 3 km/h)",
+        "label": "stop"
+      },
+      {
+        "rule_id": "c2_slow",
+        "if": "dv <= -0.5 m/s over 2 s (fleet: <= -3 km/h)",
+        "label": "slow"
+      },
+      {
+        "rule_id": "c2_turn",
+        "if": "heading change >= 15 deg over 2 s",
+        "label": "turn"
+      },
+      {
+        "rule_id": "c2_continue",
+        "if": "none of the above",
+        "label": "continue"
+      }
+    ],
+    "C4": [
+      {
+        "rule_id": "c4_dodge_start",
+        "if": "query 'when does the worker start yielding'; truth = first Dodge frame; runs without Dodge must abstain; first frame already Dodge -> boundary_censored",
+        "label": "segment"
+      }
+    ],
+    "C5": [
+      {
+        "rule_id": "c5_sign",
+        "if": "human label {sign_text, osm_name, status: agree|conflict|unreadable}",
+        "label": "status"
+      }
+    ]
+  }
+}

@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/trip.json",
+  "title": "trip.geojson: LineString (with properties.replay = ReplayMapping) then 2 Hz Points; lon,lat order.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "type": {
+      "const": "FeatureCollection"
+    },
+    "trip_id": {
+      "type": "string"
+    },
+    "max_interpolation_gap_ms": {
+      "const": 2000
+    },
+    "features": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "Feature"
+            },
+            "geometry": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "LineString"
+                },
+                "coordinates": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "minItems": 2
+                }
+              },
+              "required": [
+                "type",
+                "coordinates"
+              ],
+              "additionalProperties": false
+            },
+            "properties": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "track"
+                },
+                "trip_id": {
+                  "type": "string"
+                },
+                "replay": {
+                  "type": "object",
+                  "properties": {
+                    "trip_id": {
+                      "type": "string"
+                    },
+                    "replay_start_ms": {
+                      "type": "integer"
+                    },
+                    "source_start_ms": {
+                      "type": "integer"
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "coverage_intervals": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "ms relative to scene t0_ms"
+                          },
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "ms relative to scene t0_ms"
+                          }
+                        ],
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    }
+                  },
+                  "required": [
+                    "trip_id",
+                    "replay_start_ms",
+                    "source_start_ms",
+                    "rate",
+                    "coverage_intervals"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "kind",
+                "trip_id",
+                "replay"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "type",
+            "geometry",
+            "properties"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "Feature"
+          },
+          "geometry": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "Point"
+              },
+              "coordinates": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "additionalProperties": false
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "gps"
+              },
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "lat": {
+                "type": "number"
+              },
+              "lon": {
+                "type": "number"
+              },
+              "heading": {
+                "type": "number",
+                "description": "deg, true north clockwise"
+              },
+              "speed": {
+                "type": "number",
+                "description": "m/s"
+              },
+              "way_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "node_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "place_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "observed",
+                  "interpolated",
+                  "last_known",
+                  "unknown"
+                ]
+              },
+              "gap_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms since last observed fix"
+              },
+              "maxspeed_kmh": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "OSM maxspeed of way_id; null = no data (speed question stays UNRESOLVED)"
+              }
+            },
+            "required": [
+              "kind",
+              "t_ms",
+              "lat",
+              "lon",
+              "heading",
+              "speed",
+              "way_id",
+              "node_id",
+              "place_id",
+              "state",
+              "gap_ms",
+              "maxspeed_kmh"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "type",
+          "geometry",
+          "properties"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 2
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "type",
+    "trip_id",
+    "max_interpolation_gap_ms",
+    "features"
+  ],
+  "additionalProperties": false
+}

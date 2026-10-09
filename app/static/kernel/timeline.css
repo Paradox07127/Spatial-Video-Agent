@@ -1,0 +1,41 @@
+/* Compact timeline; loaded after styles.css, so these rules override its .tl rules. */
+.tl { min-height: 72px; padding: 4px 16px 0 0; }
+.tl.has-ev { min-height: 84px; }
+.tl [hidden] { display: none; }
+.tl .tl-ruler { height: 22px; }
+.tl .tl-lanes, body[data-ws] .tl .tl-lanes { display: flex; flex-direction: column; max-height: none; overflow: visible; }
+.tl-lanes > .tl-row { order: 2; }
+.tl-lanes > .lane-agent { order: 0; }
+.tl-lanes > .tl-evidence { order: 1; }
+.tl-lanes > .tl-others { order: 3; }
+.tl-lanes > .tl-other { order: 4; }
+.tl-cams { max-height: 108px; overflow-y: auto; }
+.tl .tl-brush { top: 22px; }
+
+/* Evidence lane: measure / human tick at t0, map dotted box and model dashed underline over the span */
+.tl-evidence .tl-label { color: var(--src-measure); }
+.tl-evm { position: absolute; cursor: pointer; }
+.tl-evm.k-measure, .tl-evm.k-human { z-index: 2; top: 3px; height: 12px; width: 3px; background: var(--src-measure); }
+.tl-evm.k-human { background: var(--src-human); }
+.tl-evm.k-map, .tl-evm.k-model { z-index: 1; top: 5px; height: 8px; min-width: 3px; }
+.tl-evm.k-map { border: 1px dotted var(--src-map); }
+.tl-evm.k-model { border-bottom: 1.5px dashed var(--src-model); }
+.tl-evm.on { outline: 1.5px solid var(--ink); }
+
+/* Cameras toggle: bottom-right, over the empty right end of the last row */
+.tl-cams-btn {
+  position: absolute; right: 16px; bottom: 4px; z-index: 3; display: inline-flex; align-items: center; gap: 2px;
+  padding-left: 8px; background: var(--paper); font-size: var(--fs-1); color: var(--ink-2);
+}
+.tl-cams-btn:hover, .tl-others .tl-label:hover { color: var(--ink); }
+.tl-cams-btn .i, .tl-others .i { width: 12px; height: 12px; }
+
+/* Fleet: other trips fold into one 2px line */
+.tl-others { cursor: pointer; }
+.tl-others .tl-label { gap: 2px; text-align: left; }
+.tl-others-line { position: relative; height: 100%; }
+.tl-others-line i { position: absolute; top: 8px; height: 2px; background: var(--thread); }
+.tl .s-last_known, .tl .lane-trip .s-gap {
+  top: 6px; height: 6px; border: 0;
+  background: repeating-linear-gradient(135deg, var(--trip, var(--ink-2)) 0 2px, transparent 2px 5px);
+}

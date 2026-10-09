@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/forklift.json",
+  "title": "Forklift poses. GT = bbox3d bottom-face centre and local +x axis.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "forklifts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "pattern": "^[PFV][0-9]+$"
+          },
+          "source": {
+            "enum": [
+              "yolo_wedge",
+              "gt"
+            ]
+          },
+          "track": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "t_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "heading": {
+                  "type": "number",
+                  "description": "rad, CCW from world +x"
+                },
+                "speed": {
+                  "type": "number",
+                  "description": "m/s"
+                },
+                "footprint": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "sigma_m": {
+                  "type": "number"
+                },
+                "source": {
+                  "enum": [
+                    "yolo_wedge",
+                    "gt"
+                  ]
+                }
+              },
+              "required": [
+                "t_ms",
+                "x",
+                "y",
+                "heading",
+                "speed",
+                "footprint",
+                "sigma_m",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "gt": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "t_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "heading": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "t_ms",
+                "x",
+                "y",
+                "heading"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "entity_id",
+          "source",
+          "track",
+          "gt"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "forklifts"
+  ],
+  "additionalProperties": false
+}

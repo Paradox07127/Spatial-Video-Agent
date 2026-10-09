@@ -1,0 +1,114 @@
+/* Reasoning page (board v2-5a). Loaded after styles.css; `.runpage`-scoped rules outrank its older .rp / .trace rules. */
+.runpage { top: 0; }
+
+/* ---- top bar: ← scene + Esc | All runs, Open in Weave */
+.rp-top { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 14px; height: 52px; padding: 0 16px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+.rp-back { display: inline-flex; align-items: center; gap: 10px; font-size: var(--fs-3); color: var(--ink-3); }
+.rp-back:hover { color: var(--ink); }
+.rp-back + .ghost { margin-left: auto; }
+
+/* ---- section nav at x=80 beside a 920px column at x=320 */
+.runpage .rp { display: grid; grid-template-columns: 180px minmax(0, 920px); column-gap: 60px; align-items: start; width: auto; margin: 0; padding: 0 80px; }
+.rp-nav { position: sticky; top: 92px; display: flex; flex-direction: column; gap: 2px; margin-top: 40px; font-size: var(--fs-3); }
+.rp-nav button { padding: 6px 10px; text-align: left; color: var(--ink-2); border-left: 2px solid var(--rule); transition: color 100ms, border-color 100ms; }
+.rp-nav button:hover { color: var(--ink); }
+.rp-nav button.on { color: var(--ink); border-left-color: var(--ink); }
+.rp-main { display: flex; flex-direction: column; gap: 36px; min-width: 0; padding: 40px 0; }
+.runpage .rp-sec { display: flex; flex-direction: column; gap: 10px; margin: 0; scroll-margin-top: 92px; }
+.runpage .rp-sec[data-sec="verdict"] { gap: 12px; }
+
+/* ---- verdict: question, meta, answer with cite chips */
+.runpage .rp-q, .rp-title { margin: 0; font: 500 var(--fs-26)/1.35 var(--font-sans); letter-spacing: -0.01em; }
+.runpage .rp-meta { gap: 6px 14px; font-size: var(--fs-2); color: var(--ink-2); }
+.runpage .rp-answer { margin: 6px 0 0; padding: 0; font-size: var(--fs-5); line-height: 1.6; background: none; border: 0; border-radius: 0; text-wrap: pretty; }
+.rp-sent .cite { vertical-align: 2px; }
+.rp-sent.uncited { color: var(--ink-2); }
+.rp-ns { display: inline-block; margin-left: 6px; padding: 0 5px; font: var(--fs-1)/17px var(--font-mono); border: 1px dotted var(--ink-2); border-radius: 3px; vertical-align: 2px; }
+.rp-dim { color: var(--ink-3); }
+
+/* ---- frames: a thumbnail, else a hatched placeholder with a mono label */
+.t-frame { display: grid; place-items: center; overflow: hidden; border-radius: 3px; background: repeating-linear-gradient(135deg, var(--sunk) 0 6px, #232A35 6px 12px); font-size: 10px; color: var(--ink-2); }
+.t-frame img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---- what changed the verdict */
+.rp-changed { display: flex; flex-direction: column; gap: 14px; padding: 20px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-2); }
+.rp-cg { display: grid; grid-template-columns: 1fr 32px 1fr 1.1fr; gap: 16px; align-items: center; }
+.rp-fr { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.rp-fr .t-frame { align-self: stretch; height: 130px; }
+.rp-fr.after .t-frame { border: 1px solid var(--thread); }
+.rp-arrow { text-align: center; font-size: var(--fs-5); color: var(--ink-2); }
+.rp-claims { display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; }
+.rp-pred { font-size: var(--fs-2); color: var(--ink-2); }
+.pv-measure { color: var(--src-measure); }
+.pv-map { color: var(--src-map); }
+.pv-human { color: var(--src-human); }
+
+/* ---- steps: Gantt rows; the open one (by default the verdict-changing step) on --card */
+.runpage .trace-steps { border-top: 1px solid var(--rule); }
+.runpage .trace-row { grid-template-columns: 24px 230px minmax(0, 1fr) 280px 56px; align-items: center; gap: 12px; height: 36px; padding: 0; font-size: var(--fs-3); }
+.runpage .trace-step.child .trace-row { padding-left: 0; }
+.runpage .trace-step.child .ts-note { padding-left: 12px; }
+.runpage .trace-step.open { background: var(--card); }
+.runpage .trace-step.open .trace-row:hover { background: none; }
+.runpage .ts-note { color: var(--ink); }
+.runpage .trace-step.changed .ts-note { font-weight: 500; }
+.ts-meta { display: flex; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-size: var(--fs-2); color: var(--ink-2); }
+.runpage .trace-step.changed .ts-meta { color: var(--ink-3); }
+.ts-meta .exec { margin-left: 8px; }
+.runpage .ts-name { color: inherit; }
+.runpage .trace-step.changed .ts-bar i { background: var(--ink); }
+.runpage .trace-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 6px 16px 16px 36px; }
+.td-kv { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 12px; align-content: start; font-size: var(--fs-2); }
+.td-kv .td-k { font-size: inherit; color: var(--ink-2); }
+.td-v { min-width: 0; overflow-wrap: anywhere; }
+.td-why { font-family: var(--font-sans); }
+.td-v .cite { margin: 0 4px 0 0; }
+.td-out { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.td-out .t-frame { height: 110px; }
+.td-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: var(--fs-2); color: var(--ink-2); }
+.td-links > details > summary { list-style: none; font: var(--fs-2) var(--font-sans); }
+.td-links > details > summary::-webkit-details-marker { display: none; }
+.td-links > details > summary::before { content: '›'; margin-right: 4px; }
+.td-links > details[open] { order: 1; flex-basis: 100%; }
+.td-3d { margin-left: auto; color: var(--ink-2); text-decoration: none; }
+.td-3d:hover { color: var(--ink); }
+
+/* ---- evidence */
+.rp-ev { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+.rp-evrow { display: grid; grid-template-columns: 110px minmax(0, 1fr) 270px 140px 50px; align-items: center; column-gap: 12px; min-height: 38px; border-bottom: 1px solid var(--rule); }
+.rp-evrow .src { justify-self: start; }
+.rp-evlabel, .rp-evwhere, .rp-evval { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-evwhere { font-size: var(--fs-2); color: var(--ink-2); }
+.rp-evval { font-size: var(--fs-3); font-weight: 500; }
+.rp-evval .rp-dim { font: 400 var(--fs-2) var(--font-sans); }
+.rp-raw-btn { justify-self: end; font-size: var(--fs-1); color: var(--ink-2); }
+.rp-raw-btn:hover, .rp-raw-btn[aria-expanded="true"] { color: var(--ink); }
+.rp-raw { grid-column: 1 / -1; margin: 0 0 10px; padding: 8px 10px; background: var(--card); border-radius: 3px; font: var(--fs-1)/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- model notes */
+.rp-notes { border-top: 1px solid var(--rule); }
+.rp-note { display: grid; grid-template-columns: 110px minmax(0, 1fr) 200px; align-items: center; gap: 12px; min-height: 40px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.rp-note-k { font-size: var(--fs-2); color: var(--ink-2); }
+.rp-note-v b { font-weight: 500; }
+.rp-check { font-size: var(--fs-2); }
+.rp-check.conflict { color: var(--danger); }
+
+/* ---- VSS native search, collapsed */
+.rp-vss { border: 1px solid var(--rule); border-radius: var(--radius); color: var(--ink-3); }
+.rp-vss > summary { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; list-style: none; cursor: pointer; }
+.rp-vss > summary::-webkit-details-marker { display: none; }
+.rp-vss[open] > summary > .i:first-child { transform: rotate(90deg); }
+.rp-vss > summary .mono { font-size: var(--fs-1); color: var(--ink-2); }
+.rp-cmp { margin-left: auto; font-size: var(--fs-2); color: var(--ink-2); }
+.rp-hits { margin: 0; padding: 0 14px 10px 62px; font-size: var(--fs-3); line-height: 1.6; color: var(--ink); }
+.rp-vss > p { margin: 0; padding: 0 14px 10px; }
+.rp-vss .ans-sql { padding: 0 14px 12px; }
+.rp-vss .ans-sql pre { margin: 4px 0 0; white-space: pre-wrap; }
+
+/* ---- #/runs: the same 920px column */
+.rp-col { width: min(920px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0; }
+.rp-col .rp-title { margin-bottom: 20px; }
+.runpage .rp-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--rule); }
+.runpage .rp-list a { grid-template-columns: 110px minmax(0, 1fr) auto; gap: 12px; min-height: 44px; padding: 0 8px; }
+.rp-lq { font-size: 14px; }
+.rp-lmeta { font-size: var(--fs-1); color: var(--ink-2); white-space: nowrap; }

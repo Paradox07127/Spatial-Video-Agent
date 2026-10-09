@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/visibility.json",
+  "title": "Floor cell visible to camera only (not person visibility). Cell (ix, iy) center = origin + ((ix+0.5)*cell_m, (iy+0.5)*cell_m).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "cell_m": {
+      "type": "number"
+    },
+    "nx": {
+      "type": "integer"
+    },
+    "ny": {
+      "type": "integer"
+    },
+    "origin": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "cam_bit_order": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_-]+$"
+      },
+      "minItems": 1
+    },
+    "row_major": {
+      "const": true
+    },
+    "encoding": {
+      "const": "u8_cell_cam",
+      "description": "per_sec[s] = base64 of nx*ny*n_cams bytes; byte index = (iy*nx + ix)*n_cams + cam_index; value = state code"
+    },
+    "states": {
+      "const": {
+        "0": "unknown",
+        "1": "visible",
+        "2": "occluded",
+        "3": "out_of_fov",
+        "4": "no_video"
+      }
+    },
+    "t0_s": {
+      "type": "integer"
+    },
+    "per_sec": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "contentEncoding": "base64"
+      }
+    },
+    "visibility_revision": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "cell_m",
+    "nx",
+    "ny",
+    "origin",
+    "cam_bit_order",
+    "row_major",
+    "encoding",
+    "states",
+    "t0_s",
+    "per_sec",
+    "visibility_revision"
+  ],
+  "additionalProperties": false
+}

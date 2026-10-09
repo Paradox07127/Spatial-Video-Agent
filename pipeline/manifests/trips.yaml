@@ -1,0 +1,192 @@
+# select_trips.py --n 6: full trips (corpus first, then missing criteria) and GPS-only trips
+# then by hand: setNN video_0001 and video_0002 (NN 01-06), the PIE videos of the live VSS corpus, as full trips
+full:
+- video: set04_video_0007
+  scene_key: fl-pie-set04_video_0007
+  corpus: true
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 27
+  shops_near_route: 80
+  min_accel_mps2: -2.28
+- video: set03_video_0016
+  scene_key: fl-pie-set03_video_0016
+  corpus: true
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 29
+  shops_near_route: 146
+  min_accel_mps2: -2.63
+- video: set03_video_0010
+  scene_key: fl-pie-set03_video_0010
+  corpus: true
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 29
+  shops_near_route: 48
+  min_accel_mps2: -2.55
+- video: set02_video_0002
+  scene_key: fl-pie-set02_video_0002
+  corpus: true
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 24
+  shops_near_route: 124
+  min_accel_mps2: -2.67
+- video: set03_video_0008
+  scene_key: fl-pie-set03_video_0008
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  - hard_brake
+  intersection_crossings: 11
+  shops_near_route: 79
+  min_accel_mps2: -3.7
+- video: set04_video_0012
+  scene_key: fl-pie-set04_video_0012
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  - hard_brake
+  intersection_crossings: 7
+  shops_near_route: 95
+  min_accel_mps2: -3.0
+- video: set01_video_0001
+  scene_key: fl-pie-set01_video_0001
+  corpus: false
+  criteria:
+  - shop_signs
+  intersection_crossings: 0
+  shops_near_route: 56
+  min_accel_mps2: -2.76
+- video: set02_video_0001
+  scene_key: fl-pie-set02_video_0001
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 12
+  shops_near_route: 27
+  min_accel_mps2: -2.83
+- video: set03_video_0001
+  scene_key: fl-pie-set03_video_0001
+  corpus: false
+  criteria:
+  - shop_signs
+  intersection_crossings: 0
+  shops_near_route: 21
+  min_accel_mps2: -2.78
+- video: set04_video_0001
+  scene_key: fl-pie-set04_video_0001
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 3
+  shops_near_route: 59
+  min_accel_mps2: -2.94
+- video: set05_video_0001
+  scene_key: fl-pie-set05_video_0001
+  corpus: false
+  criteria:
+  - intersection_crossing
+  intersection_crossings: 4
+  shops_near_route: 7
+  min_accel_mps2: -2.76
+- video: set06_video_0001
+  scene_key: fl-pie-set06_video_0001
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - hard_brake
+  intersection_crossings: 1
+  shops_near_route: 4
+  min_accel_mps2: -3.22
+- video: set01_video_0002
+  scene_key: fl-pie-set01_video_0002
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 14
+  shops_near_route: 36
+  min_accel_mps2: -2.47
+- video: set03_video_0002
+  scene_key: fl-pie-set03_video_0002
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 6
+  shops_near_route: 23
+  min_accel_mps2: -2.33
+- video: set04_video_0002
+  scene_key: fl-pie-set04_video_0002
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 21
+  shops_near_route: 93
+  min_accel_mps2: -2.67
+- video: set05_video_0002
+  scene_key: fl-pie-set05_video_0002
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - hard_brake
+  intersection_crossings: 1
+  shops_near_route: 1
+  min_accel_mps2: -3.02
+- video: set06_video_0002
+  scene_key: fl-pie-set06_video_0002
+  corpus: false
+  criteria:
+  - intersection_crossing
+  - shop_signs
+  intersection_crossings: 19
+  shops_near_route: 18
+  min_accel_mps2: -2.91
+gps_only:
+- set01_video_0003
+- set01_video_0004
+- set02_video_0003
+- set03_video_0003
+- set03_video_0004
+- set03_video_0005
+- set03_video_0006
+- set03_video_0007
+- set03_video_0009
+- set03_video_0011
+- set03_video_0012
+- set03_video_0013
+- set03_video_0014
+- set03_video_0015
+- set03_video_0017
+- set03_video_0018
+- set03_video_0019
+- set04_video_0003
+- set04_video_0004
+- set04_video_0005
+- set04_video_0006
+- set04_video_0008
+- set04_video_0009
+- set04_video_0010
+- set04_video_0011
+- set04_video_0013
+- set04_video_0014
+- set04_video_0015
+- set04_video_0016
+- set06_video_0003
+- set06_video_0004
+- set06_video_0005
+- set06_video_0006
+- set06_video_0007
+- set06_video_0008
+- set06_video_0009

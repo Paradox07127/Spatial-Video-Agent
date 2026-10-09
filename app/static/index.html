@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spatial Video Agent</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    { "imports": { "three": "./lib/three/three.module.js", "three/addons/": "./lib/three/addons/", "maplibre-gl": "./lib/maplibre/maplibre-gl.mjs", "pmtiles": "./lib/pmtiles/index.js", "fflate": "./lib/fflate/browser.js" } }
+  </script>
+  <script type="module" src="app.js"></script>
+</head>
+<body data-view="default" data-stage="explore" data-run="">
+  <header class="topbar">
+    <span class="mono brand-mark" title="Spatial Video Agent">SVA</span>
+    <form id="ask-form" class="ask" autocomplete="off">
+      <svg class="i"><use href="icons.svg#search"/></svg>
+      <button type="button" id="source-tag" class="source-tag mono" title="Scene or trip the question is about"></button>
+      <input id="ask-input" placeholder="Ask about this scene: when, where, how far apart">
+      <span class="ask-hint mono">Esc steps back</span>
+    </form>
+    <span class="top-right">
+      <a id="runs-btn" class="ghost" href="#/runs"><svg class="i"><use href="icons.svg#workflow"/></svg>Runs</a>
+      <button id="cmdk-btn" class="ghost mono" title="Go to (⌘K)"><svg class="i"><use href="icons.svg#command"/></svg>K</button>
+    </span>
+  </header>
+
+  <main class="main">
+    <div class="stage-wrap">
+      <section id="stage" class="stage" data-stage></section>
+      <div id="narration" class="narration" aria-live="polite"></div>
+      <div id="takeover" class="takeover"><svg class="i"><use href="icons.svg#workflow"/></svg>Agent is steering the view<button type="button">Take over</button></div>
+    </div>
+    <aside id="panel" class="panel" aria-label="Answer">
+      <div class="p-empty">
+        <p>Ask about this scene</p>
+        <span id="presets" class="presets"></span>
+      </div>
+      <section id="answer" class="answer" aria-label="Answer"></section>
+      <nav id="tabs" class="tabs" aria-label="Result"></nav>
+      <div class="p-body">
+        <div id="tab-answer" class="tab-pane">
+          <div id="keyframe"></div>
+          <div id="claims"></div>
+          <div id="modelpanel"></div>
+          <section class="pane p-moments"><h2 class="p-moments-head"></h2><div id="moments"></div></section>
+        </div>
+        <div id="tab-evidence" class="tab-pane" hidden></div>
+        <div id="tab-steps" class="tab-pane" hidden></div>
+        <div id="tab-videos" class="tab-pane" hidden></div>
+        <div id="tab-trip" class="tab-pane" hidden></div>
+      </div>
+      <form id="followup" class="followup" autocomplete="off">
+        <span class="fu-chips"></span>
+        <label class="fu-box"><span class="fu-ctx mono"></span><input id="followup-input" placeholder="Ask a follow-up"><svg class="i"><use href="icons.svg#corner-down-left"/></svg></label>
+      </form>
+      <span id="ask-status" class="sr-only" role="status"></span>
+    </aside>
+  </main>
+
+  <footer id="timeline"></footer>
+
+  <section id="runpage" class="runpage" aria-label="Reasoning" hidden></section>
+
+  <div id="cmdk" class="cmdk" hidden>
+    <div class="cmdk-box">
+      <input class="cmdk-input" placeholder="Scene, trip, or ask a question">
+      <ul></ul>
+      <footer class="cmdk-foot"><span id="data-badge" class="data-badge"></span><span>Esc closes · ↵ opens</span></footer>
+    </div>
+  </div>
+</body>
+</html>

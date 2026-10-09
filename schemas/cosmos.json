@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/cosmos.json",
+  "title": "cosmos/<scene_key>.json: Cosmos3 C1-C5 records with verification.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "scene_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "scene_key",
+    "records"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "record": {
+      "type": "object",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "pattern": "^c_[0-9a-f]{12}$"
+        },
+        "task": {
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C5"
+          ]
+        },
+        "t_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "cam_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actor_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scene_key": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "entity_id": {
+                "type": "string",
+                "pattern": "^[PFV][0-9]+$"
+              },
+              "kind": {
+                "enum": [
+                  "person",
+                  "forklift",
+                  "vehicle"
+                ]
+              }
+            },
+            "required": [
+              "scene_key",
+              "entity_id",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "input_frame_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cam_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              }
+            },
+            "required": [
+              "cam_id",
+              "t_ms"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "prefix_only": {
+          "type": "boolean"
+        },
+        "model_rev": {
+          "type": "string"
+        },
+        "prompt_rev": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "raw": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "model JSON {subjects, action, state_before, state_after, visible_interactions, source_intervals, uncertainty}"
+        },
+        "verification": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "enum": [
+                "verified",
+                "unverified",
+                "conflict"
+              ]
+            },
+            "method": {
+              "type": "string"
+            },
+            "ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "method",
+            "ref"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "record_id",
+        "task",
+        "t_ms",
+        "cam_id",
+        "actor_refs",
+        "input_frame_refs",
+        "prefix_only",
+        "model_rev",
+        "prompt_rev",
+        "payload",
+        "verification"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C1"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "enum": [
+                      "interaction",
+                      "passing",
+                      "yielding",
+                      "unrelated",
+                      "crossing",
+                      "waiting",
+                      "walking_along"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "uncertainty": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "label",
+                  "reason",
+                  "uncertainty"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "stop",
+                        "slow",
+                        "turn",
+                        "continue"
+                      ]
+                    },
+                    "minItems": 1
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "horizon_s": {
+                    "type": "number"
+                  },
+                  "max_frame_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "ms relative to scene t0_ms"
+                  },
+                  "actual": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "actions": {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "stop",
+                                "slow",
+                                "turn",
+                                "continue"
+                              ]
+                            }
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "actions",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "ghost": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "ms relative to scene t0_ms"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "minItems": 3,
+                          "maxItems": 3
+                        }
+                      }
+                    ],
+                    "description": "geometric extrapolation [t_ms, x, y] from measured speed + predicted action"
+                  }
+                },
+                "required": [
+                  "actions",
+                  "reason",
+                  "horizon_s",
+                  "max_frame_ms",
+                  "actual",
+                  "ghost"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C3"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "objects": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "box_0_1000": {
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          },
+                          "minItems": 4,
+                          "maxItems": 4
+                        },
+                        "ground_poly": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "number"
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          }
+                        },
+                        "depth_residual_m": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "geometric_support": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "box_0_1000",
+                        "ground_poly",
+                        "depth_residual_m",
+                        "geometric_support"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "objects"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C4"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "segments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "start_s": {
+                          "type": "number"
+                        },
+                        "end_s": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "start_s",
+                        "end_s",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "query",
+                  "segments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C5"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "region_ref": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "sign_text": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "region_ref",
+                  "text",
+                  "sign_text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "task": {
+                "const": "C2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "prefix_only": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "entity_ref": {
+      "type": "object",
+      "properties": {
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "entity_id": {
+          "type": "string",
+          "pattern": "^[PFV][0-9]+$"
+        },
+        "kind": {
+          "enum": [
+            "person",
+            "forklift",
+            "vehicle"
+          ]
+        }
+      },
+      "required": [
+        "scene_key",
+        "entity_id",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

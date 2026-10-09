@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/timeline.json",
+  "title": "Per-second counts and per-camera coverage lanes. sec rows: [t_s, n_person, n_vehicle, cam_coverage_bits, event_ids].",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "sec": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "integer",
+            "minimum": 0,
+            "description": "bit i = cam_bit_order[i] lane is ok at this second"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ],
+        "minItems": 5,
+        "maxItems": 5
+      }
+    },
+    "lanes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            },
+            {
+              "enum": [
+                "ok",
+                "occluded",
+                "no_video"
+              ]
+            }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "sec",
+    "lanes"
+  ],
+  "additionalProperties": false
+}

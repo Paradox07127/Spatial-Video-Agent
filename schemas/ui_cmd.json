@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/ui_cmd.json",
+  "title": "Agent -> page UI command; page.applyUI(cmd) executes it and returns the actual state.",
+  "type": "object",
+  "required": [
+    "cmd",
+    "args"
+  ],
+  "properties": {
+    "cmd": {
+      "enum": [
+        "highlight",
+        "focus",
+        "showTrack",
+        "setView",
+        "seek",
+        "annotate",
+        "loadScene"
+      ]
+    },
+    "args": {
+      "type": "object"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[0-9a-z]{12,}$"
+    },
+    "scene_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$",
+      "description": "scene the command applies to; highlight ids are local to it"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "highlight"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "mode": {
+                "enum": [
+                  "outline",
+                  "pulse"
+                ]
+              }
+            },
+            "required": [
+              "ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "focus"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "entity_id": {
+                "type": "string",
+                "pattern": "^[PFV][0-9]+$"
+              },
+              "point": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "latlon": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "cam_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ms"
+            ],
+            "additionalProperties": false,
+            "minProperties": 2
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "showTrack"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "entity_id": {
+                "type": "string",
+                "pattern": "^[PFV][0-9]+$"
+              },
+              "t0_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "t1_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              }
+            },
+            "required": [
+              "entity_id",
+              "t0_ms",
+              "t1_ms"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "setView"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "string",
+                "pattern": "^(free|top|follow|dashcam|cam:[a-z0-9_-]+)$"
+              }
+            },
+            "required": [
+              "view"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "seek"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "scene_key": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              "trip_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "t_ms"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "annotate"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "pin",
+                  "label",
+                  "zone"
+                ]
+              },
+              "t_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms relative to scene t0_ms"
+              },
+              "xy": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "latlon": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "text": {
+                "type": "string"
+              },
+              "eid": {
+                "type": "string",
+                "pattern": "^e_[0-9a-f]{16}$"
+              },
+              "severity": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "zone_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "t_ms",
+              "text"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "cmd": {
+            "const": "loadScene"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "scene_key": {
+                "type": "string",
+                "pattern": "^[a-z0-9_-]+$"
+              }
+            },
+            "required": [
+              "scene_key"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}

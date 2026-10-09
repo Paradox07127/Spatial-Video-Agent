@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/buildings.json",
+  "title": "Building info keyed by bid.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "map_snapshot_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "buildings": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9_]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "addr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "height_m": {
+            "type": "number"
+          },
+          "floors": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pois": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "wikidata": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "osm_id": {
+            "type": "string"
+          },
+          "geom": {
+            "type": "object",
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "Polygon",
+                  "MultiPolygon"
+                ]
+              },
+              "coordinates": {
+                "type": "array"
+              }
+            }
+          },
+          "source": {
+            "enum": [
+              "osm",
+              "massing",
+              "avg_height"
+            ]
+          },
+          "map_snapshot_date": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "height_m",
+          "pois",
+          "osm_id",
+          "geom",
+          "source",
+          "map_snapshot_date"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "map_snapshot_date",
+    "buildings"
+  ],
+  "additionalProperties": false
+}

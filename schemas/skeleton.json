@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/skeleton.json",
+  "title": "3D skeleton; per-frame parallel arrays. Single-view frames: xyz entry null, root only.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "fps": {
+      "type": "number"
+    },
+    "joints": {
+      "const": "coco17"
+    },
+    "persons": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[PFV][0-9]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "t_ms": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            }
+          },
+          "root_world": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "root_method": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "tri",
+                "ankle",
+                "boxbottom"
+              ]
+            }
+          },
+          "root_sigma_m": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "xyz": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "minItems": 17,
+                  "maxItems": 17
+                }
+              ]
+            }
+          },
+          "conf": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 17,
+              "maxItems": 17
+            }
+          },
+          "n_views": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 17,
+              "maxItems": 17
+            }
+          }
+        },
+        "required": [
+          "t_ms",
+          "root_world",
+          "root_method",
+          "root_sigma_m",
+          "xyz",
+          "conf",
+          "n_views"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "fps",
+    "joints",
+    "persons"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/entities.json",
+  "title": "Observation (cam, local_track_id) -> entity mapping. The only place local track ids meet entity ids.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "analysis_rev": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_artifact_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "pattern": "^[PFV][0-9]+$"
+          },
+          "kind": {
+            "enum": [
+              "person",
+              "forklift",
+              "vehicle"
+            ]
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cam_id": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_-]+$"
+                },
+                "local_track_id": {
+                  "type": "integer"
+                },
+                "t0_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                "t1_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                "method": {
+                  "enum": [
+                    "bytetrack",
+                    "gt"
+                  ]
+                },
+                "conf": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "cam_id",
+                "local_track_id",
+                "t0_ms",
+                "t1_ms",
+                "method",
+                "conf"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "association": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "enum": [
+                  "ground_dist",
+                  "gt",
+                  "manual"
+                ]
+              },
+              "conf": {
+                "type": "number"
+              },
+              "valid": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "ms relative to scene t0_ms"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "ms relative to scene t0_ms"
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "method",
+              "conf",
+              "valid"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "entity_id",
+          "kind",
+          "observations",
+          "association"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "analysis_rev",
+    "producer_commit",
+    "input_artifact_hashes",
+    "entities"
+  ],
+  "additionalProperties": false
+}

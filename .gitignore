@@ -1,0 +1,47 @@
+# Python
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node and Playwright
+app/node_modules
+app/test-results/
+app/playwright-report/
+.e2e/
+
+# Third-party libraries, fetched and checked by app/scripts/vendor.py
+app/static/lib/*
+!app/static/lib/.gitkeep
+
+# Runtime state, pipeline output and secrets (the real sva-out lives on ws)
+/state/
+/output/
+/_tmp/
+/sva-out/
+.env
+*.env
+
+# Dev run output (README "Development run") and deploy snapshot files
+/index.duckdb*
+/app.duckdb*
+/runs/
+.sva-source
+.split.yaml
+*.tar.gz
+*.tar.zst
+*.zip
+*.log
+
+# Large media and map tiles; only the small fixtures are kept
+*.mp4
+*.pmtiles
+!fixtures/**/*.mp4
+!fixtures/**/*.pmtiles
+
+# Editors and local agent tools
+.DS_Store
+.vscode/
+.idea/
+.claude/
+.playwright-cli/

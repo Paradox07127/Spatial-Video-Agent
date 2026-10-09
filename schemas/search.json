@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sva.local/schemas/search.json",
+  "title": "POST /api/search response (request in $defs/request).",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace": {
+          "enum": [
+            "warehouse",
+            "fleet",
+            "street"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "scene",
+            "corpus"
+          ],
+          "description": "absent = scene"
+        },
+        "scene_id": {
+          "type": "string",
+          "pattern": "^((wh|fl)/[a-z0-9_]+/[a-z0-9_-]+|st/[a-z0-9_]+/[A-Za-z0-9_-]+)$"
+        },
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "t_range": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms relative to scene t0_ms"
+            }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "place": {
+          "type": "string"
+        },
+        "zone": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 3
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": [
+        "q"
+      ],
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "workspace"
+          ]
+        },
+        {
+          "properties": {
+            "scope": {
+              "const": "corpus"
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      ]
+    },
+    "query": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "enum": [
+            "find",
+            "where_is",
+            "what_happened",
+            "link",
+            "unsupported"
+          ]
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "t_range": {
+          "anyOf": [
+            {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "ms relative to scene t0_ms"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "place": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "zone": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "minItems": 3
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scene_key": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workspace": {
+          "enum": [
+            "warehouse",
+            "fleet",
+            "street"
+          ]
+        },
+        "abstain_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "scene",
+            "corpus"
+          ]
+        }
+      },
+      "required": [
+        "template",
+        "entities",
+        "t_range",
+        "place",
+        "zone",
+        "scene_key",
+        "workspace"
+      ],
+      "additionalProperties": false
+    },
+    "card": {
+      "type": "object",
+      "properties": {
+        "scene_id": {
+          "type": "string",
+          "pattern": "^((wh|fl)/[a-z0-9_]+/[a-z0-9_-]+|st/[a-z0-9_]+/[A-Za-z0-9_-]+)$"
+        },
+        "scene_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "cam": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$"
+        },
+        "t_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "t1_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "ms relative to scene t0_ms"
+        },
+        "score": {
+          "type": "number"
+        },
+        "why": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "badges": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "measure",
+              "map",
+              "model",
+              "human"
+            ]
+          }
+        },
+        "thumb": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clip_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rank_text": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rank_visual": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rank_vss_text": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "rank among the live vss-collection text vectors mapped to this clip"
+        },
+        "rank_vss_visual": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "rank among the live vss-collection visual vectors mapped to this clip"
+        },
+        "backend": {
+          "enum": [
+            "duckdb",
+            "vastdb",
+            "vss"
+          ]
+        }
+      },
+      "required": [
+        "scene_id",
+        "scene_key",
+        "cam",
+        "t_ms",
+        "t1_ms",
+        "score",
+        "why",
+        "badges",
+        "thumb"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "template": {
+      "enum": [
+        "find",
+        "where_is",
+        "what_happened",
+        "link",
+        "unsupported"
+      ]
+    },
+    "parsed": {
+      "$ref": "#/$defs/query"
+    },
+    "cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/card"
+      }
+    },
+    "took_ms": {
+      "type": "integer"
+    },
+    "backend": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "duckdb",
+          "vastdb",
+          "vss"
+        ]
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "template",
+    "parsed",
+    "cards",
+    "took_ms",
+    "backend"
+  ],
+  "additionalProperties": false
+}

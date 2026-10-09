@@ -1,0 +1,55 @@
+/* Home page (#/, board v2-1a), on top of the .home rules in styles.css. */
+.home { isolation: isolate; background: none; }
+.home-bg, .home-vignette { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.home-bg canvas { position: absolute; display: block; }
+.home-bg .wh-labels { display: none; }
+.home-vignette { background: radial-gradient(ellipse 58% 52% at 50% 47%, rgb(14 18 24 / 0.6) 0%, rgb(14 18 24 / 0.95) 78%); }
+/* the home page shows its own brand */
+body[data-view="home"] .topbar .brand-mark { visibility: hidden; }
+body[data-view="home"] .topbar { border-bottom-color: transparent; }
+
+.home-brand { position: absolute; top: 24px; left: 28px; display: flex; align-items: center; gap: 10px; font-size: var(--fs-3); font-weight: 500; }
+.home-mark { font-size: var(--fs-1); font-weight: 500; letter-spacing: 0.12em; border: 1px solid var(--ink); padding: 1px 5px; border-radius: 2px; }
+.home-scene { position: absolute; top: 26px; right: 28px; font-size: var(--fs-1); color: var(--ink-2); }
+
+.home-ask { position: relative; gap: 14px; }
+.home-chips .preset { gap: 8px; }
+.home-chips .preset .i { color: var(--ink-2); }
+.home-note { text-align: center; }
+
+/* source chip picked with @ */
+.home-src {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 4px 0 8px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 3px; font-size: var(--fs-2); color: var(--ink-3);
+}
+.home-src[hidden] { display: none; }
+.home-src .i { width: 12px; height: 12px; }
+.home-src-x { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 2px; color: var(--ink-2); }
+.home-src-x:hover { color: var(--ink); background: var(--sunk); }
+
+/* @ list: scenes and trips in one list */
+.home-at {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 1; max-height: 320px; overflow-y: auto;
+  display: flex; flex-direction: column; margin: 0; padding: 4px; list-style: none;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-2); font-size: var(--fs-2);
+}
+.home-at[hidden] { display: none; }
+.home-at-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--radius); color: var(--ink-3); cursor: pointer; }
+.home-at-row.on { background: var(--sunk); color: var(--ink); }
+.home-at-meta { margin-left: auto; color: var(--ink-2); }
+.home-at-any { color: var(--ink-2); }
+
+/* refusal card */
+.home-refusal { gap: 10px; background: var(--card); }
+.hr-body { font-size: var(--fs-2); line-height: 1.5; }
+.hr-chips { gap: 6px; }
+.hr-chips .preset { height: 26px; padding: 0 10px; border-color: var(--thread); border-radius: 13px; background: none; font-size: var(--fs-2); color: var(--ink); }
+
+/* While a question asked here runs, the box rises into the headline's place and the rest fades until the workspace opens. */
+.home-ask { transition: transform 300ms var(--ease); }
+.home :is(.home-title, .home-chips, .home-note) { transition: opacity 300ms var(--ease); }
+body[data-run="running"] .home-ask { transform: translateY(-60px); }
+body[data-run="running"] .home :is(.home-title, .home-chips, .home-note) { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .home-ask, .home :is(.home-title, .home-chips, .home-note) { transition: none; }
+}

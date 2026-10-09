@@ -1,0 +1,38 @@
+{
+ "scene_key": "wh-test",
+ "workspace": "warehouse",
+ "cams": [
+  {
+   "id": "cam_a",
+   "w": 3840,
+   "h": 2160,
+   "K": [
+    2000,
+    2000,
+    1920,
+    1080
+   ],
+   "model": "pinhole",
+   "dist": [],
+   "camera_basis": "opengl",
+   "cam2world": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    10,
+    1
+   ]
+  }
+ ]
+}
