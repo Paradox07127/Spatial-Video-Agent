@@ -237,6 +237,33 @@ def test_circuit_opens_after_two_failures(calls, steps):
     assert vlm.situation(K, 4600, [P1, F1], run=_Run("r2")).payload["label"] == "interaction"
 
 
+@pytest.mark.parametrize("base", ["http://h:8101", "http://h:8101/", "http://h:8101/v1", "http://h:8101/v1/"])
+def test_chat_url_gets_v1_like_llm(calls, monkeypatch, base):
+    urls = []
+    def post(url, **kw):
+        urls.append(url)
+        return httpx.Response(200, json=REC["C4"], request=httpx.Request("POST", url))
+    monkeypatch.setattr(vlm.httpx, "post", post)
+    monkeypatch.setenv("VLM_URL", base)
+    vlm._chat([], "p", {}, None)
+    assert urls == ["http://h:8101/v1/chat/completions"]
+
+
+@pytest.mark.parametrize("body", [{"json": {"choices": []}}, {"json": {"choices": [{}]}}, {"content": b"<html>not json"}])
+def test_chat_malformed_envelope_raises_unavailable(calls, monkeypatch, body):
+    monkeypatch.setattr(vlm.httpx, "post", lambda url, **kw: httpx.Response(200, request=httpx.Request("POST", url), **body))
+    with pytest.raises(vlm.VLMUnavailable):
+        vlm._chat([], "p", {}, None)
+
+
+def test_payload_builder_error_raises_unavailable(calls):
+    out = json.loads(REC["C1"]["choices"][0]["message"]["content"])
+    del out["uncertainty"]  # situation's payload builder reads it
+    calls["queue"].append(_resp(json.dumps(out)))
+    with pytest.raises(vlm.VLMUnavailable, match="uncertainty"):
+        vlm.situation(K, 4600, [P1, F1])
+
+
 def test_fleet_situation_prompt_is_the_px1_text(monkeypatch):
     seen = {}
     monkeypatch.setattr(vlm, "_call", lambda task, key, cam, t, refs, win, extra, prompt, *a, **k: seen.setdefault(key, prompt))

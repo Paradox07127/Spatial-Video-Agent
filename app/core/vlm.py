@@ -215,7 +215,10 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
                 "at the bottom and tracked objects are boxed with their ids (P = person, F = forklift, V = vehicle); "
                 "these boxes, ids and times are overlays, not part of the scene. ")
     out = _chat([_jpeg_b64(img) for _, img in frames], head + prompt + " Answer with JSON only.", schema, run_id, deadline)
-    payload = make_payload(out, frames)
+    try:
+        payload = make_payload(out, frames)
+    except (ValueError, LookupError, TypeError) as e:
+        raise VLMUnavailable(f"{task} output lacks a payload field: {type(e).__name__} {e}") from e
     rec = {"record_id": rid, "task": task, "t_ms": t_ms, "cam_id": cam,
            "actor_refs": [a.model_dump() for a in actor_refs],
            "input_frame_refs": [{"cam_id": cam, "t_ms": ms} for ms, _ in frames], "prefix_only": task == "C2",
@@ -239,14 +242,18 @@ def _chat(images: list[str], prompt: str, schema: dict, run_id: str | None, dead
             "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}}}
     tok = os.environ.get("GPU_BEARER_TOKEN")
     try:
-        r = httpx.post(os.environ["VLM_URL"].rstrip("/") + "/chat/completions", json=body, timeout=timeout,
+        base = os.environ["VLM_URL"].rstrip("/")  # the service root or .../v1, as in llm.complete_json
+        r = httpx.post(base + ("" if base.endswith("/v1") else "/v1") + "/chat/completions", json=body, timeout=timeout,
                        headers={"Authorization": f"Bearer {tok}"} if tok else None)
         r.raise_for_status()
     except (httpx.HTTPError, KeyError) as e:
         _fails[run_id] = _fails.get(run_id, 0) + 1
         raise VLMUnavailable(f"VLM request failed: {type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')}") from e
     _fails[run_id] = 0
-    text = r.json()["choices"][0]["message"]["content"] or ""
+    try:
+        text = r.json()["choices"][0]["message"]["content"] or ""
+    except (ValueError, LookupError, TypeError) as e:
+        raise VLMUnavailable("VLM response has no message content") from e
     m = re.search(r"\{.*\}", text, re.S)  # the reasoner may wrap the JSON in prose or a code fence
     try:
         return json.loads(m.group(0) if m else text)
