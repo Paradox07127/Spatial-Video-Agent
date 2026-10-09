@@ -1,3 +1,7 @@
+import sys
+import types
+
+import pytest
 from shapely.geometry import Point, Polygon
 
 from app.api.actions import trigger
@@ -40,3 +44,34 @@ def test_trigger_mirrors_after_commit_outside_lock(store):
     store.write_vastdb = lambda tables: log.append((list(tables), store.lock._is_owned()))
     trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['hazard_zone']))
     assert log == ['COMMIT', (['actions'], False), (['zones'], False)]
+
+
+@pytest.fixture
+def alerts(store, monkeypatch):
+    sent = []
+    fake = types.ModuleType('wandb')
+    fake.init = lambda **kw: None
+    fake.alert = lambda **kw: sent.append(kw)
+    monkeypatch.setitem(sys.modules, 'wandb', fake)
+    store.settings.mode, store.settings.wandb_api_key, store.settings.wandb_project = 'site', 'key', 'proj'
+    return sent
+
+
+@pytest.mark.parametrize('requested, n_alerts, delivered', [
+    (['create_review_task'], 0, False),
+    (['webhook'], 0, False),
+    (['wandb_alert'], 1, True),
+    (['wandb_alert', 'webhook'], 1, False),
+])
+def test_trigger_delivers_only_requested_actions(store, alerts, requested, n_alerts, delivered):
+    result = trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=requested))
+    assert len(alerts) == n_alerts
+    assert result.delivered is delivered
+
+
+def test_trigger_wandb_alert_failure_is_undelivered(store, alerts):
+    def fail(**kw):
+        raise RuntimeError('wandb down')
+    sys.modules['wandb'].alert = fail
+    result = trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['wandb_alert']))
+    assert result.delivered is False

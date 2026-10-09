@@ -590,7 +590,7 @@ test('playback crossing a severity-2 event triggers once: pin, seek, review task
   await clock(page, 'seek(4000)');
   const posted = page.waitForRequest((r) => r.url().endsWith('/api/actions/trigger'));
   await clock(page, 'play()');
-  expect((await posted).postDataJSON()).toEqual({ scene_key: KEY, event_id: `${KEY}:E1`, auto: true, actions: ['create_review_task', 'hazard_zone', 'webhook'] });
+  expect((await posted).postDataJSON()).toEqual({ scene_key: KEY, event_id: `${KEY}:E1`, auto: true, actions: ['create_review_task', 'hazard_zone', 'wandb_alert'] });
   const toast = page.locator('.wh-toast');
   await expect(toast).toContainText('Review task #RT-1 and hazard zone #Z1 created');
   await expect(toast).toContainText('E1 near_miss · 00:04.3');

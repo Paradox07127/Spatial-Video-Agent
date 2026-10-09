@@ -41,18 +41,20 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
         if 'create_review_task' in req.actions:
             n = store.app.execute('SELECT count(*) FROM actions WHERE review_task_id IS NOT NULL').fetchone()[0] + 1
             review_task_id = f'RT-{n}'
-        delivered = True
-        if store.settings.mode == 'dev':
-            logger.info('Emergency action %s scene=%s event=%s review=%s zone=%s', action_id, req.scene_key, event_id, review_task_id, zone_id)
-        elif store.settings.wandb_api_key and store.settings.wandb_project:
-            try:
-                import wandb
-                wandb.init(entity=store.settings.wandb_team or None, project=store.settings.wandb_project)
-                wandb.alert(title='SVA emergency action', text=f'{req.scene_key} {event_id}: {review_task_id}, {zone_id}')
-            except Exception:
+        # webhook has no delivery channel, so requesting it leaves the action undelivered
+        delivered = 'wandb_alert' in req.actions and 'webhook' not in req.actions
+        if 'wandb_alert' in req.actions:
+            if store.settings.mode == 'dev':
+                logger.info('Emergency action %s scene=%s event=%s review=%s zone=%s', action_id, req.scene_key, event_id, review_task_id, zone_id)
+            elif store.settings.wandb_api_key and store.settings.wandb_project:
+                try:
+                    import wandb
+                    wandb.init(entity=store.settings.wandb_team or None, project=store.settings.wandb_project)
+                    wandb.alert(title='SVA emergency action', text=f'{req.scene_key} {event_id}: {review_task_id}, {zone_id}')
+                except Exception:
+                    delivered = False
+            else:
                 delivered = False
-        else:
-            delivered = False
         action = Action(action_id=action_id, scene_key=req.scene_key, event_id=event_id, run_id=req.run_id, claim_id=req.claim_id,
                         auto=req.auto, actions=req.actions, review_task_id=review_task_id, zone_id=zone_id, delivered=delivered, created=now())
         store.app.execute('BEGIN TRANSACTION')

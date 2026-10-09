@@ -8,7 +8,7 @@ import { createStage } from './stage3d.js';
 import { createVideos, owners } from './videos.js';
 import { shortZone } from './hazard.js';
 
-const AUTO_ACTIONS = ['create_review_task', 'hazard_zone', 'webhook'];
+const AUTO_ACTIONS = ['create_review_task', 'hazard_zone', 'wandb_alert'];
 const ZONE_ICON = '<svg class="i" aria-hidden="true"><path d="M12 3l8 6-3 11H7L4 9z"/></svg>';
 // [id, label, manifest asset the layer needs]
 const LAYERS = [['people', 'People + skeletons'], ['forklift', 'Forklift', 'forklift'], ['measures', 'Agent measures'], ['blind', 'Blind spots', 'visibility'], ['cloud', 'Point cloud', 'points'], ['frusta', 'Camera frustums']];
