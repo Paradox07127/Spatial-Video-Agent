@@ -137,7 +137,7 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
   world.add(path);
 
   const agents = new Map();
-  let selected = new Set();
+  let selected = new Set(), focusedBuilding = null;
   function agent(id, make) {
     if (!agents.has(id)) {
       const o = make();
@@ -243,7 +243,7 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
       world.position.set(-x, -y, 0).applyAxisAngle(Z, th);
       world.updateMatrixWorld();
       for (const l of blabels) {
-        l.visible = (state.stageMode !== 'evidence' || l.userData.bid === cite || sel.has(l.userData.bid)) && l.getWorldPosition(new THREE.Vector3()).setZ(0).length() < LABEL_RANGE;
+        l.visible = (state.stageMode !== 'evidence' || l.userData.bid === cite || l.userData.bid === focusedBuilding || sel.has(l.userData.bid)) && l.getWorldPosition(new THREE.Vector3()).setZ(0).length() < LABEL_RANGE;
         l.element.title = state.stageMode === 'explore' ? l.userData.bid : '';
       }
       const stale = f.ego.state === 'last_known';
@@ -305,6 +305,7 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
       path.visible = pts.length > 1;
     },
     focus(bid) {
+      focusedBuilding = bid;
       for (const [m, b] of meshes) m.material.color.setHex(b === bid ? C.map : C.thread);
     },
     dispose() {

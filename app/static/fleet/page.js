@@ -382,6 +382,13 @@ export async function mount(el, c) {
   ctx.bus.on('panel:tab', onTab);
   const onMode = () => { ix?.video.redraw(); if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids); };
   ctx.bus.on('stage:mode', onMode);
+  const onEvidence = (e) => {
+    if (!ix || e.scene_key !== ix.trip.id) return;
+    const bid = e.value?.bid;
+    ix.video.setReferences(bid ? [bid] : []);
+    ix.scene.focus(bid ?? null);
+  };
+  ctx.bus.on('evidence:focus', onEvidence);
   window.addEventListener('keydown', onKey, true);
   offs = [
     () => window.removeEventListener('keydown', onKey, true),
@@ -391,6 +398,7 @@ export async function mount(el, c) {
     () => ctx.bus.off('clock:play', onPlay),
     () => ctx.bus.off('panel:tab', onTab),
     () => ctx.bus.off('stage:mode', onMode),
+    () => ctx.bus.off('evidence:focus', onEvidence),
     () => links.forEach((l) => l.remove()),
   ];
   if (ctx.route.trip_id) loadScene(ctx.route.trip_id);

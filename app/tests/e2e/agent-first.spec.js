@@ -141,3 +141,20 @@ test('degraded model dependencies are visible without claiming inference readine
   await page.goto('#/'); await expect(page.locator('#dependency-status')).toHaveText('Live models unavailable');
   await expect(page.locator('#dependency-status')).toHaveAttribute('title', /connection check only/);
 });
+
+test('a cited Fleet facade stays visible in Answer mode without becoming an actor constraint', async ({ page }) => {
+  await mockApi(page);
+  const frames = structuredClone(ASKS.find(a => a.ask_id === 'fl-where').events).filter(f => f.event !== 'claim');
+  const evidence = frames.find(f => f.event === 'tool_result').data.evidence[0];
+  Object.assign(evidence, { t0_ms: 3000, t1_ms: 3001, method: 'osm_facade', value: { bid: 'w1001', name: 'Fixture Block A' } });
+  frames.find(f => f.event === 'hits').data.moments[0].actor_refs = [];
+  Object.assign(frames.find(f => f.event === 'answer').data, { text: 'The building on the right is Fixture Block A.', measure_refs: [], cites: [evidence.eid] });
+  await mockAskFrames(page, frames); await page.goto('#/fleet'); await expect(page.locator('.fl-car')).toHaveCount(2);
+  await page.locator('#ask-input').fill('What is the building on the right?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await expect(page.locator('.fl-cols .fl-col')).toHaveCount(1);
+  await expect(page.locator('.fl-cols .fl-col')).toHaveAttribute('data-bid', 'w1001');
+  expect(await mod(page, 'kernel/selection.js', '[...m.selection.ids]')).not.toContain('w1001');
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await expect(page.locator('.fl-cols .fl-col')).toHaveCount(2);
+});

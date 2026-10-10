@@ -55,6 +55,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
   const out = remapEl.getContext('2d');
+  let references = new Set();
   let undist = false, lut = null, last = null, alive = true, time = 0, playing = false;
   video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing));
   video.addEventListener('loadeddata', () => alive && player.sync(time, playing));
@@ -139,7 +140,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       drawn.add('tracked');
     }
     cols.innerHTML = frame.buildings.map((b) => {
-      if (state.stageMode === 'evidence' && b.bid !== cite && !selection.ids.has(b.bid)) return '';
+      if (state.stageMode === 'evidence' && b.bid !== cite && !selection.ids.has(b.bid) && !references.has(b.bid)) return '';
       const u0 = Math.max(0, P([b.u0, cam.K[3]])[0]), u1 = Math.min(w, P([b.u1, cam.K[3]])[0]);
       if (u1 <= u0) return '';
       drawn.add('map');
@@ -165,6 +166,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const player = {
     draw,
     redraw() { if (last) draw(...last); },
+    setReferences(ids) { references = new Set(ids); if (last) draw(...last); },
     clear() {
       last = null;
       ovl.clearRect(0, 0, w, h);
