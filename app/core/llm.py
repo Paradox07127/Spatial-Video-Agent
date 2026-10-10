@@ -68,13 +68,26 @@ def rule_parse(q: str, ctx: dict) -> Query:
         constraints.append('attribute:' + attribute)
     if re.search(r'\bwearing\b',text):
         constraints.append('visual_attribute')
-    if re.search(r'\b(?:after|before|until|since|unless)\b',text) and not re.search(r'\b(?:after|before)\s+(?:\d|second\s+\d)',text):
+    bound_pattern = r'\b(before|after)\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))'
+    bounds = list(re.finditer(bound_pattern,text))
+    temporal = re.findall(r'\b(?:after|before|until|since|unless)\b',text)
+    if len(temporal)>len(bounds):
         constraints.append('temporal_relation')
+    quantity = r'(?:two|three|four|five|six|seven|eight|nine|ten|\d+)'
+    if re.search(r'\b'+quantity+r'\s+(?:people|workers|persons|pedestrians|vehicles|cars|forklifts)\b',text):
+        constraints.append('entity_count')
+    if re.search(r'\b(?:twice|thrice|again|repeatedly|'+quantity+r'\s+times)\b',text):
+        constraints.append('occurrence_count')
+    if re.search(r'\bfor\s+(?:one|'+quantity+r'|\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b|minutes?\b)',text):
+        constraints.append('duration')
     action_families = [bool(re.search(pattern,text)) for pattern in (r'\b(dodge\w*|yield\w*|give way|step back)\b',r'\bcross\w*\b',r'\bbrak\w*\b')]
     if sum(action_families)>1:
         constraints.append('multiple_requested_actions')
-    quantifier = ('all' if re.search(r'\b(everyone|all (?:people|workers|persons|pedestrians|vehicles|cars|forklifts|clips)|(?:every|each) (?:person|worker|pedestrian|vehicle|car|forklift|clip))\b', text)
-                  else 'none' if re.search(r'\b(no (?:people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?)|none|nobody|no one)\b', text) else 'any')
+    subjects = r'(?:people|workers?|persons?|pedestrians?|vehicles?|cars?|forklifts?|clips?|videos?|recordings?)'
+    universal = (r'\b(?:(?:all|both)(?:\s+of)?(?:\s+(?:the|these|those))?|'
+                 r'(?:every|each)(?:\s+(?:one|single))?(?:\s+of(?:\s+(?:the|these|those))?)?)\s+'+subjects+r'\b')
+    quantifier = ('all' if re.search(r'\b(?:everyone|everybody)\b|'+universal,text)
+                  else 'none' if re.search(r'\b(?:(?:no|neither)\s+'+subjects+r'|none|nobody|no one)\b',text) else 'any')
     if quantifier != 'any':
         constraints.append('exhaustive_coverage')
     for modifier in re.findall(r'\b(moving|running|riding|carrying)\b',text):
@@ -88,7 +101,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         if any(e in {'vehicle','forklift'} for e in entities):
             constraints.append('unsupported_count_subject')
     if not interval and not point:
-        bound = re.search(r'\b(before|after)\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))', text)
+        bound = bounds[0] if bounds else None
         if bound:
             ms = int(float(bound[2] or bound[3]) * 1000)
             t_range = (0, ms) if bound[1] == 'before' else (ms + 1, 2**53 - 1)

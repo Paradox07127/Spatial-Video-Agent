@@ -167,3 +167,40 @@ def test_count_does_not_ignore_a_requested_zone(store):
 def test_count_does_not_drop_action_or_distance_conditions(store,q):
     frames = ask(store,q,'street')
     assert final(frames)=='UNRESOLVED'
+
+
+@pytest.mark.parametrize('phrase,quantifier',[
+    ('all the workers','all'),('all of the workers','all'),('all of workers','all'),
+    ('each of the workers','all'),('each one of the workers','all'),
+    ('every one of the workers','all'),('every worker','all'),
+    ('none of the workers','none'),('none of these workers','none'),
+    ('every video','all'),('every recording','all'),('all the recordings','all'),
+    ('both workers','all'),('all these workers','all'),('every single worker','all'),
+])
+def test_common_quantifier_phrases_are_retained(phrase,quantifier):
+    parsed = llm.rule_parse('Show '+phrase+' where a worker dodges the forklift',{'workspace':'warehouse'})
+    assert parsed.quantifier==quantifier and 'exhaustive_coverage' in parsed.constraints
+
+
+@pytest.mark.parametrize('q',[
+    'Did all the workers dodge the forklift?',
+    'Did all of the workers dodge the forklift?',
+    'Did each of the workers dodge the forklift?',
+    'Show every video where a worker dodges the forklift',
+    'Show every recording where a worker dodges the forklift',
+])
+def test_universal_variants_cannot_be_proved_by_one_retrieved_worker(store,q):
+    frames = ask(store,q)
+    assert final(frames)=='UNRESOLVED'
+
+
+@pytest.mark.parametrize('q,condition',[
+    ('Did two workers dodge the forklift?','entity_count'),
+    ('Did 2 workers dodge the forklift?','entity_count'),
+    ('Did a worker dodge the forklift twice?','occurrence_count'),
+    ('Did a worker dodge the forklift for 5 seconds?','duration'),
+    ('When did a worker dodge the forklift after 00:07?','temporal_relation'),
+])
+def test_count_duration_and_unparsed_time_conditions_cannot_disappear(store,q,condition):
+    assert condition in llm.rule_parse(q,{'workspace':'warehouse'}).constraints
+    assert final(ask(store,q))=='UNRESOLVED'
