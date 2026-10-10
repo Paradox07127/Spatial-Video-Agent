@@ -951,7 +951,11 @@ def ask(request: Request, body: AskRequest):
                   and not any(s.name.startswith('tool.') and s.exec_state=='failed'
                               for s in store.get_run(frames[0]['data']['run_id']).steps))
         if status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'} and complete:
-            cache.put(store,body.q,body.context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])
+            # every frame is already sent; a failed cache write must not break the stream
+            try:
+                cache.put(store,body.q,body.context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])
+            except Exception:
+                logger.exception('answer cache write for run %s failed',frames[0]['data']['run_id'])
     return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
 
 

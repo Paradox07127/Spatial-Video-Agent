@@ -509,6 +509,16 @@ def test_ask_passes_budget_deadline_to_vlm(setup, monkeypatch):
     assert seen and all(0 < s <= 25 for s in seen)
 
 
+def test_stream_ends_cleanly_when_the_answer_cache_write_fails(setup, monkeypatch):
+    app, store = setup
+    def fail(*a, **kw):
+        raise RuntimeError('TabularValueTooLarge')
+    monkeypatch.setattr(store, 'cache_put', fail)
+    with TestClient(app) as client:
+        frames = read_frames(client.post('/api/agent/ask', json={k:WH_MAIN[k] for k in ['q','context','budget']}))
+    assert check_sse_sequence(frames) == [] and frames[-1]['event'] == 'done'
+
+
 def test_budget_exhausted_run_is_not_cached(setup):
     app, _ = setup
     with TestClient(app) as client:
