@@ -310,7 +310,7 @@ function queueEvidence(key, fn) {
 
 function replayEvidence(items = run.queue) {
   for (const item of items) toPage(async (p, owns) => {
-    if (!here(item.key) || item.applied === navigation) return;
+    if (!here(item.key) || (ctx.route.page === 'fleet' && !ctx.route.scene_key && item.key && item.key !== run.activeScene) || item.applied === navigation) return;
     await item.fn(p, owns);
     if (owns()) item.applied = navigation;
   });
@@ -332,6 +332,8 @@ async function activateEvidence(e, after = null, automatic = false) {
   }
   if (!page) return;
   r.activeScene = e.scene_key;
+  r.activeMoment = r.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms) ?? r.moments.find((m) => m.scene_key === e.scene_key);
+  renderKeyframe();
   setState('hit');
   document.body.dataset.candidates = '';
   renderModels();
@@ -444,7 +446,11 @@ function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
   }])));
 }
 
-const sceneT = () => clock.map(clock.t)?.t_ms ?? clock.t;
+const sceneT = () => {
+  const key = ctx.route.scene_key ?? run?.activeScene ?? state.sourceTag?.scene_key;
+  const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
+  return replay ? Math.round(replay.source_start_ms + (clock.t - replay.replay_start_ms) * replay.rate) : clock.map(clock.t)?.t_ms ?? clock.t;
+};
 const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT() });
 
 function stop() {
@@ -529,6 +535,12 @@ const handlers = {
   },
   answer(d) {
     run.cites.push(...d.cites);
+    // One answer owns the stage. Candidates are registered above; only the cited scene is activated.
+    const cited = d.measure_refs.map((r) => run.evidence.get(r.eid)).find(Boolean) ?? d.cites.map((id) => run.evidence.get(id)).find(Boolean);
+    if (cited && ctx.route.page === 'fleet' && !ctx.route.scene_key && !run.answerActivated) {
+      run.answerActivated = true;
+      run.opening = activateEvidence(cited);
+    }
     run.answers.push(numbered(d));
     renderSlot();
     timeline.setEvidence(evMarks());
@@ -695,7 +707,7 @@ function renderTabs() {
 
 // ---- Answer tab
 function renderKeyframe() {
-  const m = run.moments[0];
+  const m = run.activeMoment ?? run.moments.find((m) => m.scene_key === run.activeScene) ?? run.moments[0];
   if (!m) return;
   $('#keyframe').innerHTML = `
     <figure class="keyframe">

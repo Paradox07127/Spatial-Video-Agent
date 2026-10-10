@@ -1,0 +1,43 @@
+const { test, expect } = require('@playwright/test');
+const { ASKS, mockApi, mockAskFrames, mockSceneAlias, fixtureWorkspaces } = require('./mockapi');
+const fs = require('fs');
+const path = require('path');
+const T1 = 'fl-pie-fixture-01', T3 = 'fl-pie-fixture-03';
+const out = path.resolve(__dirname, '../../../fixtures/sva-out');
+const mod = (page, rel, expr) => page.evaluate(async ([r, e]) => new Function('m', `return (${e})`)(await import(new URL(r, document.baseURI).href)), [rel, expr]);
+
+test('three fleet candidates keep the cited trip active; selecting another synchronizes frame, lane and follow-up', async ({ page }) => {
+  await mockApi(page);
+  const third = await mockSceneAlias(page, T3, T1);
+  const ws = fixtureWorkspaces(); ws.find(w => w.id === 'fleet').scenes.push(third);
+  await page.route(/\/api\/workspaces$/, r => r.fulfill({ json: ws }));
+  const gj = JSON.parse(fs.readFileSync(path.join(out, T1, 'trip.geojson')));
+  gj.features[0].properties.replay.trip_id = T3;
+  await page.route(new RegExp(`/api/assets/${T3}/trip.geojson$`), r => r.fulfill({ json: gj }));
+  await page.route(/\/api\/fleet\/trips$/, r => r.fulfill({ json: [T1, T3, 'fl-pie-fixture-02'].map(trip_id => ({ trip_id, title: trip_id, geojson_url: `api/assets/${trip_id}/trip.geojson`, full: trip_id !== 'fl-pie-fixture-02' })) }));
+  const frames = structuredClone(ASKS.find(a => a.ask_id === 'fl-where').events);
+  const hit = frames.find(f => f.event === 'hits').data;
+  const first = hit.moments[0];
+  hit.moments.push({ ...first, scene_key: 'fl-pie-fixture-02', moment_id: 'm2', t0_ms: 5000, t1_ms: 8000 },
+    { ...first, scene_key: T3, moment_id: 'm3', t0_ms: 7000, t1_ms: 9000, thumb: first.thumb.replace(T1, T3) });
+  await mockAskFrames(page, frames);
+  await page.goto('#/fleet');
+  await expect(page.locator('.fl-car')).toHaveCount(3);
+  await page.locator('#ask-input').fill('Was this car speeding?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-run', 'done');
+  await expect(page).toHaveURL(new RegExp(`#/fleet/${T1}@3000$`));
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(T1);
+  await expect(page.locator('#keyframe .kf-at')).toContainText('00:03.0');
+  await expect(page.locator('#followup .fu-ctx')).toContainText('00:03.0');
+  await expect(page.locator('#source-tag')).toContainText(T1);
+  await expect(page.locator(`#timeline [data-lane="trip:${T1}"]`)).toBeVisible();
+  await page.locator('.p-moments-head .p-more').click(); await page.locator('.moment').nth(2).click();
+  await expect(page).toHaveURL(new RegExp(`#/fleet/${T3}@7000$`));
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(T3);
+  await expect(page.locator('#keyframe .kf-at')).toContainText('00:07.0');
+  await expect(page.locator('#followup .fu-ctx')).toContainText('00:07.0');
+  await expect(page.locator('#source-tag')).toContainText(T3);
+  const request = page.waitForRequest(/\/api\/agent\/ask$/);
+  await page.locator('#followup-input').fill('What happened then?'); await page.locator('#followup-input').press('Enter');
+  expect((await request).postDataJSON().context).toMatchObject({ scene_key: T3, t_ms: 7000 });
+});
