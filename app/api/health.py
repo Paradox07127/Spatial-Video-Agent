@@ -1,6 +1,8 @@
 from pathlib import Path
 import socket
 import time
+import os
+import re
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
@@ -25,7 +27,9 @@ def dependency_status(settings):
             except (OSError, ValueError):
                 state = 'unavailable'
         services[name] = {'configured': bool(url), 'status': state}
+    revision = os.environ.get('SVA_COMMIT','')
     return {'services': services, 'degraded': any(s['status']=='unavailable' for s in services.values()),
+            'source_commit': revision if re.fullmatch(r'[0-9a-f]{40}',revision) else 'unknown',
             'check': 'tcp_reachability', 'inference_verified': False}
 
 
