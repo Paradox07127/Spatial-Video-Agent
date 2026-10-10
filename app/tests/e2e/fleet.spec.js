@@ -289,7 +289,10 @@ async function askWhere(page) {
   await page.locator('#ask-input').fill('Near Queen and Spadina, did a pedestrian cross in front of the car?');
   await page.keyboard.press('Enter');
   await expect(page.locator('.fl-ix')).toHaveCount(1);
-  await expect.poll(() => mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(6000);
+  // The cited onset (3 s) now owns the answer; these detail checks explicitly explore the later 6 s frame.
+  await expect.poll(() => mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(3000);
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await seek(page, 6000);
 }
 
 test('fl-where: hits open the result layout at once; building card; Esc restores the overview camera', async ({ page }) => {
@@ -331,7 +334,9 @@ test('fl-where: hits open the result layout at once; building card; Esc restores
   await expect(page.locator('.fl-facts')).toHaveCSS('height', '32px');
   await expect(page.locator('.fl-badge')).toHaveText('Monocular range: indicative only');
   await expect(page.locator('.fl-views button')).toHaveText(['Chase', 'Top', 'Dashcam']);
-  expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(6000);
+  expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(3000);
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await seek(page, 6000);
   await expect(page.locator('.fl-gnss')).toHaveText('GNSS ±7.0 m · last fix');
   await expect(page.locator('.fl-al')).toContainText(['P1 approx']);
 

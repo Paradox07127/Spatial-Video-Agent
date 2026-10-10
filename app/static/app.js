@@ -377,6 +377,7 @@ function setStage(mode, eid) {
 }
 
 function setAgentCamera(on) {
+  if (!on && run) run.userExplored = true;
   $('#takeover').hidden = !on;
   if (state.agentCamera === on) return;
   state.agentCamera = on;
@@ -529,7 +530,7 @@ const handlers = {
   },
   ui(d) {
     if (!state.agentCamera && CAMERA_CMDS.has(d.cmd)) return;
-    const key = d.scene_key ?? d.args.scene_key ?? run.source;
+    const key = d.scene_key ?? d.args.scene_key ?? d.args.trip_id ?? run.source ?? run.activeScene;
     if (!here(key)) run.skippedUi++;
     queueEvidence(key, (p, owns) => p.applyUI(d, owns));
   },
@@ -636,7 +637,8 @@ function finish() {
   const r = run;
   Promise.resolve(r.opening).then(() => run === r ? replayEvidence() : null).then(() => {
     if (run !== r || !r.final || r.userExplored || document.body.dataset.run !== 'done') return;
-    const eid = r.measureRefs.map((x) => x.eid).find((id) => r.evidence.has(id)) ?? r.cites.find((id) => r.evidence.has(id));
+    const primary = r.measureRefs.find((x) => !/_(ms|s)$/.test(x.field) && r.evidence.get(x.eid)?.kind === 'measure') ?? r.measureRefs.find((x) => r.evidence.has(x.eid));
+    const eid = primary?.eid ?? r.cites.find((id) => r.evidence.has(id));
     if (eid) focusEvidence(eid, r.evidence.get(eid));
     else setStage('evidence', null);
   }).catch((e) => { if (run === r) statusLine(`Evidence could not load: ${e.message}. Please retry.`); });

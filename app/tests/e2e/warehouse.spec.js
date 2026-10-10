@@ -122,6 +122,9 @@ test('wh-main replay: hits → three synced <video> within one frame (mediaTime)
   await open(page);
   await page.locator('.preset').first().click();
   await expect(page.locator('body')).toHaveAttribute('data-view', 'hit');
+  // Model primitives and all cameras are opt-in exploration after the default Answer mode.
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await page.locator('.wh-mode [data-mode="explore"]').click();
   // the moment's cameras are the ones the agent used
   await expect(page.locator('.wh-rcam.used')).toHaveCount(3);
   await page.locator('#tabs [data-tab="videos"]').click();
@@ -366,6 +369,8 @@ test('Videos tab: primary camera 214 px with the others in two 105 px columns, N
   await open(page);
   await page.locator('.preset').first().click();
   await expect(page.locator('#ask-status')).toContainText('Done');
+  // Camera switching is an Explore operation; Answer mode shows only the cited camera.
+  await page.locator('.wh-mode [data-mode="explore"]').click();
   await page.locator('#tabs [data-tab="videos"]').click();
   const pane = page.locator('#tab-videos');
   const primary = pane.locator('.wh-vcell.primary');
@@ -460,6 +465,7 @@ test('a hit switches the stage dock to its primary camera with the hit cameras a
   await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'eye_00');
   await page.locator('.preset').first().click();
   await expect(page.locator('#ask-status')).toContainText('Done');
+  await page.locator('.wh-mode [data-mode="explore"]').click();
   await expect(dock.locator('.wh-sv-tabs button')).toHaveText(['ceiling_04', 'ceiling_00']);
   await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_04');
   await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_04');
@@ -838,6 +844,8 @@ test('after the wh-main hit every visible label lies inside the canvas', async (
   await open(page);
   await page.locator('.preset').first().click();
   await expect(page.locator('body')).toHaveAttribute('data-view', 'hit');
+  // All model labels are shown only after explicitly entering Explore.
+  await page.locator('.wh-mode [data-mode="explore"]').click();
   await expect(page.locator('.lbl-model')).toHaveCount(2);
   await expect.poll(async () => (await probe(page)).camera.pitch).toBeCloseTo(60, 0);
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));

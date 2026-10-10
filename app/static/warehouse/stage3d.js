@@ -235,7 +235,7 @@ export function createStage(canvas) {
       return pts.map((p) => p.clone().project(probeCam));
     };
     let target;
-    for (let d = d0; d < 400; d *= 1.05) {
+    for (let d = d0; d < 400; d *= 1.025) {
       target = target0.clone();
       for (let i = 0; i < 3; i++) {
         const q = place(target, d), mid = (k) => (Math.min(...q.map((p) => p[k])) + Math.max(...q.map((p) => p[k]))) / 2;

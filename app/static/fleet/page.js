@@ -155,10 +155,11 @@ async function presented(cur, t) {
   try {
     const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
     if (ix !== cur || current !== cur.videoTick) return;
-    const f = frames.findLast((x) => x.t_ms <= t) ?? frames[0];
-    if (!f || Math.abs(f.t_ms - t) > 1000 / cur.trip.mf.fps) return cur.video.clear();
+    const f = frames.reduce((best, x) => !best || Math.abs(x.t_ms - t) < Math.abs(best.t_ms - t) ? x : best, null);
+    // Ego/box sidecars can be sampled below the video's frame rate. Never bridge a gap over 50 ms.
+    if (!f || Math.abs(f.t_ms - t) > 50) return cur.video.clear();
     cur.presented = t;
-    cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - t) < 500 / cur.trip.mf.fps));
+    cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - t) <= 50));
   } catch { if (ix === cur && current === cur.videoTick) cur.video.clear(); }
 }
 
