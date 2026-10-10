@@ -1,6 +1,6 @@
 # Spatial Video Agent (sva)
 
-Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance and fleet dashcams. You ask a question in one sentence. The agent finds the moment to one-second precision, gets more camera views when it needs them, and shows the evidence in 3D or on a map. Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
+Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance, fleet dashcams and street cameras. You ask a question in one sentence. The agent finds the moment to one-second precision, gets more camera views when it needs them, and shows the evidence in 3D or on a map. Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
 
 ![A warehouse answer: the measured distance between worker P1 and forklift F1 drawn on the 3D floor, the answer panel with the verdict, key frame, claim and model note, and the timeline with the Evidence lane](docs/screenshots/01-warehouse-answer.png)
 
@@ -27,7 +27,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 - Each claim has predicates with a status and the evidence they were decided on. A claim is SUPPORTED, CONTRADICTED or UNRESOLVED, and the panel shows when a step changed it (for example `UNRESOLVED -> SUPPORTED`).
 - The final verdict is one of Supported, Contradicted, Unresolved, No match, Out of range or Out of scope (UNSUPPORTED). For the last three, the panel says why and offers questions that can be answered instead.
 - Every number in an answer sentence comes from an evidence field. Each one is a button that opens its evidence.
-- Every source is labelled: Measured, Map, Model or Human. Model output (Cosmos situation, prediction, timing, sign reading) "describes only, no numbers" and shows whether a measurement checked it.
+- Every source is labelled: Measured, Map, Model or Human. Numeric Measured badges require a measurement reference; the panel also shows the scene evidence level and a **Not measured** explanation. Model output (Cosmos situation, prediction, timing, sign reading) "describes only, no numbers" and shows whether a measurement checked it.
 - While the agent moves the view, a pill says "Agent is steering the view". **Take over** (or a click on the stage) gives you the camera; the agent can still seek the clock and highlight objects.
 
 ### Warehouse 3D stage
@@ -40,7 +40,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 - **Layers** popover: People + skeletons, Forklift, Agent measures, Blind spots, Point cloud, Camera frustums, and the source legend. The choice is kept across reloads.
 - **Blind spots**: from the per-second visibility grid, floor cells that no camera sees are hatched and cells that fewer cameras see get a stronger tint. A person seen by one camera only is tagged "single view".
 - **Distances**: a measured ground distance is drawn as a line between the two actors, labelled with value and sigma (for example `3.208 m ±0.09`), for the time span of the moment.
-- **Explore | Evidence** modes. Evidence mode keeps the cited actors at full strength, dims the rest, frames them, and docks the source frame of the camera the evidence was read from (with a **clip** button that plays from 2.5 s before). A focus chip names the evidence; its x returns to Explore.
+- **Explore | Answer** modes. Answer mode is the default; it keeps the cited actors at full strength, dims the rest, frames them, and docks the source frame of the camera the evidence was read from (with a **clip** button that plays from 2.5 s before). A focus chip names the evidence; its x returns to Explore.
 - **Worth a look** pins mark rule events of severity 2 or more; a click seeks to them.
 - Click a person or the forklift to outline it everywhere and get an **Ask about this** button, which puts its id into the question box.
 - **Videos** tab (after an answer): the moment's cameras, synced to the timeline, primary camera large, boxes drawn on each frame, "No video" hatching where a camera has none; **Pin to stage** opens one camera as a picture-in-picture on the stage.
@@ -95,7 +95,7 @@ Each scene has a level that decides what the agent may claim ([CONTRACT.md §8.5
 
 | Question type | L3: synthetic warehouse (SDG) | L2: SmartSpaces warehouse | L2: PIE dashcam trip | L1: street camera |
 |---|---|---|---|---|
-| find / event / presence | events, detections, Cosmos C1 | same | events, C1 | 2D presence; caption is model evidence |
+| find / event / presence | events and detections; captions describe | same | events and detections; captions describe | 2D presence; caption is model evidence |
 | distance / near miss / closest | ground distance in m with sigma | UNRESOLVED (`scene_not_metric`) | ego-frame distance | UNRESOLVED (`no_geometry`) |
 | where | world position | ground position | GPS place and ego position | UNRESOLVED (`no_geometry`) |
 | blind spot | visibility grid | visibility grid if present | not checked | not checked |
@@ -105,7 +105,7 @@ Each scene has a level that decides what the agent may claim ([CONTRACT.md §8.5
 
 - **L3**: synthetic warehouse scenes (NVIDIA SDG) with calibrated cameras, depth and ground truth. Metric distances, world positions and blind spots.
 - **L2**: real scenes with partial geometry. SmartSpaces warehouse cameras (ground position, not metric) and PIE dashcam trips (GPS, OBD speed, ego-frame distance, building facades).
-- **L1**: street video with only 2D detections and captions. Spatial questions end UNRESOLVED (`no_geometry`). The fixtures include one L1 scene; the deployed corpus has none, and the UI has no street page yet (street scenes are left out of the scene lists).
+- **L1**: street video with only 2D detections and captions. Spatial questions end UNRESOLVED (`no_geometry`). The deployed corpus includes 10 L1 street scenes. Their workspace supports full-window ByteTrack track counts and peak simultaneous tracks per second. Counts describe observed camera tracks, not unique people across cameras. Crossing and spatial relationships remain UNRESOLVED (`no_geometry`).
 
 ## How to use
 
@@ -115,8 +115,8 @@ Each scene has a level that decides what the agent may claim ([CONTRACT.md §8.5
 
 Open the app at `/app/` (`#/`). The home page has one box, "Ask about any moment in the footage", and three example questions (two warehouse, one fleet). Type a question and press Enter, or click an example.
 
-- Type `@` in the box to pick the source: one list of warehouse scenes and fleet trips (`set01·0001` is trip `fl-pie-set01_video_0001`), filtered by what you type after `@`. Use the Up and Down arrows and Enter (or a click) to pick one; it becomes a chip in the box, and its x removes it. The last row, "Leave empty and the agent picks the scene", clears the chip. Escape closes the list.
-- Without a chip, the question runs against your last workspace route (the default is the first warehouse scene).
+- Type `@` in the box to pick the source: one list of warehouse scenes, fleet trips and street cameras (`set01·0001` is trip `fl-pie-set01_video_0001`), filtered by what you type after `@`. Use the Up and Down arrows and Enter (or a click) to pick one; it becomes a chip in the box, and its x removes it. The last row, "Leave empty and the agent picks the scene", clears the chip. Escape closes the list.
+- Without a chip, the question searches the corpus. Explicit source chips constrain it to that scene or workspace.
 - The question keeps running while its workspace opens on the first hits.
 - A question the agent declines stays on the home page with a "Not answerable from footage" card and two questions to ask instead.
 - If you were in a warehouse scene before, the home page draws that scene behind the box and names it top right.
@@ -125,7 +125,7 @@ Open the app at `/app/` (`#/`). The home page has one box, "Ask about any moment
 
 - The top bar has the Ask box with a source tag (the current scene key, trip, or `all trips`), **Runs**, and **⌘K**.
 - Press ⌘K (Ctrl+K on Windows and Linux), click the **⌘K** button, or click the source tag to open the palette. It lists every warehouse scene, **All trips**, every trip and **Recent runs**. Type to filter (for example `set03`), Up and Down to move, Enter to open; Esc closes. When text is typed, the last row is "Ask the agent: <your text>". The footer shows the data backend and its row count.
-- Routes: `#/warehouse/<scene_key>`, `#/fleet` (all trips), `#/fleet/<trip_id>@<t_ms>` (one trip at a time), `#/runs`, `#/run/<run_id>`.
+- Routes: `#/warehouse/<scene_key>`, `#/fleet` (all trips), `#/fleet/<trip_id>@<t_ms>` (one trip at a time), `#/street/<scene_key>`, `#/runs`, `#/run/<run_id>`.
 
 ![The command palette filtered to set03: trips with their keys, the data badge in the footer](docs/screenshots/09-command-palette.png)
 
@@ -135,10 +135,10 @@ The right panel of a workspace starts with "Ask about this scene" and three pres
 
 | Workspace | Presets |
 |---|---|
-| Warehouse | When did the worker start to dodge the forklift, and how far was it? · Was anyone where ceiling_00 cannot see in these 10 seconds? · Who is the person in eye_00? |
-| Fleet | Near the ROM, did a pedestrian cross in front of the car? · At Queen and Spadina, what is the building on the right? · Was this car speeding? |
+| Warehouse | When did the worker start to dodge the forklift, and how far was it? · How close did the forklift come to a person? · Was anyone where ceiling_00 cannot see in these 10 seconds? |
+| Fleet | At Queen and Spadina, what is the building on the right? · At Avenue Road and Cumberland Street, what is the building on the right? · Was this car speeding? |
 
-The third warehouse preset is an identity question; it shows how the agent declines.
+Street presets cover observed track count, peak simultaneous tracks and an unsupported crossing relationship.
 
 ### 4. While the agent runs
 
@@ -148,12 +148,14 @@ The third warehouse preset is an identity question; it shows how the agent decli
 
 ### 5. The answer panel and its tabs
 
-- Header: verdict, step count and time, and **Reasoning** (opens the run page). The answer sentence follows, then the source badges.
+- The panel starts at 40% of the desktop width. Drag or use the keyboard on its separator to resize it between one third and two thirds; narrow screens use a stacked layout.
+- Header: evidence level, verdict, step count and time, and **Reasoning** (opens the run page). The answer sentence follows, then the source badges.
 - **Answer** tab: the key frame of the top moment with **Play** (from 2.5 s before), the claims with before -> after and their predicates and measured values, the model note (click it to expand all model rows), and **Other moments · N**.
 - **Evidence · N** tab: evidence grouped by kind (MEASURED, MAP, MODEL, HUMAN). Each row has a label, value with sigma, cameras and time; **raw** shows the stored fields.
 - **Steps · N** tab: every step and tool call with its duration and exec state, the step that changed a claim, a duration bar, the link "Full reasoning, tool calls and VSS comparison", and the "VSS native search" block when the site adds one.
 - **Videos** (warehouse) or **Trip** (fleet) as the last tab.
-- A new question resets the panel to the Answer tab.
+- Moment cards merge their conditions and evidence. Model timing is labelled **Model says ≈** and is not a measured time.
+- A new question resets the panel to the Answer tab. Ordinary scene navigation clears the previous question and answer.
 
 ### 6. Clicking evidence and numbers
 
@@ -176,7 +178,7 @@ On the home page, Esc closes the `@` list. The top bar reminds you: "Esc steps b
 
 ### 8. Follow-up questions
 
-After an answer, the panel ends with two follow-up chips and the box "Ask a follow-up". Its context label shows what will be sent with the question: the selected object ids and the clock time (for example `P1 · F1 · 00:01.6`). A follow-up sends both, so "how far was it from the forklift?" refers to the selection at that moment. A question typed in the top bar sends the selection, not the time. Changing workspace clears the selection.
+After an answer, the panel ends with suggested follow-ups and the box "Ask a follow-up". Removable context chips show the selected object ids and clock time (for example `P1 · F1 · 00:01.6`). A follow-up constrains the investigation to those objects and that moment. A timeline brush or drawn zone also constrains the request. Conflicting or unsupported constraints remain UNRESOLVED rather than silently broadening the search. Changing workspace clears the selection.
 
 ### 9. Runs and the run page
 
@@ -186,7 +188,7 @@ After an answer, the panel ends with two follow-up chips and the box "Ask a foll
 
 ## Questions to try
 
-These are the presets. The verdicts are what the deployed app returned on 2026-10-09:
+The following historical examples were observed on 2026-10-09. Results depend on the source and current evidence; the 2026-10-10 repair validation is recorded below:
 
 | Workspace and source | Question | Result |
 |---|---|---|
@@ -210,22 +212,23 @@ Phrasings the question parser recognizes (`app/core/llm.py`):
 
 The agent declines (verdict Out of scope, UNSUPPORTED) questions about identity, intent or blame: anything with "who is", "who was", "identity", "name of", "intent", "purpose", "trying to", "wants to", "motive", "who caused", "deliberately", "why", "fault" or "responsible". Example: "Who is the person in eye_00?", "Why did the driver stop?", "Whose fault was the near miss?". Ask what can be measured instead: when, where, how far apart, whether it appears.
 
+Unsupported attributes, quantities, negation, temporal conditions and exhaustive claims remain UNRESOLVED unless their predicates can be checked. A top-k search does not prove "all" or "none". Model events cannot supply measurement references.
+
 A question about a place or time outside the footage ends Out of range; a search with no hits ends No match ("That does not mean it did not happen").
 
 ## Deployed version
 
-Checked on: 2026-10-09.
+Validation target: ws deployment, checked 2026-10-10. Runtime acceptance and screenshots are refreshed after the full gate.
 
 | Item | Value |
 |---|---|
-| URL | `http://<team ingress host>/app/` (the VAST Builders Challenge cluster, team namespace) |
-| Source | This repository at its first commit. The running pod reports `sva/source: master-6e2832a` (the commit in the development repository). The code is byte-identical; this commit adds the documentation and `.gitignore` changes only. |
-| Mode | `MODE=site`, `DATA_BACKEND=vastdb`, `PUBLIC_BASE_PATH=/app` |
-| Delivery | `python:3.12-slim` + split source ConfigMaps (section 6 of [the deployment guide](app/scripts/deploy_site.md)) |
-| `/app/health` | `ok: true`, `libs_ready: true`, `assets_ok: true`; VastDB rows: clips 4653, detections 1297456, tracks 332, events 1254, gps 60632, places 5378, scene_manifest 146, vss_collection 3315 |
-| Workspaces | Warehouse: 80 scenes (79 L3, 1 L2). Fleet: 53 trips (L2). |
+| Source | Public `main`; `/api/dependencies.source_commit` reports the deployed source when `SVA_COMMIT` is set at startup |
+| ws mode | `MODE=dev`, `DATA_BACKEND=duckdb`, local real corpus, root path |
+| Corpus | 143 scenes / 4,188 clips: 80 warehouse scenes, 53 fleet trips, 10 street cameras |
+| Dependency status | `/api/dependencies` reports inexpensive TCP reachability separately from `/health`; it does not certify inference |
+| Asset readiness | Local required assets are checked; S3 releases validate indexed manifests and direct references asynchronously before readiness |
 
-The screenshots in this README were taken from this deployment.
+The older VAST site deployment is described in the deployment guide. Its current state is not covered by this ws acceptance.
 
 ## Repository layout
 
@@ -241,7 +244,7 @@ The screenshots in this README were taken from this deployment.
 | `fixtures/` | Small synthetic scenes and the generator `gen_fixture.py`, used by the tests and by dev mode |
 | `docs/screenshots/` | The screenshots in this README |
 
-The real scene artifacts (`sva-out/`), the index and the source videos are not in Git. Dev mode and all tests use only `fixtures/`.
+The real scene artifacts (`sva-out/`), the index and the source videos are not in Git. Tests and the development command below use only `fixtures/`. The ws launch script selects the real local corpus explicitly.
 
 ## Development run
 
@@ -263,7 +266,7 @@ APP_DUCKDB=app.duckdb RUNS_DIR=runs LIB_DIR=app/static/lib PUBLIC_BASE_PATH= POR
 .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8300
 ```
 
-Open `http://127.0.0.1:8300/`. The question parser uses deterministic templates first; the LLM classifies only questions without a template keyword (`app/core/llm.py`). The pseudo-vectors of the fixtures are for contract and page tests only; they are not evidence of retrieval accuracy. The environment variables for the model services, VSS, S3, VastDB and W&B are listed in [CONTRACT.md §6.3](CONTRACT.md#63-environment-variables-spec-122). The code never prints the value of a secret.
+Open `http://127.0.0.1:8300/`. The question parser uses deterministic templates first; the LLM classifies only questions without a template keyword (`app/core/llm.py`). The pseudo-vectors of the fixtures are for contract and page tests only; they are not evidence of retrieval accuracy. The environment variables for the model services, VSS, S3, VastDB and W&B are listed in [CONTRACT.md §6.3](CONTRACT.md#63-environment-variables-spec-122). The code never prints the value of a secret. Answer caches include model, code and evidence identity with a short TTL; `EVIDENCE_REVISION` can identify a new release. Cosmos cache reuse requires matching source material and model identity. Failed app-state mirrors remain in a local outbox. With the app stopped, `.venv/bin/python -m app.scripts.retry_mirrors` retries them without dispatching notifications. Notifications record delivery per channel, retry failed channels and preserve previously delivered actions across upgrades.
 
 ## Tests
 
