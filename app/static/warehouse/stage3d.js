@@ -15,6 +15,10 @@ import { createZoneDraw } from './zonedraw.js';
 // floor diagonal on larger floors, and short enough that the base stays FRUSTUM_CLEAR (m) above the floor.
 const FRUSTUM_D = 3, FRUSTUM_K = 0.07, FRUSTUM_CLEAR = 0.5;
 const FOCUS_DIST = 12; // camera distance (m) after focus()
+// fit(): camera pitch above the floor, least distance (m), share of the canvas (NDC) the actors fill, actor height (m) kept in view
+const FIT_PITCH = Math.PI / 3, FIT_DIST = 18, FIT_NDC = 0.6, ACTOR_H = 1.8;
+const PLANE_FADE = 0.25; // opacity of the frustum image planes while actors are framed
+const ACT_PAD = 3, ACT_MIN = 12; // home framing: margin (m) around the activity area and its least side (m)
 const RING_R = 0.76; // outer radius (m) of the person selection ring in skeleton.js
 const DIM = 0.25; // opacity factor of actors outside a non-empty selection
 
@@ -100,11 +104,12 @@ export function createStage(canvas) {
   cloud.visible = false;
   scene.add(ground, blocks, cloud, blindLayer, zone.group, hazards.group, cosmos.group, trackGroup, measureLayer, people.group, lifts.group, frustaGroup, pinGroup);
 
-  let mf = null, view = 'free', tracks = new Map(), tween = null, home = null, selectedIds = [], askable = false;
+  let mf = null, view = 'free', tracks = new Map(), skeleton = null, forklift = null, tween = null, home = null, selectedIds = [], askable = false;
   // focusIds: the actors an evidence cites, shown instead of the selection; back: the view before the first fit()
   let focusIds = null, back = null;
   // measure: {ids: [a, b], t0, t1}, drawn while t0 <= clock < t1; measureEnds: the [x, y] pair it was last drawn at
   let measure = null, measureEnds = null;
+  let activeCam = null; // the camera the stage video dock shows; its frustum is drawn in --ink
   const frusta = new Map(), pickFns = new Set();
   const loader = new THREE.TextureLoader(), textures = new Map();
 
@@ -140,12 +145,31 @@ export function createStage(canvas) {
     ground.add(floor, seg(minor, '--rule'), seg(major, '--thread'));
   }
 
-  // Home framing: the floor corners plus every camera centre; the free view looks across the floor's long side.
+  // Home framing: the activity area (every person and forklift position of the scene, padded by ACT_PAD, at least ACT_MIN
+  // a side, clamped to the floor), else the floor corners plus every camera centre; the free view looks across the floor's long side.
   function frame(m) {
     const { origin: [x0, y0], nx, ny, cell_m } = m.ground, x1 = x0 + nx * cell_m, y1 = y0 + ny * cell_m;
-    const pts = [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0], ...m.cams.map((c) => c.cam2world.slice(12, 15))].map((p) => new THREE.Vector3(...p));
+    const xy = [
+      ...[...tracks.values()].flatMap((tr) => tr.pts.map((p) => [p[1], p[2]])),
+      ...Object.values(skeleton?.persons ?? {}).flatMap((p) => p.root_world.filter(Boolean)),
+      ...(forklift?.forklifts ?? []).flatMap((f) => f.track.map((r) => [r.x, r.y])),
+    ];
+    let box = [[x0, x1], [y0, y1]];
+    if (xy.length) {
+      box = box.map(([g0, g1], k) => {
+        let lo = Infinity, hi = -Infinity;
+        for (const p of xy) {
+          lo = Math.min(lo, p[k]);
+          hi = Math.max(hi, p[k]);
+        }
+        const grow = Math.max(0, ACT_MIN - (hi - lo) - 2 * ACT_PAD) / 2;
+        return [Math.max(g0, lo - ACT_PAD - grow), Math.min(g1, hi + ACT_PAD + grow)];
+      });
+    }
+    const [[bx0, bx1], [by0, by1]] = box;
+    const pts = [[bx0, by0, 0], [bx1, by0, 0], [bx1, by1, 0], [bx0, by1, 0], ...(xy.length ? [] : m.cams.map((c) => c.cam2world.slice(12, 15)))].map((p) => new THREE.Vector3(...p));
     const dir = ny > nx ? new THREE.Vector3(-0.85, -0.15, 1.1) : new THREE.Vector3(-0.15, -0.85, 1.1);
-    home = { pts, dir: dir.normalize(), target: new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, 0) };
+    home = { pts, dir: dir.normalize(), target: new THREE.Vector3((bx0 + bx1) / 2, (by0 + by1) / 2, 0) };
   }
 
   function buildFrustum(c) {
@@ -175,7 +199,7 @@ export function createStage(canvas) {
     node.matrixWorldNeedsUpdate = true;
     node.add(edges, new THREE.Mesh(quad, mat), tag);
     frustaGroup.add(node);
-    return { c, node, mat, url: null, tex: null };
+    return { c, node, mat, edge: edges.material, url: null, tex: null };
   }
 
   // Frustum base and (in that camera's view) background: the camera's current thumbnail, grey when there is none.
@@ -199,21 +223,19 @@ export function createStage(canvas) {
   function flyTo(pos, target, ms) {
     tween = { t0: performance.now(), ms: still.matches ? 1 : Math.max(ms, 1), p0: free.position.clone(), q0: controls.target.clone(), p1: pos, q1: target };
   }
-  // Backs the camera off along a fixed direction, re-centring the target on the floor so the projected home points sit in
-  // the middle of the canvas, until they all project inside FIT of it (NDC).
-  function pose(v, ms) {
-    const FIT = 0.88;
-    const dir = v === 'top' ? new THREE.Vector3(0, -0.001, 1).normalize() : home.dir;
+  // Backs the camera off along a fixed direction from d0, re-centring the target on the floor so the projected points sit
+  // in the middle of the canvas, until they all project inside FIT of it (NDC).
+  function backOff(pts, target0, dir, FIT, d0, ms) {
     const probeCam = free.clone(), fitRay = new THREE.Raycaster();
     const place = (target, d) => {
       probeCam.position.copy(target).addScaledVector(dir, d);
       probeCam.lookAt(target);
       probeCam.updateMatrixWorld();
-      return home.pts.map((p) => p.clone().project(probeCam));
+      return pts.map((p) => p.clone().project(probeCam));
     };
     let target;
-    for (let d = 4; d < 400; d *= 1.05) {
-      target = home.target.clone();
+    for (let d = d0; d < 400; d *= 1.05) {
+      target = target0.clone();
       for (let i = 0; i < 3; i++) {
         const q = place(target, d), mid = (k) => (Math.min(...q.map((p) => p[k])) + Math.max(...q.map((p) => p[k]))) / 2;
         fitRay.setFromCamera(new THREE.Vector2(mid('x'), mid('y')), probeCam);
@@ -222,6 +244,17 @@ export function createStage(canvas) {
       if (place(target, d).every((q) => q.z < 1 && Math.abs(q.x) <= FIT && Math.abs(q.y) <= FIT)) break;
     }
     flyTo(probeCam.position.clone(), target, ms);
+  }
+  const pose = (v, ms) => backOff(home.pts, home.target, v === 'top' ? new THREE.Vector3(0, -0.001, 1).normalize() : home.dir, 0.88, 4, ms);
+
+  // Image planes of the frusta, faded so they do not cover framed actors.
+  function fade(on) {
+    for (const f of frusta.values()) {
+      f.mat.transparent = on;
+      f.mat.opacity = on ? PLANE_FADE : 1;
+      f.mat.depthWrite = !on;
+      f.mat.needsUpdate = true;
+    }
   }
 
   const ray = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -262,9 +295,20 @@ export function createStage(canvas) {
     if (measure && shown(measureGroup)) stretchMeasure(cam);
     renderer.render(scene, cam);
     labels.render(scene, cam);
+    hideOffView(cam);
     people.declutter(cam.position);
     placeTags();
   });
+
+  // CSS2DRenderer hides only labels behind the camera; this also hides those whose anchor projects off the canvas.
+  const anchor = new THREE.Vector3();
+  function hideOffView(cam) {
+    scene.traverseVisible((o) => {
+      if (!o.isCSS2DObject || o.element.style.display === 'none') return;
+      anchor.setFromMatrixPosition(o.matrixWorld).project(cam);
+      if (Math.abs(anchor.x) > 1 || Math.abs(anchor.y) > 1) o.element.style.display = 'none';
+    });
+  }
 
   // Shifts each Model tag (CSS translate, on top of CSS2DRenderer's transform) to the first spot around its anchor that
   // overlaps no other label, person ring, forklift box or earlier tag; nearer spots and "above" come first.
@@ -327,6 +371,7 @@ export function createStage(canvas) {
   }
 
   const stage = {
+    // The home view frames the skeleton, forklift and tracks set before it (the floor and cameras when there are none).
     loadManifest(m) {
       mf = m;
       buildGround(m.ground);
@@ -352,8 +397,8 @@ export function createStage(canvas) {
     setLayer(id, on) {
       layerGroups[id].visible = on;
     },
-    setSkeleton: (json) => people.set(json),
-    setForklift: (json) => lifts.set(json),
+    setSkeleton: (json) => people.set((skeleton = json)),
+    setForklift: (json) => lifts.set((forklift = json)),
     setVisibility: (json) => cells.set(json),
     setTracks(json) {
       tracks = new Map(json.tracks.map((tr) => [tr.entity_id, tr]));
@@ -395,6 +440,14 @@ export function createStage(canvas) {
         }
       }
     },
+    // Draws the frustum edges of camera id in --ink at full opacity, the others as built.
+    setActiveCam(id) {
+      activeCam = id;
+      for (const f of frusta.values()) {
+        f.edge.color = color(f.c.id === id ? '--ink' : '--ink-2');
+        f.edge.opacity = f.c.id === id ? 1 : 0.75;
+      }
+    },
     setHazards: (zones, fresh) => hazards.set(zones, fresh),
     setModelResults: (results) => cosmos.set(results),
     // pins: [{id, xy, text, t_ms, on, kind:'event'|'label'}]
@@ -431,19 +484,25 @@ export function createStage(canvas) {
       focusIds = ids;
       mark();
     },
-    // Flies the free camera to frame world points [[x, y], ...]; unfit() returns to the view before the first fit.
+    // Flies the free camera to frame actors at world points [[x, y], ...] from FIT_PITCH above its current heading, at least
+    // FIT_DIST away and far enough that they fill no more than FIT_NDC of the canvas, and fades the frustum image planes;
+    // unfit() returns to the view before the first fit.
     fit(pts, ms = 800) {
       back ??= { view, pos: free.position.clone(), target: controls.target.clone() };
-      const c = [0, 1].map((k) => pts.reduce((s, p) => s + p[k], 0) / pts.length);
-      const r = Math.max(...pts.map((p) => Math.hypot(p[0] - c[0], p[1] - c[1])));
+      // heading of the pose being flown to; before the first pose lands the camera has none
+      const flat = (tween ? tween.p1.clone().sub(tween.q1) : free.position.clone().sub(controls.target)).setZ(0);
+      if (flat.length() < 1e-6) flat.copy(home.dir).setZ(0);
+      const dir = flat.normalize().multiplyScalar(Math.cos(FIT_PITCH)).setZ(Math.sin(FIT_PITCH));
       if (view !== 'free') stage.setView('free');
-      const to = new THREE.Vector3(c[0], c[1], 0), dir = free.position.clone().sub(controls.target).normalize();
-      flyTo(to.clone().addScaledVector(dir, Math.max(FOCUS_DIST, 4 * r)), to, ms);
+      const c = [0, 1].map((k) => pts.reduce((s, p) => s + p[k], 0) / pts.length);
+      backOff(pts.flatMap(([x, y]) => [new THREE.Vector3(x, y, 0), new THREE.Vector3(x, y, ACTOR_H)]), new THREE.Vector3(c[0], c[1], 0), dir, FIT_NDC, FIT_DIST, ms);
+      fade(true);
     },
     unfit() {
       if (!back) return;
       const b = back;
       back = null;
+      fade(false);
       if (b.view !== 'free') stage.setView(b.view);
       else flyTo(b.pos, b.target, 600);
     },
@@ -517,6 +576,12 @@ export function createStage(canvas) {
       blocks: blocks.children[0]?.count ?? 0,
       cloud: cloud.visible && cloud.children.length > 0,
       floor: ground.visible,
+      camera: (() => {
+        const d = free.position.clone().sub(controls.target), deg = THREE.MathUtils.radToDeg;
+        return { dist: d.length(), pitch: deg(Math.asin(d.z / d.length())), heading: deg(Math.atan2(d.y, d.x)), target: [controls.target.x, controls.target.y] };
+      })(),
+      planes: [...frusta.values()].map((f) => f.mat.opacity),
+      active_cam: activeCam,
     }),
     // Slow turntable of the free camera (home background); controls.update() already runs every frame.
     orbit(on) {

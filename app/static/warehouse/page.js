@@ -1,5 +1,5 @@
 // Warehouse workspace page (spec §9.2): full-bleed 3D stage with a camera rail, Explore | Evidence modes, a Layers popover
-// and the source frame dock; synced videos in the panel's Videos tab.
+// and the stage video dock (one camera on the master clock); synced videos of every hit camera in the panel's Videos tab.
 // Page interface: mount(root, ctx) → dispose, applyHits, applyUI, applyModelResults, loadScene, showMeasure.
 import { icon, source, srcIcon } from '../kernel/badges.js';
 import { esc, tc } from '../kernel/format.js';
@@ -15,6 +15,7 @@ const LAYERS = [['people', 'People + skeletons'], ['forklift', 'Forklift', 'fork
 const SWATCH = { forklift: '<i class="sw sw-lift" title="Bright face is the front"></i>', measures: '<i class="sw sw-measure"></i>', blind: '<i class="sw sw-blind" title="Seen by no camera"></i><i class="sw sw-single" title="Seen by one camera only"></i>' };
 const OFF_BY_DEFAULT = new Set(['cloud']);
 const TOAST_MS = 8000;
+const DOCK_KEY = 'sva.whVideo'; // 'open' | 'collapsed'
 
 let P = null; // the mounted page
 
@@ -31,12 +32,28 @@ const layerOn = (id) => (state.layers.has('wh') ? state.layers.has(`wh.${id}`) :
 // The camera an evidence was read from: its own, else that of its first observation.
 const evCam = (e) => e.cam_id ?? e.observation_ids?.[0]?.cam_id ?? null;
 
+function dockOpen() {
+  try {
+    return localStorage.getItem(DOCK_KEY) !== 'collapsed';
+  } catch {
+    return true;
+  }
+}
+function storeDockOpen(open) {
+  try {
+    localStorage.setItem(DOCK_KEY, open ? 'open' : 'collapsed');
+  } catch {
+    // storage may be unavailable; the dock state still applies to this page
+  }
+}
+
 export async function mount(root, ctx) {
   const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./warehouse.css', import.meta.url).href });
   document.head.append(css);
   root.innerHTML = `
     <div class="wh">
       <canvas class="wh-canvas"></canvas>
+      <p class="stage-msg wh-loading">Loading scene…</p>
       <div class="wh-hud">
         <nav class="wh-rail" aria-label="Cameras"></nav>
         <div class="wh-bar">
@@ -53,14 +70,15 @@ export async function mount(root, ctx) {
             <div class="wh-src-legend">${['measure', 'map', 'model', 'human'].map(source).join('')}</div>
           </div>
         </div>
-        <section class="wh-dock" aria-label="Source frame" hidden></section>
+        <section class="wh-stage-video" aria-label="Camera video" hidden><header class="wh-sv-head mono"></header><div class="wh-sv-body"></div></section>
+        <button type="button" class="wh-sv-open" hidden></button>
         <div class="wh-toast" role="status" hidden></div>
       </div>
     </div>`;
   const host = root.querySelector('.wh');
   const stage = createStage(host.querySelector('.wh-canvas'));
   P = {
-    ctx, host, stage, key: null, ready: null, events: [], triggered: new Set(), pins: [], videos: null, dock: null, pip: null, hitCams: null,
+    ctx, host, stage, key: null, ready: null, events: [], triggered: new Set(), pins: [], videos: null, dock: null, dockCam: null, dockOnly: null, hitCams: null, hitIds: null, hitPts: null,
     used: new Set(), focus: null, inEvidence: false, measure: null, toastTimer: 0, models: new Map(), lastT: ctx.clock.t, second: -1, modelLanes: false,
   };
   const sub = (type, fn) => (ctx.bus.on(type, fn), () => ctx.bus.off(type, fn));
@@ -94,37 +112,38 @@ export async function mount(root, ctx) {
 }
 
 export function loadScene(key) {
-  const { api, clock } = P.ctx;
+  const { api, clock } = P.ctx, msg = P.host.querySelector('.wh-loading');
+  msg.textContent = 'Loading scene…';
+  msg.hidden = false;
   P.ready = (async () => {
     const [mf, entities, tl, acts] = await Promise.all(
       [`api/scene/${key}/manifest`, `api/scene/${key}/entities`, `api/scene/${key}/timeline`, `api/actions?scene_key=${key}`].map((p) => api.get(p)));
     // points, forklift and visibility are optional warehouse assets (CONTRACT §4.2).
     const asset = (k) => mf.assets[k] && api.get(`api/assets/${key}/${mf.assets[k]}`);
-    const [buf, skeleton, forklift, visibility, tracks] = await Promise.all([
-      mf.assets.points && fetch(api.asset(`${key}/${mf.assets.points}`)).then((r) => r.arrayBuffer()),
-      asset('skeleton'), asset('forklift'), asset('visibility'), asset('tracks'),
-    ]);
+    const [skeleton, forklift, visibility, tracks] = await Promise.all([asset('skeleton'), asset('forklift'), asset('visibility'), asset('tracks')]);
     Object.assign(P, {
       key, mf, entities, owner: owners(entities), lanes: tl.lanes, events: tl.events, triggered: new Set(acts.actions.map((a) => a.event_id)), pins: [], models: new Map(),
-      second: -1, modelLanes: false, used: new Set(), focus: null, measure: null,
+      second: -1, modelLanes: false, used: new Set(), focus: null, measure: null, hitCams: null, hitIds: null, hitPts: null,
     });
     const { stage } = P;
+    stage.setSkeleton(skeleton);
+    stage.setForklift(forklift);
+    stage.setTracks(tracks);
     stage.loadManifest(mf);
-    stage.setPoints(buf);
+    stage.setPoints(null);
     // layer toggles and their swatches for optional assets the scene lacks
     P.host.querySelectorAll('[data-asset]').forEach((el) => (el.hidden = !mf.assets[el.dataset.asset]));
     for (const [id] of LAYERS) {
       stage.setLayer(id, layerOn(id));
       P.host.querySelector(`input[data-layer="${id}"]`).checked = layerOn(id);
     }
-    stage.setSkeleton(skeleton);
-    stage.setForklift(forklift);
     stage.setVisibility(visibility);
-    stage.setTracks(tracks);
     stage.drawZone(false);
     stage.setMeasure(null);
     exitEvidence();
-    unpin();
+    P.dock?.dispose();
+    P.dock = P.dockCam = null;
+    setDock();
     renderViews();
     renderRail();
     renderMode();
@@ -136,13 +155,19 @@ export function loadScene(key) {
     // a selection made while the scene loaded was skipped by onSelection
     onSelection(P.ctx.selection);
     P.host.dataset.scene = key;
+    msg.hidden = true;
+    // the point cloud (several MB) comes in after the scene shows; a scene loaded meanwhile drops it
+    if (mf.assets.points) {
+      fetch(api.asset(`${key}/${mf.assets.points}`)).then((r) => r.arrayBuffer()).then((buf) => P?.mf === mf && stage.setPoints(buf));
+    }
     return { scene_key: key };
   })();
+  P.ready.catch(() => (msg.textContent = 'Scene failed to load'));
   return P.ready;
 }
 
-// Players of the scene's videos: the Videos tab, the source dock and the stage PiP.
-const players = () => [P.videos, P.dock, P.pip?.videos].filter(Boolean);
+// Players of the scene's videos: the Videos tab and the stage video dock.
+const players = () => [P.videos, P.dock].filter(Boolean);
 
 function renderViews() {
   P.host.querySelector('.wh-views').innerHTML = [['free', 'Free'], ['top', 'Top']]
@@ -159,7 +184,7 @@ function renderRail() {
 }
 
 function updateRail() {
-  const sel = P.inEvidence ? evCam(P.focus) : null;
+  const sel = P.dockCam?.id;
   P.host.querySelectorAll('.wh-rcam').forEach((b) => {
     const id = b.dataset.view.slice(4);
     b.classList.toggle('used', P.used.has(id));
@@ -222,8 +247,9 @@ function onTick(t) {
     P.second = s;
     api.get(`api/scene/${key}/moment?t=${s * 1000}`).then((m) => {
       if (P?.key !== key || P.second !== s) return;
-      P.stage.setFrustumThumbs(m.cams);
-      railThumbs(m.cams);
+      const cams = m.cams.map((c) => ({ ...c, frame_url: c.frame_url && api.url(c.frame_url) }));
+      P.stage.setFrustumThumbs(cams);
+      railThumbs(cams);
     });
   }
   players().forEach((v) => v.sync(t));
@@ -265,20 +291,21 @@ function onSelection({ ids, source }) {
   if (!P?.mf) return;
   P.stage.highlight([...ids], source === 'user');
   P.videos?.highlight(ids);
-  P.pip?.videos.highlight(ids);
+  P.dock?.highlight(dockBold());
 }
 
 function onView(s) {
   if (s === 'hit' || !P?.mf) return;
-  P.hitCams = null;
+  P.hitCams = P.hitIds = P.hitPts = null;
   renderVideos();
-  unpin();
+  if (!P.inEvidence) setDock();
   P.models.clear();
   P.stage.setModelResults([]);
   P.stage.setMeasure(null);
   P.measure = P.focus = null;
   P.used.clear();
   exitEvidence();
+  P.stage.unfit();
   updateRail();
   renderMode();
   if (P.modelLanes) ['cosmos', 'predict'].forEach((id) => P.ctx.timeline.setLaneData(id, []));
@@ -320,25 +347,15 @@ function focusLabel(e, ids) {
   return e.method.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 
-// Evidence mode: the cited actors at full strength and framed, the source frame of its camera docked top right.
+// Evidence mode: the cited actors at full strength and framed, the stage video dock on the evidence's camera boxing only them.
 function enterEvidence() {
-  const { api, clock } = P.ctx, e = P.focus, ids = cited(e), cam = P.mf.cams.find((c) => c.id === evCam(e));
+  const e = P.focus, ids = cited(e), cam = P.mf.cams.find((c) => c.id === evCam(e));
   P.inEvidence = true;
   P.stage.setFocus(ids);
   const ps = ids.map((id) => P.stage.position(id, e.t0_ms)).filter(Boolean);
   if (ps.length) P.stage.fit(ps);
-  P.dock?.dispose();
-  P.dock = null;
-  const dock = P.host.querySelector('.wh-dock');
-  dock.hidden = !cam;
-  if (cam) {
-    dock.innerHTML = `<header class="wh-dock-head mono"><span class="wh-dock-src">Source</span><span>· ${esc(cam.id)} · ${tc(e.t0_ms)}</span>
-      <button type="button" class="wh-clip" title="Play from 2.5 s before">${icon('play')}clip</button></header>`;
-    P.dock = createVideos({ api, clock, key: P.key, mf: P.mf, cams: [cam], lanes: P.lanes, entities: P.entities, only: new Set(ids) });
-    dock.append(P.dock.el);
-    P.dock.highlight(ids);
-    P.dock.sync(clock.t);
-  }
+  if (cam) setDock(cam, new Set(ids));
+  else setDock();
   const chip = P.host.querySelector('.wh-focus');
   chip.innerHTML = `${srcIcon(e.kind)}<span>${esc(focusLabel(e, ids))}</span><button type="button" class="icon-btn wh-focus-clear" title="Back to Explore">${icon('x')}</button>`;
   chip.hidden = false;
@@ -350,10 +367,10 @@ function exitEvidence() {
   if (!P.inEvidence) return;
   P.inEvidence = false;
   P.stage.setFocus(null);
-  P.stage.unfit();
-  P.dock?.dispose();
-  P.dock = null;
-  P.host.querySelector('.wh-dock').hidden = true;
+  // back to the hit's framing, else to the view before the evidence
+  if (P.hitPts) P.stage.fit(P.hitPts);
+  else P.stage.unfit();
+  setDock();
   P.host.querySelector('.wh-focus').hidden = true;
   updateRail();
   renderMode();
@@ -364,7 +381,7 @@ function renderMode() {
   P.host.querySelector('.wh-mode [data-mode="evidence"]').disabled = !P.focus;
 }
 
-// ---- Videos tab and the stage PiP
+// ---- Videos tab and the stage video dock
 function renderVideos() {
   const pane = document.getElementById('tab-videos');
   P.videos?.dispose();
@@ -380,23 +397,56 @@ function renderVideos() {
   P.videos.sync(clock.t);
 }
 
+// "Pin to stage" in the Videos tab: the stage dock opens on that camera.
 function pin(id) {
-  const { api, clock, selection } = P.ctx, cam = P.mf.cams.find((c) => c.id === id);
-  unpin();
-  const box = Object.assign(document.createElement('section'), { className: 'wh-pip' });
-  box.innerHTML = `<header class="wh-pip-head"><span class="mono">${esc(id)}</span><button type="button" class="icon-btn wh-pip-close" title="Close">${icon('x')}</button></header>`;
-  const videos = createVideos({ api, clock, key: P.key, mf: P.mf, cams: [cam], lanes: P.lanes, entities: P.entities });
-  box.append(videos.el);
-  P.host.querySelector('.wh-hud').append(box);
-  P.pip = { box, videos };
-  videos.highlight(selection.ids);
-  videos.sync(clock.t);
+  storeDockOpen(true);
+  setDock(P.mf.cams.find((c) => c.id === id));
 }
 
-function unpin() {
-  P.pip?.videos.dispose();
-  P.pip?.box.remove();
-  P.pip = null;
+// Cameras the dock offers: the hit's (primary first), else the scene's in manifest order.
+const dockCams = () => P.hitCams ?? P.mf.cams;
+// Bold boxes in the dock: the evidence's cited actors, else the selection plus the hit's actors.
+const dockBold = () => (P.dockOnly ? [...P.dockOnly] : [...P.ctx.selection.ids, ...(P.hitIds ?? [])]);
+
+// Shows camera cam in the stage dock; only: the actor ids an evidence cites (the only ones boxed), null outside Evidence mode.
+function setDock(cam = dockCams()[0], only = null) {
+  if (cam !== P.dockCam || only || P.dockOnly) {
+    P.dock?.dispose();
+    P.dock = null;
+  }
+  P.dockCam = cam;
+  P.dockOnly = only;
+  renderDock();
+}
+
+// The dock is one player while open and a "Video · <cam>" tab while collapsed (no <video> then).
+function renderDock() {
+  const { api, clock } = P.ctx, cam = P.dockCam, open = dockOpen(), box = P.host.querySelector('.wh-stage-video');
+  if (!open) {
+    P.dock?.dispose();
+    P.dock = null;
+  } else if (!P.dock) {
+    P.dock = createVideos({ api, clock, key: P.key, mf: P.mf, cams: [cam], lanes: P.lanes, entities: P.entities, only: P.dockOnly });
+    box.querySelector('.wh-sv-body').append(P.dock.el);
+    P.dock.sync(clock.t);
+  }
+  P.dock?.highlight(dockBold());
+  const fold = `<button type="button" class="icon-btn wh-sv-fold" title="Collapse video">${icon('chevron-down')}</button>`;
+  box.querySelector('.wh-sv-head').innerHTML = P.dockOnly
+    ? `<span class="wh-sv-src">Source</span><span>· ${esc(cam.id)} · ${tc(P.focus.t0_ms)}</span>
+      <button type="button" class="wh-clip" title="Play from 2.5 s before">${icon('play')}clip</button>${fold}`
+    : `<nav class="wh-sv-tabs" aria-label="Video camera">${dockCams().map((c) => `<button type="button" data-cam="${esc(c.id)}" class="${c === cam ? 'on' : ''}">${esc(c.id)}</button>`).join('')}</nav>${fold}`;
+  box.hidden = !open;
+  const tab = P.host.querySelector('.wh-sv-open');
+  tab.innerHTML = `${icon('play')}Video · ${esc(cam.id)}`;
+  tab.hidden = open;
+  P.stage.setActiveCam(cam.id);
+  updateRail();
+}
+
+function foldDock(open) {
+  storeDockOpen(open);
+  renderDock();
 }
 
 async function drawZone(btn) {
@@ -410,8 +460,9 @@ async function drawZone(btn) {
   const inZone = new Set(r.events_in_zone.map((e) => e.event_id.slice(e.event_id.indexOf(':') + 1)));
   const events = P.events.filter((e) => inZone.has(e.id));
   timeline.setEvents(events);
+  timeline.showEvents(true);
   const chip = P.host.querySelector('.wh-zone-chip');
-  chip.innerHTML = `<span class="mono">${events.length}</span> event${events.length === 1 ? '' : 's'} in zone<button class="icon-btn wh-zone-clear" title="Clear zone"><svg class="i"><use href="icons.svg#x"/></svg></button>`;
+  chip.innerHTML = `${events.length ? `<span class="mono">${events.length}</span> event${events.length === 1 ? '' : 's'} in zone` : 'No events in zone'}<button class="icon-btn wh-zone-clear" title="Clear zone"><svg class="i"><use href="icons.svg#x"/></svg></button>`;
   chip.hidden = false;
 }
 
@@ -427,7 +478,9 @@ function onClick(e) {
   else if (t.closest('.wh-clip')) {
     clock.seek(Math.max(P.mf.t0_ms, P.focus.t0_ms - 2500));
     clock.play();
-  } else if (t.closest('.wh-pip-close')) unpin();
+  } else if (t.closest('.wh-sv-tabs button')) setDock(P.mf.cams.find((c) => c.id === t.closest('button').dataset.cam));
+  else if (t.closest('.wh-sv-fold')) foldDock(false);
+  else if (t.closest('.wh-sv-open')) foldDock(true);
   else if (t.closest('.wh-toast-view')) {
     const ev = P.events.find((x) => x.id === t.closest('.wh-toast-view').dataset.ev);
     clock.seek(ev.t0_ms);
@@ -438,6 +491,7 @@ function onClick(e) {
   else if (t.closest('.wh-zone-clear')) {
     P.stage.drawZone(false);
     timeline.setEvents(P.events);
+    timeline.showEvents(false);
     P.host.querySelector('.wh-zone-chip').hidden = true;
   } else if (t.closest('.wh-pin')) {
     const pin = t.closest('.wh-pin');
@@ -455,12 +509,14 @@ export async function applyHits(moments) {
   await P.ready;
   const { api, clock } = P.ctx, m = moments[0];
   P.hitCams = [m.primary_cam, ...m.cams.filter((c) => c !== m.primary_cam)].map((id) => P.mf.cams.find((c) => c.id === id));
+  P.hitIds = m.actor_refs.map((a) => a.entity_id);
   for (const x of moments) x.cams.forEach((c) => P.used.add(c));
+  if (!P.inEvidence) setDock();
   updateRail();
   renderVideos();
   api.get(`api/model-results?scene_key=${P.key}&t_ms=${m.t0_ms}&window_ms=3000`).then((rs) => state.view === 'hit' && addModels(rs));
   const ps = m.actor_refs.map((a) => P.stage.position(a.entity_id, m.t0_ms)).filter(Boolean);
-  if (ps.length && state.agentCamera) P.stage.focus([ps.reduce((s, p) => s + p[0], 0) / ps.length, ps.reduce((s, p) => s + p[1], 0) / ps.length], 800);
+  if (ps.length && state.agentCamera) P.stage.fit((P.hitPts = ps));
 }
 
 // Executes an agent ui command (schemas/ui_cmd.json) and returns the state actually reached.

@@ -28,9 +28,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app.core import trace
 from app.core.models import ENTITY_ID_RE, CosmosRecord, EntityRef, make_record_id
+from app.core.street import _digest as street_digest
 
 # prompt revision per task, part of every record_id: bump only the prompt that changed so other records stay found
-PROMPT_REV = {"C1": "px-2", "C1-fleet": "px-1", "C2": "px-1", "C3": "px-1", "C4": "px-1", "C5": "px-1"}
+PROMPT_REV = {"C1": "px-2", "C1-fleet": "px-1", "C2": "px-1", "C3": "px-1", "C4": "px-1", "C5": "px-1",
+              "C3-street": "st-1", "C4-street": "st-1"}
 STEP_MS = 250  # 4 fps, the rate Cosmos temporal prompts expect
 WINDOW_MS = 3000
 PREFIX_MS = 2000
@@ -103,9 +105,11 @@ def predict_next(scene_key: str, t_ms: int, actor_ref: EntityRef, horizon_s: flo
 
 
 def ground_objects(scene_key: str, cam: str, t_ms: int, vocab: list[str], *, run: Any = None) -> CosmosRecord:
-    """C3: 0-1000 boxes for open-vocabulary occluders; ground_poly and depth check filled by geometry, not the model."""
-    prompt = (f"Locate every {', '.join(vocab)} in the frame stamped t={t_ms / 1000:.2f}s that could hide a person from "
-              "this camera. box_2d is [x1, y1, x2, y2] normalised to 0-1000 of that frame; label is one of the listed words. "
+    """C3: 0-1000 boxes for open-vocabulary occluders; ground_poly and depth check filled by geometry, not the model.
+    A street camera has no geometry, so its prompt asks for the objects alone."""
+    what = "" if _street(scene_key) else " that could hide a person from this camera"
+    prompt = (f"Locate every {', '.join(vocab)} in the frame stamped t={t_ms / 1000:.2f}s{what}. "
+              "box_2d is [x1, y1, x2, y2] normalised to 0-1000 of that frame; label is one of the listed words. "
               "Return an empty list when there is none.")
     schema = _obj({"objects": {"type": "array", "items": _obj({"label": {"enum": vocab}, "box_2d": {
         "type": "array", "items": {"type": "number", "minimum": 0, "maximum": 1000}, "minItems": 4, "maxItems": 4}})}})
@@ -145,7 +149,13 @@ def _fleet(scene_key: str) -> bool:
     return scene_key.startswith("fl-")
 
 
+def _street(scene_key: str) -> bool:
+    return _manifest(scene_key)["workspace"] == "street"
+
+
 def _rev(task: str, scene_key: str) -> str:
+    if task in ("C3", "C4") and _street(scene_key):
+        return PROMPT_REV[f"{task}-street"]
     return PROMPT_REV["C1-fleet" if task == "C1" and _fleet(scene_key) else task]
 
 
@@ -195,10 +205,15 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
     frames = [f for f in _frames(scene_key, m, cam, list(range(lo, hi, STEP_MS)), set(ids), region) if f[0] < hi]
     if not frames:
         raise VLMUnavailable(f"{scene_key}/{cam}: no video frames in [{lo}, {hi})")
-    head = (f"These are {len(frames)} frames from {'a dashcam' if _fleet(scene_key) else 'warehouse camera ' + cam} "
-            f"sampled at 4 fps from {frames[0][0] / 1000:.2f}s to {frames[-1][0] / 1000:.2f}s; each frame shows its time "
-            "at the bottom and tracked objects are boxed with their ids (P = person, F = forklift, V = vehicle); "
-            "these boxes, ids and times are overlays, not part of the scene. ")
+    if m["workspace"] == "street":
+        head = (f"These are {len(frames)} frames from street camera {cam} sampled at 4 fps from {frames[0][0] / 1000:.2f}s "
+                f"to {frames[-1][0] / 1000:.2f}s; each frame shows its time at the bottom; the time is an overlay, not part "
+                "of the scene. ")
+    else:
+        head = (f"These are {len(frames)} frames from {'a dashcam' if _fleet(scene_key) else 'warehouse camera ' + cam} "
+                f"sampled at 4 fps from {frames[0][0] / 1000:.2f}s to {frames[-1][0] / 1000:.2f}s; each frame shows its time "
+                "at the bottom and tracked objects are boxed with their ids (P = person, F = forklift, V = vehicle); "
+                "these boxes, ids and times are overlays, not part of the scene. ")
     out = _chat([_jpeg_b64(img) for _, img in frames], head + prompt + " Answer with JSON only.", schema, run_id, deadline)
     payload = make_payload(out, frames)
     rec = {"record_id": rid, "task": task, "t_ms": t_ms, "cam_id": cam,
@@ -323,25 +338,47 @@ def _frames(scene_key: str, m: dict, cam: str, targets: list[int], actors: set[s
     c = next(x for x in m["cams"] if x["id"] == cam)
     if not targets:
         return []
-    rows = _boxes(scene_key, m, cam, targets[0], targets[-1] + STEP_MS)
-    obs = [o for o in _observations(scene_key, m) if o[1] == cam]
-    bands = _bands(scene_key, m, region, targets[0], targets[-1] + STEP_MS) if region and not ENTITY_ID_RE.match(region) else []
-    cap = cv2.VideoCapture(_asset(scene_key, c["video"]))
-    cap.set(cv2.CAP_PROP_POS_MSEC, max(0, targets[0] - c["offset_ms"] - 500))
+    street = m["workspace"] == "street"
+    # street cameras have no tracks, entities or ego frames to draw
+    rows = {} if street else _boxes(scene_key, m, cam, targets[0], targets[-1] + STEP_MS)
+    obs = [] if street else [o for o in _observations(scene_key, m) if o[1] == cam]
+    bands = _bands(scene_key, m, region, targets[0], targets[-1] + STEP_MS) if region and not ENTITY_ID_RE.match(region) and not street else []
+    if c["video"]:
+        sources = [(_asset(scene_key, c["video"]), c["offset_ms"])]
+    else:  # a site street camera: its VSS chunks, each starting at its own scene time
+        sources = [(_chunk(scene_key, ch["uri"]), c["offset_ms"] + ch["t0_ms"]) for ch in c["chunks"]
+                   if ch["t0_ms"] <= targets[-1] and ch["t1_ms"] > targets[0]]
     out, i = [], 0
-    while i < len(targets):
-        ok, bgr = cap.read()
-        if not ok:
+    for src, offset in sources:
+        if i == len(targets):
             break
-        ms = round(cap.get(cv2.CAP_PROP_POS_MSEC)) + c["offset_ms"]
-        if ms < targets[i]:
-            continue
-        while i < len(targets) and targets[i] <= ms:
-            i += 1
-        if ms - targets[i - 1] < STEP_MS:  # a gap in the video skips the target rather than shifting it
-            out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands])))
-    cap.release()
+        cap = cv2.VideoCapture(src)
+        cap.set(cv2.CAP_PROP_POS_MSEC, max(0, targets[i] - offset - 500))
+        while i < len(targets):
+            ok, bgr = cap.read()
+            if not ok:
+                break
+            ms = round(cap.get(cv2.CAP_PROP_POS_MSEC)) + offset
+            if ms < targets[i]:
+                continue
+            while i < len(targets) and targets[i] <= ms:
+                i += 1
+            if ms - targets[i - 1] < STEP_MS:  # a gap in the video skips the target rather than shifting it
+                out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands])))
+        cap.release()
     return out
+
+
+def _chunk(scene_key: str, uri: str) -> str:
+    """A street chunk: the scene asset in fixtures; on site the copy street.local_chunk keeps under RUNS_DIR, else a
+    presigned URL of the VSS object."""
+    if not uri.startswith("s3://"):
+        return _asset(scene_key, uri)
+    cached = Path(os.environ.get("RUNS_DIR", "runs")) / "street" / "chunks" / (street_digest(uri) + ".mp4")
+    if cached.is_file():
+        return str(cached)
+    bucket, key = uri[5:].split("/", 1)
+    return _s3().generate_presigned_url("get_object", ExpiresIn=3600, Params={"Bucket": bucket, "Key": key})
 
 
 def _annotate(bgr, ms: int, cam: dict, rows: dict[int, list], obs: list, actors: set[str], bands: list) -> Image.Image:

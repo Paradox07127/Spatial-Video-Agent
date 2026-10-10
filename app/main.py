@@ -1,11 +1,12 @@
 """Application runs after the reverse proxy removes PUBLIC_BASE_PATH."""
 from contextlib import asynccontextmanager
+import hashlib
 import json
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import actions, agent, assets, fleet, health, scenes, search
@@ -22,6 +23,13 @@ class RevalidatedFiles(StaticFiles):
         response = super().file_response(*args, **kwargs)
         response.headers['Cache-Control'] = 'no-cache'
         return response
+
+
+def static_version(root):
+    h = hashlib.sha256()
+    for p in sorted(p for p in root.rglob('*') if p.suffix in ('.js', '.css', '.html') and p.relative_to(root).parts[0] != 'lib'):
+        h.update(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def create_app():
@@ -60,6 +68,16 @@ def create_app():
     @app.exception_handler(ValueError)
     async def invalid(request: Request, exc: ValueError):
         return JSONResponse({'detail': str(exc)}, status_code=422)
+
+    # entry URLs carry the static hash so a new index.html never runs a cached old app.js or styles.css
+    version = static_version(STATIC_DIR)
+    index = (STATIC_DIR / 'index.html').read_text().replace('href="styles.css"', f'href="styles.css?v={version}"') \
+        .replace('src="app.js"', f'src="app.js?v={version}"')
+
+    @app.get('/', include_in_schema=False)
+    @app.get('/index.html', include_in_schema=False)
+    async def index_html():
+        return HTMLResponse(index, headers={'Cache-Control': 'no-cache'})
 
     app.mount('/lib', RevalidatedFiles(directory=Settings().lib_dir, check_dir=False), name='lib')
     app.mount('/', RevalidatedFiles(directory=STATIC_DIR, html=True), name='static')

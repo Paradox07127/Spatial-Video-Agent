@@ -211,6 +211,18 @@
                 "items": {
                   "$ref": "#/$defs/moment_card"
                 }
+              },
+              "auto_open": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-z0-9_-]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "scene_key the shell opens by itself: set when every moment is in one scene; null when moments span scenes (the shell shows the candidate list)"
               }
             },
             "required": [
@@ -892,6 +904,29 @@
               "type": "null"
             }
           ]
+        },
+        "tag": {
+          "anyOf": [
+            {
+              "enum": [
+                "warehouse",
+                "fleet",
+                "fixed",
+                "mobile"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "source tag of the scene (models.tag_of)"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "scene title for the candidate list"
         }
       },
       "required": [

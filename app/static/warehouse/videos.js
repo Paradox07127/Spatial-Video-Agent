@@ -1,7 +1,7 @@
 // Synchronised videos (spec §9.2): one <video> per camera slaved to the master clock,
 // currentTime = (t − offset_ms)/1000, re-seeked while playing when off by more than a frame; boxes are drawn at the
 // presented frame's mediaTime (requestVideoFrameCallback). video.dataset.sceneMs = scene time of the presented frame.
-// The same element serves the Videos tab, the stage PiP and the source frame dock; the container styles its layout.
+// The same element serves the Videos tab and the stage video dock; the container styles its layout.
 import { esc, tc } from '../kernel/format.js';
 
 const css = getComputedStyle(document.documentElement);

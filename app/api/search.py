@@ -54,7 +54,11 @@ def box_rows(store, key, cam, t0, t1, chunks=None):
     for chunk in range(t0//10000, (t1-1)//10000+1):
         path = f'{directory}/{cam}/{chunk:05d}.json'
         if (key, path) not in chunks:
-            chunks[key, path] = store.asset_json(key, path)['rows']
+            try:
+                chunks[key, path] = store.asset_json(key, path)['rows']
+            except FileNotFoundError:
+                # no chunk file is written for a 10 s window without boxes
+                chunks[key, path] = []
         rows.extend(r for r in chunks[key, path] if t0<=r[0]<t1)
     return rows
 

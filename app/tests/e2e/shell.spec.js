@@ -126,6 +126,20 @@ test('an answerable question from home opens its source route on the first hits 
   expect(calls).toEqual(expect.arrayContaining(['mount', 'applyHits', 'applyModelResults', 'applyUI']));
 });
 
+test('a fleet place chip on home runs against all trips; a typed question keeps the last route', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('sva.lastRoute', '#/fleet/fl-pie-fixture-01@0'));
+  await page.route(/\/api\/agent\/ask$/, () => {});
+  const sent = [];
+  page.on('request', (r) => r.url().endsWith('/api/agent/ask') && sent.push(r.postDataJSON().context));
+  await page.goto('#/');
+  await page.locator('.home .preset[data-ws="fleet"]').click();
+  await expect.poll(() => sent.length).toBe(1);
+  await page.locator('#home-input').fill('Near the ROM, did a pedestrian cross in front of the car?');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => sent.length).toBe(2);
+  expect(sent.map((c) => [c.workspace, c.scene_key ?? null])).toEqual([['fleet', null], ['fleet', 'fl-pie-fixture-01']]);
+});
+
 test('while running: the narration card names the step, Stop ends the run as stopped', async ({ page }) => {
   test.skip(LIVE, 'needs a held mock stream');
   await mockAskHeld(page, 'wh-main', 'ui');
@@ -183,7 +197,7 @@ test('a follow-up carries the selection and the clock time as context', async ({
   expect(sent[0].context).toEqual({ workspace: 'warehouse', scene_key: null, selection: ['P1', 'F1'], t_ms: 4600 });
 });
 
-test('street scenes, which have no page template yet, are left out of ⌘K and the home @ list', async ({ page }) => {
+test('street scenes, which have a page template now, are listed in ⌘K and the home @ list', async ({ page }) => {
   await page.route(/\/api\/workspaces$/, async (r) => {
     const ws = await (await r.fetch()).json();
     const street = { scene_id: 'st1', scene_key: 'st-sf-cam-4', title: 'SF street cam 4', t0_ms: 0, t1_ms: 60000, thumb: null, n_events: 0, evidence_level: 'L1', caps: {} };
@@ -192,11 +206,11 @@ test('street scenes, which have no page template yet, are left out of ⌘K and t
   await page.goto('#/');
   await page.locator('#home-input').fill('Was anyone here @');
   await expect(page.locator('.home-at')).toBeVisible();
-  await expect(page.locator('.home-at')).not.toContainText('st-sf-cam-4');
+  await expect(page.locator('.home-at')).toContainText('st-sf-cam-4');
   await page.locator('#home-input').press('Escape');
   await page.locator('#cmdk-btn').click();
   await expect(page.locator('#cmdk li').first()).toBeVisible();
-  await expect(page.locator('#cmdk')).not.toContainText('st-sf-cam-4');
+  await expect(page.locator('#cmdk')).toContainText('st-sf-cam-4');
 });
 
 test('measured values in the answer panel are rounded like the 3D label (4 significant digits, σ to 2)', async ({ page }) => {

@@ -7,7 +7,7 @@ const el = () => document.getElementById('modelpanel');
 let last = [];
 
 const CHECK = { verified: 'yes', unverified: 'no', conflict: 'conflict' };
-const check = (r) => `<span class="mp-check ck-${r.verification.status}" title="${esc(r.verification.method)}">Checked by measure: ${CHECK[r.verification.status]}</span>`;
+const check = (r) => `<span class="mp-check ck-${esc(r.verification.status)}" title="${esc(r.verification.method)}">Checked by measure: ${CHECK[r.verification.status]}</span>`;
 const seg = (s) => `${span(s.start_s * 1000, s.end_s * 1000)} ${esc(s.text)}`;
 
 function rows(by) {
@@ -21,7 +21,7 @@ function rows(by) {
     </div>`;
   return [
     row('Situation C1', c1, c1 ? `<b class="mono">${esc(c1.payload.label)}</b> ${esc(c1.payload.reason)}` : none),
-    row('Next C2', c2, c2 ? `predicts <b class="mono">${esc(c2.payload.actions.join(' / '))}</b> (frames ≤ ${sec(c2.payload.max_frame_ms)} only, within ${c2.payload.horizon_s} s) · actual <b class="mono">${c2.payload.actual ? esc(c2.payload.actual.actions.join(' / ')) : 'unknown'}</b>` : none),
+    row('Next C2', c2, c2 ? `predicts <b class="mono">${esc(c2.payload.actions.join(' / '))}</b> (frames ≤ ${sec(c2.payload.max_frame_ms)} only, within ${esc(c2.payload.horizon_s)} s) · actual <b class="mono">${c2.payload.actual ? esc(c2.payload.actual.actions.join(' / ')) : 'unknown'}</b>` : none),
     row('Timing C4', c4, c4 ? `"${esc(c4.payload.query)}" ${c4.payload.segments.map(seg).join('; ') || 'not found'}` : none),
     row('Objects C3/C5', c3 || c5, [
       c3 && c3.payload.objects.map((o) => `${esc(o.label)} (depth ${o.geometric_support ? 'checked' : 'unchecked'})`).join(', '),

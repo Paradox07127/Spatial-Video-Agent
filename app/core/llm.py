@@ -27,7 +27,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         template = 'find'
     elif re.search(r'\b(where|near|building|junction|intersection)\b', text):
         template = 'where_is'
-    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how many meters|nearest|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
+    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how many|nearest|close to|next to|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
         template = 'find'
     else:
         template = 'unsupported'
@@ -43,7 +43,8 @@ def rule_parse(q: str, ctx: dict) -> Query:
     word = r"(?<![A-Za-z0-9_])[A-Za-z][A-Za-z.']*(?:\s+[A-Za-z][A-Za-z.']*)*(?![A-Za-z0-9_])"
     junction = (re.search(rf'({street})\s*(?:&|/|\band\b)\s*({street})', q)
                 or re.search(rf'({word})\s*(?:&|\band\b)\s*({word})\s+(?:junction|intersection)\b', q))
-    named = re.search(r'near\s+([^?,]+)', q, re.I)
+    # only a capitalised name is a place: "near a moving vehicle" is a distance, not a place
+    named = re.search(r'(?i:near)\s+([A-Z][^?,]*)', q)
     if junction:
         place = junction[1]+' & '+junction[2]
     elif named:
@@ -53,9 +54,14 @@ def rule_parse(q: str, ctx: dict) -> Query:
     if interval:
         t_range = (int(float(interval[1])*1000), int(float(interval[2])*1000))
     key = ctx.get('scene_key') or (scene_key_of(ctx['scene_id']) if ctx.get('scene_id') else None)
+    sources = ctx.get('sources') or None
+    # entity ids, a time and a selection are local to one scene, and then the sources are ignored
+    corpus = ((ctx.get('scope') == 'corpus' or bool(sources)) and not re.search(r'\b[PFV]\d+\b', q.upper())
+              and ctx.get('t_ms') is None and not ctx.get('selection'))
     return Query(template=template, entities=list(dict.fromkeys(entities)), t_range=t_range, place=place,
                  zone=ctx.get('zone'), scene_key=key, workspace=ctx['workspace'],
-                 abstain_reason='unsupported_question' if template == 'unsupported' else None)
+                 abstain_reason='unsupported_question' if template == 'unsupported' else None,
+                 scope='corpus' if corpus else 'scene', sources=sources if corpus else None)
 
 
 def complete_json(messages: list[dict], *, role: str, timeout: float = 5) -> dict:

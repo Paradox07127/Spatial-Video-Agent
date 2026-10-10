@@ -1,5 +1,6 @@
 // People from skeleton.json: COCO-17 bones in world metres; a single-view frame (xyz null) shows only the root, tagged single view.
 import * as THREE from 'three';
+import { esc } from '../kernel/format.js';
 
 const EDGES = [[0, 1], [0, 2], [1, 3], [2, 4], [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
 // Samples farther than this from the clock are not drawn (ms).
@@ -12,7 +13,7 @@ export function createSkeletons(kit) {
 
   function tag(p) {
     const on = selected.has(p.id);
-    kit.setTag(p.tag, `${p.id}${p.single ? '<span class="lbl-sub">single view</span>' : ''}${on && askable ? kit.askButton(p.id) : ''}`, on);
+    kit.setTag(p.tag, `${esc(p.id)}${p.single ? '<span class="lbl-sub">single view</span>' : ''}${on && askable ? kit.askButton(p.id) : ''}`, on);
   }
 
   return {

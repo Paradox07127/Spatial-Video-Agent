@@ -112,3 +112,63 @@
 .runpage .rp-list a { grid-template-columns: 110px minmax(0, 1fr) auto; gap: 12px; min-height: 44px; padding: 0 8px; }
 .rp-lq { font-size: 14px; }
 .rp-lmeta { font-size: var(--fs-1); color: var(--ink-2); white-space: nowrap; }
+
+/* Keep the same reading column on smaller windows, with section links above it. */
+@media (max-width: 1200px) {
+  .runpage .rp { grid-template-columns: 150px minmax(0, 920px); column-gap: 32px; padding: 0 32px; }
+  .runpage .trace-row { grid-template-columns: 24px minmax(120px, 1fr) minmax(0, 1fr) 120px 56px; }
+  .rp-evrow { grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr) 110px 36px; }
+}
+
+@media (max-width: 1000px) {
+  .runpage .rp { grid-template-columns: minmax(0, 1fr); padding: 0 24px; }
+  .rp-nav { position: sticky; top: 52px; z-index: 1; flex-direction: row; flex-wrap: wrap; gap: 4px; margin: 0; padding: 12px 0; background: var(--paper); border-bottom: 1px solid var(--rule); }
+  .rp-nav button { border-left: 0; border-bottom: 2px solid transparent; }
+  .rp-nav button.on { border-bottom-color: var(--ink); }
+  .rp-main { padding: 24px 0; }
+  .runpage .rp-sec { scroll-margin-top: 156px; }
+  .rp-cg { grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); }
+  .rp-claims { grid-column: 1 / -1; overflow-wrap: anywhere; }
+  .runpage .rp-list a { grid-template-columns: 110px minmax(0, 1fr); padding: 10px 8px; }
+  .rp-lmeta { grid-column: 2; white-space: normal; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 700px) {
+  .rp-top { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 8px; height: auto; min-height: 52px; padding: 10px 16px; }
+  .rp-back { min-width: 0; overflow-wrap: anywhere; }
+  .rp-back kbd { display: none; }
+  .rp-back + .ghost { margin-left: 0; }
+  .rp-weave { grid-column: 2 / -1; justify-self: end; }
+  .runpage .rp { padding: 0 16px; }
+  .rp-nav { position: static; }
+  .runpage .rp-q, .rp-title { overflow-wrap: anywhere; }
+  .runpage .rp-meta > * { min-width: 0; overflow-wrap: anywhere; }
+  .runpage .rp-sec { scroll-margin-top: 116px; }
+  .rp-changed { padding: 14px; }
+  .rp-cg { gap: 10px; }
+  .rp-fr .t-frame { height: 100px; }
+  .runpage .trace-row { grid-template-columns: 24px minmax(0, 1fr) 56px; gap: 6px 8px; height: auto; min-height: 64px; padding: 10px 0; }
+  .runpage .ts-note { grid-column: 2; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .runpage .ts-ms { grid-column: 3; grid-row: 1; }
+  .runpage .ts-meta { grid-column: 2 / -1; flex-wrap: wrap; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .runpage .ts-name { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .runpage .ts-bar { grid-column: 2 / -1; }
+  .runpage .trace-detail { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 6px 12px 16px 32px; }
+  .td-kv { grid-template-columns: 64px minmax(0, 1fr); gap: 6px 8px; }
+  .runpage .td-links .jt, .runpage .td-links .jl { min-width: 0; overflow-wrap: anywhere; }
+  .rp-evrow { grid-template-columns: 90px minmax(0, 1fr) 40px; gap: 6px 8px; padding: 10px 0; }
+  .rp-evlabel { grid-column: 2; }
+  .rp-evwhere, .rp-evval { grid-column: 2; }
+  .rp-evlabel, .rp-evwhere, .rp-evval { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .rp-raw-btn { grid-column: 3; grid-row: 1; }
+  .rp-note { grid-template-columns: 90px minmax(0, 1fr); gap: 6px 8px; }
+  .rp-note-v { min-width: 0; overflow-wrap: anywhere; }
+  .rp-check { grid-column: 2; overflow-wrap: anywhere; }
+  .rp-vss > summary { flex-wrap: wrap; gap: 6px; height: auto; min-height: 44px; padding: 10px 12px; }
+  .rp-cmp { flex-basis: 100%; margin-left: 0; }
+  .rp-hits { padding-left: 32px; overflow-wrap: anywhere; }
+  .rp-vss .ans-sql pre { overflow-wrap: anywhere; }
+  .rp-col { padding: 24px 0; }
+  .runpage .rp-list a { grid-template-columns: 90px minmax(0, 1fr); gap: 6px 8px; }
+  .rp-lq { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+}

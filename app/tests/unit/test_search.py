@@ -28,6 +28,12 @@ def test_router(q, expected):
     assert llm.rule_parse(q, {'workspace': 'warehouse'}).template == expected
 
 
+@pytest.mark.parametrize('q', ['When does a pedestrian cross the street?', 'How many people walk past in this clip?',
+                               'When is the street busiest in this clip?'])
+def test_street_presets_route_to_find(q):
+    assert llm.rule_parse(q, {'workspace': 'street'}).template == 'find'
+
+
 @pytest.mark.parametrize('q,workspace,template,entities,place,t_range', [
     ('When did the worker start to dodge the forklift, and how far was it?', 'warehouse', 'find', ['person','forklift'], None, None),
     ('Is there anyone in the ceiling_00 blind spot from 0 to 10 seconds?', 'warehouse', 'find', ['person'], None, (0,10000)),
@@ -140,3 +146,16 @@ def test_no_match_unsupported_and_hard_time(tmp_path, monkeypatch):
         assert r.envelope.output['moments'] == []
     _, r = retrieve(store, SearchRequest(q='Find worker', workspace='warehouse', t_range=(8000, 9000)))
     assert all(8000 <= m['t0_ms'] < 9000 for m in r.envelope.output['moments'])
+
+
+def test_box_rows_skips_absent_chunks():
+    # the pipeline writes no chunk file for a 10 s window without boxes (wh-ss-warehouse_017 camera_01 has no 00015.json)
+    from app.api.search import box_rows
+    class Store:
+        def manifest(self, key):
+            return {'assets': {'boxes_dir': 'boxes'}}
+        def asset_json(self, key, path):
+            if path != 'boxes/cam/00001.json':
+                raise FileNotFoundError('Asset not found')
+            return {'rows': [[12000, 'person'], [15000, 'person']]}
+    assert box_rows(Store(), 'k', 'cam', 0, 30000) == [[12000, 'person'], [15000, 'person']]

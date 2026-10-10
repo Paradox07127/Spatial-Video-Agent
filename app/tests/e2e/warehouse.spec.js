@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { test, expect } = require('@playwright/test');
-const { mockApi, mockAsk, hazardZone } = require('./mockapi');
+const { ASKS, mockApi, mockAsk, mockAskHeld, hazardZone } = require('./mockapi');
 
 const LIVE = process.env.SVA_E2E_LIVE === '1';
 const KEY = 'wh-sdg-fixture-01';
@@ -81,7 +81,7 @@ async function open(page) {
   await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
 }
 
-test('default state: no <video>, three frustum bases carry the current second’s thumbnail and change with the clock', async ({ page }) => {
+test('default state: one <video> (the stage dock), three frustum bases carry the current second’s thumbnail and change with the clock', async ({ page }) => {
   mockActions(page);
   await open(page);
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
@@ -94,7 +94,8 @@ test('default state: no <video>, three frustum bases carry the current second’
   // eye_00 has no video in [6000, 7000): its base turns grey.
   await clock(page, 'seek(6200)');
   await expect.poll(async () => (await probe(page)).thumbs).toEqual({ ceiling_00: expect.stringMatching(/00006\.jpg$/), ceiling_04: expect.stringMatching(/00006\.jpg$/), eye_00: null });
-  expect(await page.locator('video').count()).toBe(0);
+  expect(await page.locator('video').count()).toBe(1);
+  expect(await page.locator('.wh-stage-video video').count()).toBe(1);
 });
 
 test('people and the forklift follow the master clock; a single-view frame draws only the root, tagged single view', async ({ page }) => {
@@ -140,13 +141,14 @@ test('wh-main replay: hits → three synced <video> within one frame (mediaTime)
   await expect(page.locator('.lbl-model').filter({ hasText: 'shelf · depth checked' })).toHaveCount(1);
   await expect(page.locator('#timeline .lane-model .tl-seg')).toHaveCount(2);
 
-  // Esc closes the Videos tab, then leaves the answer
+  // Esc closes the Videos tab, then leaves the answer; the stage dock stays
   await page.keyboard.press('Escape');
-  await expect(page.locator('video')).toHaveCount(0);
+  await expect(page.locator('#panel video')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
   await expect(page.locator('.wh-rcam.used')).toHaveCount(0);
-  await expect(page.locator('video')).toHaveCount(0);
+  await expect(page.locator('#panel video')).toHaveCount(0);
+  await expect(page.locator('video')).toHaveCount(1);
   await expect(page.locator('.lbl-model')).toHaveCount(0);
   expect((await probe(page)).dimmed).toEqual([]);
 });
@@ -190,12 +192,12 @@ test('a measured distance: both actors at full strength, a floor line between th
   await expect(line).toHaveClass(/\bhot\b/);
   await page.mouse.move(0, 0);
   await expect(line).not.toHaveClass(/\bhot\b/);
-  // clicking it enters Evidence mode: the label adds what was measured and when, the source dock shows its camera
+  // clicking it enters Evidence mode: the label adds what was measured and when, the stage video dock shows its camera
   await page.locator('.ans-num', { hasText: '1.55' }).click();
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
   await expect(label.locator('.wh-msub')).toBeVisible();
   await expect(label.locator('.wh-msub')).toHaveText('ground distance · 00:04.6');
-  await expect(page.locator('.wh-dock-head')).toContainText('ceiling_04 · 00:04.6');
+  await expect(page.locator('.wh-sv-head')).toContainText('ceiling_04 · 00:04.6');
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
   await expect(label.locator('.wh-msub')).toBeHidden();
@@ -287,19 +289,38 @@ test('camera rail: a 24 px strip of dots that expands to thumbnails on hover; a 
   await expect.poll(async () => (await rail.boundingBox()).width).toBeLessThanOrEqual(25);
 });
 
+test('camera thumbnails from the moment (root-relative frame_url) load below the page base path: rail images and frustum textures', async ({ page, baseURL }) => {
+  mockActions(page);
+  const base = new URL(baseURL).pathname;
+  const got = [];
+  page.on('response', (r) => { const p = new URL(r.url()).pathname; if (/\/api\/assets\/.+\/\d{5}\.jpg$/.test(p)) got.push([p, r.status()]); });
+  await open(page);
+  const rail = page.locator('.wh-rail');
+  await rail.hover();
+  await expect(rail.locator('.wh-rthumb img:not([hidden])')).toHaveCount(3);
+  await expect.poll(() => rail.locator('.wh-rthumb img').evaluateAll((els) => els.every((e) => e.complete && e.naturalWidth > 0))).toBe(true);
+  const rails = await rail.locator('.wh-rthumb img').evaluateAll((els) => els.map((e) => new URL(e.src).pathname));
+  await expect.poll(async () => Object.values((await probe(page)).thumbs).every(Boolean)).toBe(true);
+  const textures = Object.values((await probe(page)).thumbs).map((u) => new URL(u).pathname);
+  for (const p of [...rails, ...textures]) expect(p.startsWith(`${base}api/assets/${KEY}/`), p).toBe(true);
+  expect(got.length).toBeGreaterThan(0);
+  for (const [p, status] of got) expect([p, status]).toEqual([expect.stringMatching(new RegExp(`^${base}api/assets/`)), 200]);
+});
+
 // A ground distance between P1 and F1 seen from ceiling_04 (tracks 7 and 6 there).
 const GROUND_EV = {
   eid: 'e_test_ground', scene_key: KEY, cam_id: 'ceiling_04', t0_ms: 4600, t1_ms: 4700, kind: 'measure', method: 'ground_distance', value: 1.55, unit: 'm', sigma: 0.12,
   observation_ids: [{ scene_key: KEY, cam_id: 'ceiling_04', local_track_id: 7, t_ms: 4600 }, { scene_key: KEY, cam_id: 'ceiling_04', local_track_id: 6, t_ms: 4600 }],
 };
 
-test('evidence:focus with a ground distance enters Evidence mode: others dimmed, focus chip, source dock of its camera; Esc or the chip x returns to Explore', async ({ page }) => {
+test('evidence:focus with a ground distance enters Evidence mode: others dimmed, focus chip, the stage video dock on its camera; Esc or the chip x returns to Explore', async ({ page }) => {
   mockActions(page);
   await mockVideoRange(page);
   await open(page);
   await clock(page, 'seek(4600)');
-  const dock = page.locator('.wh-dock'), chip = page.locator('.wh-focus');
-  await expect(dock).toBeHidden();
+  const dock = page.locator('.wh-stage-video'), head = dock.locator('.wh-sv-head'), chip = page.locator('.wh-focus');
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_00');
+  await expect(head).not.toContainText('Source');
   await expect(chip).toBeHidden();
   await expect(page.locator('.wh-mode button[data-mode="evidence"]')).toBeDisabled();
   const focus = () => mod(page, 'kernel/bus.js', `k.bus.emit('evidence:focus', ${JSON.stringify(GROUND_EV)})`);
@@ -308,30 +329,36 @@ test('evidence:focus with a ground distance enters Evidence mode: others dimmed,
   expect(await mod(page, 'kernel/state.js', '[k.state.stageMode, k.state.focusEid]')).toEqual(['evidence', 'e_test_ground']);
   await expect(page.locator('.wh-mode button.on')).toHaveText('Evidence');
   await expect(dock).toBeVisible();
-  await expect(dock.locator('.wh-dock-head')).toContainText('Source');
-  await expect(dock.locator('.wh-dock-head')).toContainText('ceiling_04 · 00:04.6');
-  await expect(dock.locator('video')).toHaveCount(1);
+  await expect(head).toContainText('Source');
+  await expect(head).toContainText('ceiling_04 · 00:04.6');
+  await expect(head.locator('.wh-clip')).toBeVisible();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_04');
+  // the stage dock replaces the separate source panel
+  await expect(page.locator('.wh-dock')).toHaveCount(0);
+  await expect(page.locator('video')).toHaveCount(1);
   await expect(chip).toContainText('P1–F1 distance');
   await expect.poll(async () => (await probe(page)).dimmed).toEqual(['P2']);
   await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:ceiling_04');
+  expect((await probe(page)).active_cam).toBe('ceiling_04');
 
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
-  await expect(dock).toBeHidden();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_00');
+  await expect(head).not.toContainText('Source');
   await expect(chip).toBeHidden();
   expect((await probe(page)).dimmed).toEqual([]);
-  await expect(page.locator('.wh-rcam.sel')).toHaveCount(0);
+  await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:ceiling_00');
 
   // the seg goes back to the last focused evidence; the chip's x leaves it
   await page.locator('.wh-mode button[data-mode="evidence"]').click();
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
-  await expect(dock).toBeVisible();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_04');
   await chip.locator('.wh-focus-clear').click();
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
-  await expect(dock).toBeHidden();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_00');
 });
 
-test('Videos tab: primary camera 214 px with the others in two 105 px columns, No video hatching, Pin to stage opens a closable PiP', async ({ page }) => {
+test('Videos tab: primary camera 214 px with the others in two 105 px columns, No video hatching, Pin to stage switches and opens the stage dock', async ({ page }) => {
   test.skip(LIVE, 'needs the wh-main replay');
   mockActions(page);
   await mockVideoRange(page);
@@ -355,12 +382,124 @@ test('Videos tab: primary camera 214 px with the others in two 105 px columns, N
   await expect(eye).toHaveClass(/\bnov\b/);
   await expect(eye.locator('.wh-nov')).toHaveText('No video at 00:06.2');
 
+  const dock = page.locator('.wh-stage-video');
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
+  await dock.locator('.wh-sv-fold').click();
+  await expect(dock).toBeHidden();
   await pane.locator('.wh-vcell[data-cam="ceiling_04"] .wh-pip-btn').click();
-  const pip = page.locator('.wh-pip');
-  await expect(pip.locator('video')).toHaveCount(1);
-  await expect(pip).toContainText('ceiling_04');
-  await pip.locator('.wh-pip-close').click();
-  await expect(pip).toHaveCount(0);
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_04');
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_04');
+  await expect(dock.locator('video')).toHaveCount(1);
+  await expect(page.locator('.wh-pip')).toHaveCount(0);
+});
+
+const SSE = (frames) => frames.map((f) => `event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`).join('');
+
+test('stage video dock: one clock-slaved camera video at the stage bottom right, cam tabs in manifest order, its frustum and rail camera marked; disposed on #/', async ({ page }) => {
+  mockActions(page);
+  await mockVideoRange(page);
+  await open(page);
+  const dock = page.locator('.wh-stage-video');
+  await expect(dock).toBeVisible();
+  await expect(dock.locator('video')).toHaveCount(1);
+  await expect(dock.locator('.wh-sv-tabs button')).toHaveText(MF.cams.map((c) => c.id));
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
+  const s = await page.locator('#stage').boundingBox(), b = await dock.boundingBox();
+  expect(Math.abs(b.width - 360)).toBeLessThanOrEqual(4);
+  expect(Math.abs(b.height - 200)).toBeLessThanOrEqual(12);
+  expect(s.x + s.width - (b.x + b.width)).toBeLessThanOrEqual(20);
+  expect(s.y + s.height - (b.y + b.height)).toBeLessThanOrEqual(20);
+  await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:ceiling_00');
+  expect((await probe(page)).active_cam).toBe('ceiling_00');
+
+  const video = dock.locator('video');
+  const near = async () => {
+    const [ms, t] = [await video.evaluate((v) => (v.dataset.sceneMs === undefined ? null : +v.dataset.sceneMs)), await clock(page, 't')];
+    return ms !== null && Math.abs(ms - t) <= 200;
+  };
+  await clock(page, 'seek(3300)');
+  await expect.poll(near, { timeout: 10_000 }).toBe(true);
+  // timeline play moves the video with the 3D; pause stops it
+  await clock(page, 'play()');
+  await expect.poll(() => video.evaluate((v) => !v.paused)).toBe(true);
+  await expect.poll(() => clock(page, 't')).toBeGreaterThan(4300);
+  await clock(page, 'pause()');
+  await expect.poll(() => video.evaluate((v) => v.paused)).toBe(true);
+  await expect.poll(near, { timeout: 10_000 }).toBe(true);
+
+  // a tab switches the camera; still one <video>
+  await dock.locator('.wh-sv-tabs button', { hasText: 'eye_00' }).click();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'eye_00');
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('eye_00');
+  await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:eye_00');
+  expect((await probe(page)).active_cam).toBe('eye_00');
+  await expect(page.locator('video')).toHaveCount(1);
+
+  // a scene (re)load and the home page leave no <video> behind
+  await mod(page, 'warehouse/page.js', `k.loadScene('${KEY}')`);
+  await expect(page.locator('video')).toHaveCount(1);
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_00');
+  await page.goto('#/');
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'home');
+  await expect(page.locator('.wh-stage-video')).toHaveCount(0);
+  await expect(page.locator('video')).toHaveCount(0);
+});
+
+test('a hit switches the stage dock to its primary camera with the hit cameras as tabs; the key frame Play plays the clip', async ({ page }) => {
+  test.skip(LIVE, 'needs an edited wh-main replay');
+  mockActions(page);
+  await mockVideoRange(page);
+  // wh-main with ceiling_04 as the moment's primary camera and only two of the three cameras
+  const frames = ASKS.find((a) => a.ask_id === 'wh-main').events.map((f) => (f.event !== 'hits' ? f
+    : { ...f, data: { ...f.data, moments: f.data.moments.map((m) => ({ ...m, primary_cam: 'ceiling_04', cams: ['ceiling_00', 'ceiling_04'] })) } }));
+  await page.route(/\/api\/agent\/ask$/, (r) => r.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: SSE(frames) }));
+  await open(page);
+  const dock = page.locator('.wh-stage-video');
+  await dock.locator('.wh-sv-tabs button', { hasText: 'eye_00' }).click();
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'eye_00');
+  await page.locator('.preset').first().click();
+  await expect(page.locator('#ask-status')).toContainText('Done');
+  await expect(dock.locator('.wh-sv-tabs button')).toHaveText(['ceiling_04', 'ceiling_00']);
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_04');
+  await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_04');
+  await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:ceiling_04');
+
+  await page.locator('#keyframe .kf-play').click();
+  expect(await clock(page, 'playing')).toBe(true);
+  await expect.poll(() => dock.locator('video').evaluate((v) => !v.paused)).toBe(true);
+  await clock(page, 'pause()');
+
+  // leaving the answer returns the dock to every camera, the first one shown
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
+  await expect(dock.locator('.wh-sv-tabs button')).toHaveText(MF.cams.map((c) => c.id));
+  await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
+});
+
+test('the stage video dock folds to a Video · <cam> tab, stays folded after a reload, and the tab opens it again', async ({ page }) => {
+  mockActions(page);
+  await open(page);
+  const dock = page.locator('.wh-stage-video'), tab = page.locator('.wh-sv-open');
+  await expect(dock).toBeVisible();
+  await expect(tab).toBeHidden();
+  await dock.locator('.wh-sv-fold').click();
+  await expect(dock).toBeHidden();
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveText('Video · ceiling_00');
+  await expect(page.locator('video')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
+  await expect(tab).toBeVisible();
+  await expect(dock).toBeHidden();
+  await expect(page.locator('video')).toHaveCount(0);
+  await tab.click();
+  await expect(dock).toBeVisible();
+  await expect(tab).toBeHidden();
+  await expect(dock.locator('video')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
+  await expect(dock).toBeVisible();
 });
 
 test('with the agent camera taken over, agent focus and setView commands leave the view as it is', async ({ page }) => {
@@ -492,12 +631,36 @@ test('drawing a floor zone posts it and keeps only the events inside on the time
   await page.mouse.dblclick(...corners[3]);
   await expect(page.locator('.wh-zone-chip')).toContainText('1 event in zone');
   await expect(page.locator('#timeline .ev-mark')).toHaveCount(1);
+  // the Events row shows on its own, its marks highlighted; camera lanes stay folded
+  await expect(page.locator('#timeline .tl-events')).toBeVisible();
+  await expect(page.locator('#timeline .ev-mark')).toBeVisible();
+  await expect(page.locator('#timeline .ev-mark')).toHaveClass(/\bon\b/);
+  await expect(page.locator('#timeline .lane-coverage').first()).toBeHidden();
   if (!LIVE) {
     expect(body.polygon_world).toHaveLength(4);
     body.polygon_world.forEach((p, i) => [[-2, -4], [3, -4], [3, 1], [-2, 1]][i].forEach((v, k) => expect(p[k]).toBeCloseTo(v, 1)));
   }
   await page.locator('.wh-zone-clear').click();
   await expect(page.locator('#timeline .ev-mark')).toHaveCount(2);
+  await expect(page.locator('#timeline .tl-events')).toBeHidden();
+});
+
+test('a zone with no events says so; clearing it keeps the Events row the user opened', async ({ page }) => {
+  test.skip(LIVE, 'needs a mocked zone response');
+  mockActions(page);
+  await page.route(/\/api\/scene\/[a-z0-9_-]+\/zone$/, (r) => r.fulfill({ json: { polygon_world: r.request().postDataJSON().polygon_world, cells: [], events_in_zone: [] } }));
+  await open(page);
+  await page.locator('#timeline .tl-cams-btn').click();
+  await expect(page.locator('#timeline .tl-events')).toBeVisible();
+  await page.locator('.wh-zone').click();
+  const corners = await project(page, [[-2, -4, 0], [3, -4, 0], [3, 1, 0], [-2, 1, 0]]);
+  for (const [x, y] of corners.slice(0, 3)) await page.mouse.click(x, y);
+  await page.mouse.dblclick(...corners[3]);
+  await expect(page.locator('.wh-zone-chip')).toHaveText('No events in zone');
+  await expect(page.locator('#timeline .ev-mark')).toHaveCount(0);
+  await page.locator('.wh-zone-clear').click();
+  await expect(page.locator('#timeline .ev-mark')).toHaveCount(2);
+  await expect(page.locator('#timeline .tl-events')).toBeVisible();
 });
 
 test('a skeleton with null joints still draws: the bones of a missing joint collapse', async ({ page }) => {
@@ -526,6 +689,224 @@ test('a crowd: person labels that would overlap a nearer one are hidden, a selec
   const shown = await boxes();
   expect(shown.length).toBeGreaterThan(1);
   for (const a of shown) for (const b of shown) if (a !== b) expect(hit(a, b), `${a.text} | ${b.text}`).toBe(false);
+});
+
+test('a markup string as a person or forklift id in the asset JSON is shown as label text, not run', async ({ page }) => {
+  test.skip(LIVE, 'needs injected assets');
+  const xss = (id) => `<img src=x id=${id} onerror="window.__xss=1">`;
+  const sk = JSON.parse(fs.readFileSync(path.join(OUT, KEY, MF.assets.skeleton), 'utf8'));
+  const fk = JSON.parse(fs.readFileSync(path.join(OUT, KEY, MF.assets.forklift), 'utf8'));
+  sk.persons[xss('xss-sk')] = sk.persons.P1;
+  fk.forklifts[0].entity_id = xss('xss-fk');
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.skeleton}$`), (r) => r.fulfill({ json: sk }));
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.forklift}$`), (r) => r.fulfill({ json: fk }));
+  await open(page);
+  await clock(page, 'seek(1000)');
+  await expect(page.locator('.lbl-ent', { hasText: xss('xss-sk') })).toHaveCount(1);
+  await expect(page.locator('.lbl-ent', { hasText: xss('xss-fk') })).toHaveCount(1);
+  await expect(page.locator('#xss-sk, #xss-fk')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+});
+
+// NDC of client points on the canvas (-1..1 across it).
+async function ndc(page, pts) {
+  const r = await page.locator('.wh-canvas').boundingBox();
+  return (await project(page, pts)).map(([x, y]) => [((x - r.x) / r.width) * 2 - 1, 1 - ((y - r.y) / r.height) * 2]);
+}
+const extent = (q) => Math.max(...q.flat().map(Math.abs));
+const asset = (k) => JSON.parse(fs.readFileSync(path.join(OUT, KEY, MF.assets[k]), 'utf8'));
+
+test('the initial view frames where people and the forklift move (padded 3 m, at least 12 m, clamped to the floor), not the camera centres', async ({ page }) => {
+  mockActions(page);
+  await open(page);
+  const xy = [
+    ...asset('tracks').tracks.flatMap((tr) => tr.pts.map((p) => [p[1], p[2]])),
+    ...Object.values(asset('skeleton').persons).flatMap((p) => p.root_world.filter(Boolean)),
+    ...asset('forklift').forklifts.flatMap((f) => f.track.map((r) => [r.x, r.y])),
+  ];
+  const { origin: [gx, gy], nx, ny, cell_m } = MF.ground;
+  const [[x0, x1], [y0, y1]] = [0, 1].map((k) => {
+    const lo = Math.min(...xy.map((p) => p[k])) - 3, hi = Math.max(...xy.map((p) => p[k])) + 3, grow = Math.max(0, 12 - (hi - lo)) / 2;
+    const g0 = k ? gy : gx, g1 = g0 + (k ? ny : nx) * cell_m;
+    return [Math.max(g0, lo - grow), Math.min(g1, hi + grow)];
+  });
+  const corners = [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]];
+  // the box alone fills the view (pose() fits it to 0.88 of the canvas)
+  await expect.poll(async () => extent(await ndc(page, corners))).toBeGreaterThan(0.84);
+  expect(extent(await ndc(page, corners))).toBeLessThanOrEqual(0.885);
+});
+
+test('a scene without tracks frames the floor and every camera centre as before', async ({ page }) => {
+  test.skip(LIVE, 'needs injected empty tracks');
+  mockActions(page);
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.tracks}$`), (r) => r.fulfill({ json: { tracks: [] } }));
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.skeleton}$`), (r) => r.fulfill({ json: { persons: {} } }));
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.forklift}$`), (r) => r.fulfill({ json: { forklifts: [] } }));
+  // events need their actors' tracks for a pin
+  await page.route(new RegExp(`/api/scene/${KEY}/timeline$`), (r) => r.fulfill({ json: { ...asset('timeline'), events: [] } }));
+  await open(page);
+  const { origin: [x0, y0], nx, ny, cell_m } = MF.ground, x1 = x0 + nx * cell_m, y1 = y0 + ny * cell_m;
+  const pts = [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0], ...MF.cams.map((c) => c.cam2world.slice(12, 15))];
+  await expect.poll(async () => extent(await ndc(page, pts))).toBeGreaterThan(0.84);
+  expect(extent(await ndc(page, pts))).toBeLessThanOrEqual(0.885);
+});
+
+test('a hit frames its actors from at least 18 m at a 60° pitch on the same heading, fades the frustum image planes, Esc restores', async ({ page }) => {
+  test.skip(LIVE, 'needs the wh-main replay');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  mockActions(page);
+  await mockAsk(page, 'wh-main');
+  await open(page);
+  // the home pose lands within a frame or two
+  await expect.poll(async () => {
+    const a = (await probe(page)).camera.dist;
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    return Math.abs((await probe(page)).camera.dist - a);
+  }).toBeLessThan(1e-6);
+  const home = (await probe(page)).camera;
+  expect((await probe(page)).planes).toEqual([1, 1, 1]);
+  await page.locator('.preset').first().click();
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'hit');
+  await expect.poll(async () => (await probe(page)).camera.pitch).toBeCloseTo(60, 0);
+  const hit = (await probe(page)).camera;
+  expect(hit.dist).toBeGreaterThanOrEqual(18 - 1e-6);
+  expect(hit.dist).toBeLessThan(19);
+  expect(hit.heading).toBeCloseTo(home.heading, 0);
+  const { P1, F1 } = (await probe(page)).entities;
+  expect(extent(await ndc(page, [[...P1, 0], [...F1, 0]]))).toBeLessThanOrEqual(0.6);
+  expect((await probe(page)).planes).toEqual([0.25, 0.25, 0.25]);
+  // evidence mode frames its actors the same way; back in Explore the hit framing returns
+  await page.locator('.ans-num').click();
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await expect.poll(async () => (await probe(page)).camera.pitch).toBeCloseTo(60, 0);
+  expect((await probe(page)).planes).toEqual([0.25, 0.25, 0.25]);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
+  await expect.poll(async () => (await probe(page)).camera.dist).toBeCloseTo(hit.dist, 1);
+  expect((await probe(page)).planes).toEqual([0.25, 0.25, 0.25]);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
+  expect((await probe(page)).planes).toEqual([1, 1, 1]);
+  await expect.poll(async () => (await probe(page)).camera.dist).toBeCloseTo(home.dist, 1);
+});
+
+test('a hit that lands before the scene asked from home has loaded is framed at 60° from at least 18 m', async ({ page }) => {
+  test.skip(LIVE, 'needs a held scene request');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  mockActions(page);
+  await mockAsk(page, 'wh-main');
+  let release;
+  const held = new Promise((r) => (release = r));
+  await page.route(new RegExp(`/api/scene/${KEY}/entities$`), async (r) => {
+    await held;
+    await r.fallback();
+  });
+  await page.goto('#/');
+  await page.locator('.home-chips .preset[data-ws="warehouse"]').first().click();
+  await expect(page.locator('#ask-status')).toContainText('Done');
+  release();
+  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
+  await expect.poll(async () => (await probe(page)).camera.pitch).toBeCloseTo(60, 0);
+  expect((await probe(page)).camera.dist).toBeGreaterThanOrEqual(18 - 1e-6);
+});
+
+test('the scene is ready before points.bin arrives; the blocks and the cloud layer follow when it does', async ({ page }) => {
+  test.skip(LIVE, 'needs a held points request');
+  mockActions(page);
+  let release;
+  const held = new Promise((r) => (release = r));
+  await page.route(new RegExp(`/api/assets/${KEY}/${MF.assets.points}$`), async (r) => {
+    await held;
+    await r.fallback();
+  });
+  await page.goto(`#/warehouse/${KEY}`);
+  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
+  await expect(page.locator('.wh-loading')).toBeHidden();
+  expect((await probe(page)).blocks).toBe(0);
+  release();
+  await expect.poll(async () => (await probe(page)).blocks).toBeGreaterThan(0);
+  await page.locator('.wh-layers-btn').click();
+  await page.locator('.wh-layers-pop input[data-layer="cloud"]').check();
+  expect((await probe(page)).cloud).toBe(true);
+});
+
+test('after the wh-main hit every visible label lies inside the canvas', async ({ page }) => {
+  test.skip(LIVE, 'needs the wh-main replay');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  mockActions(page);
+  await mockAsk(page, 'wh-main');
+  await open(page);
+  await page.locator('.preset').first().click();
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'hit');
+  await expect(page.locator('.lbl-model')).toHaveCount(2);
+  await expect.poll(async () => (await probe(page)).camera.pitch).toBeCloseTo(60, 0);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const c = await page.locator('.wh-canvas').boundingBox();
+  const out = await page.$$eval('.wh-lbl', (els) => els
+    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
+    .map((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom }; }));
+  const outside = out.filter((b) => b.left < c.x - 1 || b.right > c.x + c.width + 1 || b.top < c.y - 1 || b.bottom > c.y + c.height + 1);
+  expect(outside).toEqual([]);
+});
+
+test('an evidence focused outside a hit fades the frustum image planes until Explore', async ({ page }) => {
+  mockActions(page);
+  await open(page);
+  await clock(page, 'seek(4600)');
+  await mod(page, 'kernel/bus.js', `k.bus.emit('evidence:focus', ${JSON.stringify(GROUND_EV)})`);
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  expect((await probe(page)).planes).toEqual([0.25, 0.25, 0.25]);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
+  expect((await probe(page)).planes).toEqual([1, 1, 1]);
+});
+
+test('after the user takes the camera over, the hit neither moves the camera nor fades the planes', async ({ page }) => {
+  test.skip(LIVE, 'needs a held replay');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  mockActions(page);
+  await mockAskHeld(page, 'wh-main', 'hits');
+  await open(page);
+  await page.locator('.preset').first().click();
+  await page.locator('#takeover button').click();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const before = (await probe(page)).camera;
+  await page.evaluate(() => window.__releaseAsk());
+  await expect(page.locator('#ask-status')).toContainText('Done');
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const after = (await probe(page)).camera;
+  for (const k of ['dist', 'pitch', 'heading']) expect(after[k]).toBeCloseTo(before[k], 6);
+  after.target.forEach((v, i) => expect(v).toBeCloseTo(before.target[i], 6));
+  expect((await probe(page)).planes).toEqual([1, 1, 1]);
+});
+
+test('while the scene loads the stage says Loading scene…; a scene that cannot load says so', async ({ page }) => {
+  test.skip(LIVE, 'needs a held scene request');
+  mockActions(page);
+  let release;
+  const held = new Promise((r) => (release = r));
+  // only the page fetches entities; the shell has already read the manifest
+  await page.route(new RegExp(`/api/scene/${KEY}/entities$`), async (r) => {
+    await held;
+    await r.fallback();
+  });
+  await page.goto(`#/warehouse/${KEY}`);
+  const msg = page.locator('.wh-loading');
+  await expect(msg).toHaveText('Loading scene…');
+  await expect(msg).toBeVisible();
+  const css = () => msg.evaluate((e) => { const s = getComputedStyle(e); return [s.fontSize, s.fontFamily.includes('IBM Plex Mono'), s.color]; });
+  await expect.poll(css).toEqual(['12px', true, 'rgb(154, 165, 180)']);
+  release();
+  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
+  await expect(msg).toBeHidden();
+
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await mockApi(page);
+  await page.route(new RegExp(`/api/scene/${KEY}/entities$`), (r) => r.fulfill({ status: 500, body: '' }));
+  await page.reload();
+  await expect(msg).toHaveText('Scene failed to load');
+  await expect(msg).toBeVisible();
+  errors = errors.filter((e) => !/500|entities/.test(e));
 });
 
 test('the clock at the scene end asks for no moment past it', async ({ page }) => {

@@ -256,6 +256,64 @@ def test_prediction_never_takes_a_nearby_record(calls, monkeypatch):
     assert rec.t_ms == 3333 and len(calls["bodies"]) == 1
 
 
+ST = "st-fixture_cam_1-clip01"
+ST_CAM = "fixture_cam-1"
+
+
+@pytest.fixture
+def street_dir(tmp_path):
+    """ASSET_DIR with the L1 street scene; video=True keeps its camera video, False leaves only the chunk (site form)."""
+    import shutil
+    def make(video=True):
+        root = tmp_path / ("video" if video else "chunk")
+        shutil.copytree(ASSETS.parent / "l1" / ST, root / ST)
+        if not video:
+            m = json.loads((root / ST / "manifest.json").read_text())
+            m["cams"][0]["video"] = None
+            (root / ST / "manifest.json").write_text(json.dumps(m))
+            (root / ST / "video" / f"{ST_CAM}.mp4").unlink()
+        return root
+    return make
+
+
+@pytest.mark.parametrize("video", [True, False])
+def test_street_localize_uses_the_street_prompt(calls, street_dir, monkeypatch, video):
+    monkeypatch.setenv("ASSET_DIR", str(street_dir(video)))
+    calls["queue"].append(REC["C4"])
+    r = vlm.localize(ST, ST_CAM, 2000, 7000, "when does a car pass the person")
+    assert r.prompt_rev == vlm.PROMPT_REV["C4-street"] != vlm.PROMPT_REV["C4"]
+    assert r.record_id == make_record_id(ST, "C4", 4500, ST_CAM, ["when does a car pass the person", "2000-7000"], vlm.PROMPT_REV["C4-street"])
+    text = calls["bodies"][0]["messages"][0]["content"][-1]["text"]
+    assert f"street camera {ST_CAM}" in text and not any(w in text for w in ["dashcam", "warehouse", "forklift", "P = person"])
+    ts = [f.t_ms for f in r.input_frame_refs]
+    # 4 fps from the camera video, or from the chunk when the camera has no video
+    assert len(ts) == 20 and 2000 <= min(ts) and max(ts) < 7000 and _images(calls["bodies"][0]) == 20
+    assert schema_errors(r.model_dump(), "cosmos.json", "/$defs/record") == []
+
+
+def test_street_ground_objects_has_its_own_prompt(calls, street_dir, monkeypatch):
+    monkeypatch.setenv("ASSET_DIR", str(street_dir()))
+    calls["queue"].append(_resp(json.dumps({"objects": [{"label": "car", "box_2d": [400, 500, 600, 700]}]})))
+    r = vlm.ground_objects(ST, ST_CAM, 5000, ["car"])
+    assert r.prompt_rev == vlm.PROMPT_REV["C3-street"] and r.payload["objects"][0]["box_0_1000"] == [400, 500, 600, 700]
+    text = calls["bodies"][0]["messages"][0]["content"][-1]["text"]
+    assert "hide a person" not in text and "street camera" in text
+    monkeypatch.setenv("ASSET_DIR", str(ASSETS))
+    assert vlm._rev("C3", K) == vlm.PROMPT_REV["C3"]  # warehouse C3 keeps its revision
+
+
+def test_site_street_chunk_is_the_cached_copy_or_a_presigned_url(monkeypatch, tmp_path):
+    from app.core import street
+    uri = "s3://bucket/team/clip_chunk_0000.mp4"
+    monkeypatch.setenv("RUNS_DIR", str(tmp_path))
+    monkeypatch.setattr(vlm, "_s3", lambda: type("S3", (), {"generate_presigned_url": lambda self, op, ExpiresIn, Params: f"https://s3/{Params['Bucket']}/{Params['Key']}"})())
+    assert vlm._chunk(ST, uri) == "https://s3/bucket/team/clip_chunk_0000.mp4"
+    cached = tmp_path / "street" / "chunks" / (street._digest(uri) + ".mp4")
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"mp4")
+    assert vlm._chunk(ST, uri) == str(cached)
+
+
 def test_site_mode_reads_local_assets_when_asset_dir_is_set(monkeypatch, tmp_path):
     from app.core import vlm
     monkeypatch.setenv("MODE", "site")

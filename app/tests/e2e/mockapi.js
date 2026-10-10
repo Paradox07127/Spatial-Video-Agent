@@ -6,12 +6,82 @@ const path = require('path');
 
 const FX = path.resolve(__dirname, '..', '..', '..', 'fixtures');
 const OUT = path.join(FX, 'sva-out');
+// street (L1) scenes live apart from sva-out
+const L1 = path.join(FX, 'l1');
 const LIVE = process.env.SVA_E2E_LIVE === '1';
-const ASKS = JSON.parse(fs.readFileSync(path.join(FX, 'asks.json'), 'utf8')).asks;
-const read = (rel) => JSON.parse(fs.readFileSync(path.join(OUT, rel), 'utf8'));
-const scenes = () => fs.readdirSync(OUT).filter((k) => fs.existsSync(path.join(OUT, k, 'manifest.json')));
+const ASKS = [...JSON.parse(fs.readFileSync(path.join(FX, 'asks.json'), 'utf8')).asks, ...JSON.parse(fs.readFileSync(path.join(L1, 'asks_corpus.json'), 'utf8')).asks];
+const file = (rel) => path.join(fs.existsSync(path.join(OUT, rel)) ? OUT : L1, rel);
+const read = (rel) => JSON.parse(fs.readFileSync(file(rel), 'utf8'));
+const scenes = () => [OUT, L1].flatMap((d) => fs.readdirSync(d).filter((k) => fs.existsSync(path.join(d, k, 'manifest.json'))));
 const MIME = { '.json': 'application/json', '.geojson': 'application/geo+json', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.bin': 'application/octet-stream' };
 const actions = [], zones = [];
+const WORKSPACES = [['warehouse', 'Warehouse'], ['fleet', 'Fleet'], ['street', 'Street']];
+
+// core/models.py level_of and capabilities.
+const ABSTAIN_TEXT = {
+  no_geometry: 'This camera has no geometry, so distances, speeds and positions are not judged.',
+  scene_not_metric: "This scene's calibration is not metric, so meters are not given.",
+  no_track_ids: 'Detections on this camera have no track ids, so one person cannot be followed across frames.',
+  no_gps: 'This camera has no GPS or speed data.',
+  no_visibility: 'This scene has no camera visibility grid, so blind spots are not checked.',
+};
+const CAPABILITIES = ['distance', 'ground_position', 'map', 'blind_spot', 'tracks', 'speed', 'boxes_2d', 'caption', 'cosmos'];
+const levelOf = (m) => m.evidence_level || (m.workspace === 'street' ? 'L1' : m.workspace === 'warehouse' && m.metric ? 'L3' : 'L2');
+function capabilities(m) {
+  const street = m.workspace === 'street', a = m.assets;
+  const spatial = street ? 'no_geometry' : m.metric ? null : 'scene_not_metric';
+  const reasons = {
+    distance: spatial,
+    ground_position: street ? 'no_geometry' : null,
+    map: street ? 'no_geometry' : null,
+    blind_spot: street ? 'no_geometry' : 'visibility' in a ? null : 'no_visibility',
+    tracks: street ? 'no_track_ids' : null,
+    speed: m.workspace === 'fleet' && 'trip' in a ? null : 'no_gps',
+  };
+  return Object.fromEntries(CAPABILITIES.map((cap) => [cap, cap in reasons
+    ? { ok: reasons[cap] === null, reason: reasons[cap], text: ABSTAIN_TEXT[reasons[cap]] ?? null }
+    // image-only capabilities need nothing but camera video
+    : { ok: m.cams.length > 0, reason: null, text: null }]));
+}
+
+// core/street.py: a street camera's chunks and its detection rows [t_ms, label, x1, y1, x2, y2, conf] in [t0, t1).
+const streetCam = (key, cam) => read(`${key}/manifest.json`).cams.find((c) => c.id === cam);
+function streetDetections(key, cam, t0, t1) {
+  const mf = read(`${key}/manifest.json`), rows = [], gaps = [], sources = [];
+  streetCam(key, cam).chunks.forEach((ch, i) => {
+    const lo = Math.max(t0, ch.t0_ms), hi = Math.min(t1, ch.t1_ms), rel = `${key}/${mf.assets.dets_dir}/${cam}/${String(i).padStart(4, '0')}.json`;
+    if (lo >= hi) return;
+    if (!fs.existsSync(file(rel))) return gaps.push([lo, hi, 'no_detections']);
+    const doc = read(rel);
+    sources.push(doc.source);
+    rows.push(...doc.rows.filter((r) => lo <= r[0] && r[0] < hi));
+  });
+  return { cam_id: cam, rows, source: sources[0] ?? null, gaps };
+}
+// max boxes of one label in one frame (VSS object_counts)
+function maxPerFrame(rows) {
+  const n = new Map(), out = {};
+  for (const r of rows) n.set(`${r[0]}\t${r[1]}`, (n.get(`${r[0]}\t${r[1]}`) ?? 0) + 1);
+  for (const [k, v] of n) { const label = k.split('\t')[1]; out[label] = Math.max(out[label] ?? 0, v); }
+  return Object.fromEntries(Object.entries(out).sort());
+}
+// The fixture index's 5 s street segments (gen_fixture.py street_clips).
+function streetSegments(key) {
+  const mf = read(`${key}/manifest.json`);
+  return mf.cams.flatMap((cam) => Array.from({ length: Math.ceil(mf.t1_ms / 5000) }, (_, i) => {
+    const t0 = i * 5000, rows = streetDetections(key, cam.id, t0, t0 + 5000).rows, labels = [...new Set(rows.map((r) => r[1]))].sort();
+    const caption = `${mf.title} ${cam.id} ${t0 / 1000}-${t0 / 1000 + 5}s: ${labels.length ? `${labels.join(' and ')} in view` : 'empty street'}`;
+    return { clip_id: `${key}:${cam.id}:${String(i).padStart(5, '0')}`, cam_id: cam.id, t0_ms: t0, t1_ms: t0 + 5000, caption, counts: maxPerFrame(rows), source: null };
+  }));
+}
+
+// A file body, or the single byte range the request asks for (video seeking).
+function fulfillFile(route, f, contentType) {
+  const buf = fs.readFileSync(f), m = (route.request().headers().range ?? '').match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || (!m[1] && !m[2])) return route.fulfill({ status: 200, contentType, headers: { 'accept-ranges': 'bytes' }, body: buf });
+  const a = m[1] ? +m[1] : buf.length - +m[2], b = m[1] && m[2] ? Math.min(+m[2], buf.length - 1) : buf.length - 1;
+  return route.fulfill({ status: 206, contentType, headers: { 'accept-ranges': 'bytes', 'content-range': `bytes ${a}-${b}/${buf.length}` }, body: buf.subarray(a, b + 1) });
+}
 
 // wh-dodge: wh-main as the agent streams it: the moment's person is highlighted first, then the ground distance to
 // the forklift is measured and both are highlighted.
@@ -82,7 +152,7 @@ function moment(key, t) {
     }
   }
   const s = Math.floor(t / 1000).toString().padStart(5, '0');
-  const cams = m.cams.map((c) => ({ id: c.id, frame_url: c.thumbs && fs.existsSync(path.join(OUT, key, c.thumbs, `${s}.jpg`)) ? `api/assets/${key}/${c.thumbs}/${s}.jpg` : null }));
+  const cams = m.cams.map((c) => ({ id: c.id, frame_url: c.thumbs && fs.existsSync(path.join(OUT, key, c.thumbs, `${s}.jpg`)) ? `/api/assets/${key}/${c.thumbs}/${s}.jpg` : null }));
   return { t_ms: t, persons, forklift, floor_visibility_ref: m.assets.visibility ? `api/assets/${key}/${m.assets.visibility}` : null, cams };
 }
 
@@ -94,9 +164,25 @@ async function mockApi(page) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     let m;
     if (p === 'workspaces') {
-      const ws = { warehouse: [], fleet: [] };
-      for (const k of scenes()) { const mf = read(`${k}/manifest.json`); ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null, n_events: mf.assets.events ? read(`${k}/${mf.assets.events}`).events.length : 0 }); }
-      return json([{ id: 'warehouse', title: 'Warehouse', scenes: ws.warehouse }, { id: 'fleet', title: 'Fleet', scenes: ws.fleet }]);
+      const ws = Object.fromEntries(WORKSPACES.map(([id]) => [id, []]));
+      for (const k of scenes()) {
+        const mf = read(`${k}/manifest.json`);
+        ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null,
+          n_events: mf.assets.events ? read(`${k}/${mf.assets.events}`).events.length : 0, evidence_level: levelOf(mf), caps: capabilities(mf) });
+      }
+      return json(WORKSPACES.map(([id, title]) => ({ id, title, scenes: ws[id] })));
+    }
+    if ((m = p.match(/^street\/([a-z0-9_-]+)\/(segments|detections|chunks|thumb)$/))) {
+      const [, key, what] = m, cam = url.searchParams.get('cam');
+      if (what === 'segments') return json(streetSegments(key));
+      if (what === 'detections') return json(streetDetections(key, cam, Number(url.searchParams.get('t0')), Number(url.searchParams.get('t1'))));
+      if (what === 'chunks') return json(streetCam(key, cam).chunks.map((c, index) => ({ index, t0_ms: c.t0_ms, t1_ms: c.t1_ms, url: `/api/street/${key}/chunk/${cam}/${index}` })));
+      const thumbs = streetCam(key, cam).thumbs, s = String(Math.floor(Number(url.searchParams.get('t')) / 1000)).padStart(5, '0');
+      return fulfillFile(route, file(`${key}/${thumbs}/${s}.jpg`), 'image/jpeg');
+    }
+    if ((m = p.match(/^street\/([a-z0-9_-]+)\/chunk\/([^/]+)\/(\d+)$/))) {
+      const c = streetCam(m[1], m[2]).chunks[+m[3]];
+      return c ? fulfillFile(route, file(`${m[1]}/${c.uri}`), 'video/mp4') : json({ detail: 'Chunk not found' }, 404);
     }
     if ((m = p.match(/^scene\/([a-z0-9_-]+)\/(manifest|timeline|entities|moment)$/))) {
       const [, key, what] = m;

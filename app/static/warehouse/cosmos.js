@@ -43,7 +43,7 @@ export function createCosmos(kit) {
         rs.sort((a, b) => a.t_ms - b.t_ms);
         const last = rs.at(-1), actor = last.actor_refs?.[0]?.entity_id;
         const acts = rs.map((r) => r.payload.actions.join('/')).filter((a, i, xs) => a !== xs[i - 1]);
-        tag(`${actor ? `${esc(actor)} ` : ''}predicts ${esc(acts.join(' → '))} · ${last.payload.horizon_s} s`, last.payload.ghost.at(-1).slice(1));
+        tag(`${actor ? `${esc(actor)} ` : ''}predicts ${esc(acts.join(' → '))} · ${esc(last.payload.horizon_s)} s`, last.payload.ghost.at(-1).slice(1));
       }
     },
     // CSS2D objects of the tags, for the stage to move them clear of other labels.

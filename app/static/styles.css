@@ -184,6 +184,8 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .ans-text { margin: 0; font-size: var(--fs-16); line-height: 1.6; text-wrap: pretty; }
 .ans-num { padding: 0 2px; font: 500 var(--fs-16)/1 var(--font-mono); color: var(--src-measure); border-bottom: 1.5px solid var(--src-measure); }
 .ans-num:hover, .ans-num.hover { color: var(--paper); background: var(--src-measure); border-radius: 2px; }
+.ans-time { padding: 0 2px; font: 500 var(--fs-16)/1 var(--font-mono); color: var(--ink); border-bottom: 1px solid var(--thread); }
+.ans-time:hover, .ans-time.hover { background: var(--thread); border-radius: 2px; }
 .ans-src { display: flex; align-items: center; gap: 12px; }
 .ans-instead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
 .tabs { display: flex; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--rule); font-size: var(--fs-3); }

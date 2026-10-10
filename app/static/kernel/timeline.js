@@ -40,7 +40,7 @@ export function createTimeline(el, { t0, t1 }) {
   const lanes = new Map();
   const seekFns = new Set(), brushFns = new Set(), evidenceFns = new Set();
   let range = { t0, t1 }, events = [], highlighted = null, evidence = [];
-  let hoverEid = null, focusEid = null, overEid = null, curTrip = null, othersOpen = false;
+  let hoverEid = null, focusEid = null, overEid = null, curTrip = null, othersOpen = false, eventsShown = false;
 
   const pct = (t) => `${(100 * (t - range.t0)) / (range.t1 - range.t0)}%`;
   const width = (a, b) => `${(100 * (b - a)) / (range.t1 - range.t0)}%`;
@@ -66,7 +66,7 @@ export function createTimeline(el, { t0, t1 }) {
   }
   function renderEvents() {
     evTrack.innerHTML = events
-      .map((e) => `<i class="ev-mark sev-${e.severity}${e.id === highlighted ? ' on' : ''}" data-ev="${esc(e.id)}" style="left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}" title="${esc(e.id)} ${esc(e.type)} · severity ${e.severity} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`)
+      .map((e) => `<i class="ev-mark sev-${e.severity}${e.id === highlighted || eventsShown ? ' on' : ''}" data-ev="${esc(e.id)}" style="left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}" title="${esc(e.id)} ${esc(e.type)} · severity ${e.severity} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`)
       .join('');
     renderCams();
   }
@@ -90,7 +90,8 @@ export function createTimeline(el, { t0, t1 }) {
     const n = [...lanes.values()].filter((l) => l.kind === 'coverage').length;
     camsBtn.hidden = !n && !events.length;
     camsBtn.innerHTML = `${n ? `Cameras · ${n}` : 'Events'}${icon(state.cameraLanesOpen ? 'chevron-down' : 'chevron-right')}`;
-    camsEl.hidden = !state.cameraLanesOpen;
+    camsEl.hidden = !state.cameraLanesOpen && !eventsShown;
+    camLanes.hidden = !state.cameraLanesOpen;
     el.classList.toggle('cams-open', state.cameraLanesOpen);
   }
   // Trip lanes: the route's trip (else the first) stays; the others fold into one line until it is clicked.
@@ -225,6 +226,11 @@ export function createTimeline(el, { t0, t1 }) {
       highlighted = eventId;
       renderEvents();
     },
+    // Shows the Events row without the camera lanes, every mark highlighted (a zone's events); false folds it back behind the toggle.
+    showEvents(on) {
+      eventsShown = on;
+      renderEvents();
+    },
     // items: [{eid, kind, t0_ms, t1_ms}] in timeline time; [] hides the lane.
     setEvidence(items) {
       evidence = items;
@@ -235,6 +241,7 @@ export function createTimeline(el, { t0, t1 }) {
       for (const lane of lanes.values()) lane.row.remove();
       lanes.clear();
       events = [];
+      eventsShown = false;
       renderAll();
     },
     onSeek(fn) {

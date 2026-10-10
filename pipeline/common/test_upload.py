@@ -1,5 +1,6 @@
 """upload.py dry run and --download mirror.  .venv/bin/python -m pytest pipeline/common/test_upload.py -q"""
 import subprocess
+import hashlib
 import sys
 import types
 from pathlib import Path
@@ -19,7 +20,8 @@ class FakeS3:
 
     def paginate(self, Bucket, Prefix):
         assert (Bucket, Prefix) == ("bucket", "sva/")
-        rows = [{"Key": k, "Size": len(v), **({"LastModified": self.modified[k]} if k in self.modified else {})}
+        rows = [{"Key": k, "Size": len(v), 'ETag': f'"{hashlib.md5(v, usedforsecurity=False).hexdigest()}"',
+                 **({"LastModified": self.modified[k]} if k in self.modified else {})}
                 for k, v in sorted(self.objects.items())]
         return [{"Contents": rows[:2]}, {"Contents": rows[2:]}, {}]
 
@@ -27,12 +29,15 @@ class FakeS3:
         self.fetched.append(key)
         Path(filename).write_bytes(self.objects[key])
 
+    def head_object(self, **kwargs):
+        return {'Metadata': {}}
+
 
 def test_download_fetches_only_missing_or_resized_objects(tmp_path):
     s3 = FakeS3({"sva/wh-1/a.bin": b"aaaa", "sva/wh-1/sub/b.json": b"{}", "sva/fl-2/c.bin": b"cc",
                  "sva/_map/style.json": b"{\"v\":1}"})
     (tmp_path / "wh-1/sub").mkdir(parents=True)
-    (tmp_path / "wh-1/a.bin").write_bytes(b"AAAA")
+    (tmp_path / "wh-1/a.bin").write_bytes(b"aaaa")
     (tmp_path / "wh-1/sub/b.json").write_bytes(b"{ }")
     assert upload.download(s3, "bucket", tmp_path, ["wh-1"]) == (2, 1, 9)
     assert sorted(s3.fetched) == ["sva/_map/style.json", "sva/wh-1/sub/b.json"]
@@ -50,7 +55,7 @@ def test_download_refetches_same_size_objects_newer_than_the_local_file(tmp_path
     s3 = FakeS3({"sva/wh-1/new.json": b"[2]", "sva/wh-1/old.json": b"[1]"}, {"sva/wh-1/new.json": t, "sva/wh-1/old.json": t})
     (tmp_path / "wh-1").mkdir()
     for name, mtime in [("new.json", t.timestamp() - 60), ("old.json", t.timestamp() + 60)]:
-        (tmp_path / "wh-1" / name).write_bytes(b"[0]")
+        (tmp_path / "wh-1" / name).write_bytes(b"[0]" if name == 'new.json' else b"[1]")
         os.utime(tmp_path / "wh-1" / name, (mtime, mtime))
     assert upload.download(s3, "bucket", tmp_path, ["wh-1"]) == (1, 1, 3)
     assert s3.fetched == ["sva/wh-1/new.json"] and (tmp_path / "wh-1/new.json").read_bytes() == b"[2]"

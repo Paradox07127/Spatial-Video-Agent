@@ -6,8 +6,8 @@ import time
 
 from shapely.geometry import Point, Polygon
 
-from app.core import geo, geometry, vlm
-from app.core.models import Envelope, Evidence, InputRange, ObservationRef, ToolResult
+from app.core import geo, geometry, street, vlm
+from app.core.models import Envelope, Evidence, InputRange, ObservationRef, ToolResult, capabilities
 
 
 def result(key, t0, t1, output, *, cam=None, evidence=(), pts_read=0, model_rev=None, gaps=(),
@@ -50,8 +50,33 @@ def get_synced_views(store, scene_key, t_ms, *, cam=None):
                   gaps=gaps,coverage=len(frames)/len(cams) if cams else 0,started=started)
 
 
+def no_capability(m, cap, t_ms):
+    """A street scene has no geometry, map or GPS: UNRESOLVED with the capability's reason, never a warehouse or fleet reading."""
+    reason = capabilities(m)[cap]['reason']
+    return result(m['scene_key'],t_ms,t_ms+1,{'status':'UNRESOLVED','reason':reason},gaps=[(t_ms,t_ms+1,reason)])
+
+
+def detections_2d(store, scene_key, cam, t0_ms, t1_ms, groups):
+    """YOLO COCO boxes of one street camera in [t0_ms, t1_ms): the most boxes of a label in one frame and the read frames in
+    which every asked group ({name: [labels]}) has a box."""
+    started = time.monotonic()
+    dets = street.detections(store,scene_key,cam,t0_ms,t1_ms)
+    labels = {}
+    for r in dets['rows']:
+        labels.setdefault(r[0],set()).add(r[1])
+    together = [t for t, seen in labels.items() if groups and all(seen & set(g) for g in groups.values())]
+    value = {'counts':street.max_per_frame(dets['rows']),'frames_read':dets['frames_read'],'source':dets['source'],
+             'classes':list(groups),'frames_together':len(together)}
+    ev = evidence(store,scene_key,cam,t0_ms,t1_ms,'measure','yolo_coco_2d',value,params={'cam':cam,'groups':groups})
+    missing = sum(b-a for a, b, _ in dets['gaps'])
+    return result(scene_key,t0_ms,t1_ms,value,cam=cam,evidence=[ev],pts_read=dets['frames_read'],gaps=[tuple(g) for g in dets['gaps']],
+                  coverage=(t1_ms-t0_ms-missing)/(t1_ms-t0_ms) if t1_ms>t0_ms else 0,started=started)
+
+
 def visibility(store, scene_key, t_ms, target, *, cam=None):
     m = store.manifest(scene_key)
+    if m['workspace']=='street':
+        return no_capability(m,'blind_spot',t_ms)
     moment = store.moment(scene_key,t_ms)
     person = next((p for p in moment.persons if p.entity_id==target),None) if isinstance(target,str) else None
     point = person.root_world if person else target if not isinstance(target,str) else None
@@ -110,6 +135,8 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
 
 def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     m = store.manifest(scene_key)
+    if m['workspace']=='street':
+        return no_capability(m,{'distance':'distance','in_zone':'ground_position'}.get(kind,'speed'),t_ms)
     if not m['metric']:
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'scene_not_metric'})
     points = {}
@@ -235,6 +262,9 @@ def facade(store, passes, lat, lon, side):
 
 
 def speed_limit(store, scene_key, t_ms):
+    m = store.manifest(scene_key)
+    if m['workspace']=='street':
+        return no_capability(m,'speed',t_ms)
     out = geo.speed_limit(store,scene_key,t_ms)
     if 'speed_kmh' not in out:
         return result(scene_key,t_ms,t_ms+1,out,gaps=[(t_ms,t_ms+1,out['reason'])])

@@ -99,3 +99,22 @@ def test_index_adds_street_scene_only_on_request(tmp_path, index_db):
     assert rows == [(f"{ST_KEY}:fixture_cam-1:00000", 1, 1, "chunks/fixture_cam-1/0000.mp4"),
                     (f"{ST_KEY}:fixture_cam-1:00001", 1, 1, "chunks/fixture_cam-1/0000.mp4")]
     assert con.execute("SELECT workspace FROM scene_manifest WHERE scene_key = ?", [ST_KEY]).fetchone() == ("street",)
+
+
+@pytest.mark.parametrize("key,tag", [(WH_KEY, "warehouse"), (FL_KEY, "fleet"), (ST_KEY, "fixed")])
+def test_tag_of(key, tag):
+    assert models.tag_of(manifest(key)) == tag
+
+
+def test_bike_gopro_is_mobile_and_other_street_cameras_are_fixed():
+    st = manifest(ST_KEY)
+    for camera, tag in [("nyc_bike_gopro-1", "mobile"), ("nyc_streets_cam-1", "fixed"), ("sf_streets_cam-4", "fixed"), ("neighborhood_cam-1", "fixed")]:
+        assert models.tag_of({**st, "sources": {"vss": {"camera_id": camera}}}) == tag
+
+
+def test_sources_are_tags():
+    q = dict(template="find", entities=[], t_range=None, place=None, zone=None, scene_key=None, workspace="warehouse")
+    assert models.Query(**q).sources is None
+    assert models.Query(**q, sources=["fixed", "mobile"]).sources == ["fixed", "mobile"]
+    with pytest.raises(ValidationError):
+        models.Query(**q, sources=["street"])

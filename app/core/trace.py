@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Thread
 import time
 from typing import Any, Iterator, Literal
 
@@ -157,10 +157,7 @@ def traced(run: RunHandle, name: str, inputs: dict, *, state: AgentState,
                 run.store.update_step(run.run_id, _stored_step(run, step))
 
 
-def finish_run(run: RunHandle, status: Literal['done', 'error', 'aborted'], *, final: Final | None,
-               claims: list[Claim]) -> str | None:
-    elapsed = int(time.monotonic() * 1000 - run.t0_monotonic_ms)
-    run.store.finalize_run(run.run_id, status, claims, final=final, elapsed_ms=elapsed)
+def _deliver(run, status, final, claims, elapsed):
     url = None
     if run.weave_root is not None:
         try:
@@ -170,11 +167,27 @@ def finish_run(run: RunHandle, status: Literal['done', 'error', 'aborted'], *, f
         except Exception:
             _failed(run)
     if run.weave_failed:
-        for step in run.store.get_run(run.run_id).steps:
-            step.trace_delivery_state = 'weave_failed'
-            with run.store.lock:
+        # one lock over read and rewrite, so a step the request thread updates meanwhile is not overwritten with a stale copy
+        with run.store.lock:
+            for step in run.store.get_run(run.run_id).steps:
+                step.trace_delivery_state = 'weave_failed'
                 run.store.update_step(run.run_id, _stored_step(run, step))
     run.store.finalize_run(run.run_id, status, claims, final=final, weave_url=url, elapsed_ms=elapsed)
+    return url
+
+
+def finish_run(run: RunHandle, status: Literal['done', 'error', 'aborted'], *, final: Final | None,
+               claims: list[Claim]) -> str | None:
+    elapsed = int(time.monotonic() * 1000 - run.t0_monotonic_ms)
+    if run.weave_root is None:
+        return _deliver(run, status, final, claims, elapsed)
+    try:
+        url = _url(run.weave_root)  # built from project and call id, no network
+    except Exception:
+        url = None
+    run.store.finalize_run(run.run_id, status, claims, final=final, weave_url=url, elapsed_ms=elapsed)
+    # Weave flush waits on wandb.ai; it must not hold the SSE stream
+    Thread(target=_deliver, args=(run, status, final, claims, elapsed), daemon=True, name=f'weave-{run.run_id}').start()
     return url
 
 

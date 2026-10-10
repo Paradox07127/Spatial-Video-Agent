@@ -140,6 +140,30 @@ def test_blind_presence_merges_frames_on_a_rounded_15_fps_grid(tmp_path, monkeyp
     assert all(b[0]-a[1]>100 for v in runs.values() for a,b in zip(v,v[1:])), runs
 
 
+def test_street_scene_tools_abstain_with_the_capability_reason(tmp_path):
+    from app.tests.unit.test_agent import L1_KEY, corpus_store
+    s=corpus_store(tmp_path)
+    a=EntityRef(scene_key=L1_KEY,entity_id='P1',kind='person')
+    b=EntityRef(scene_key=L1_KEY,entity_id='V1',kind='vehicle')
+    for r, reason in [(tools.measure(s,L1_KEY,1000,a,b,'distance'),'no_geometry'),(tools.measure(s,L1_KEY,1000,a,None,'speed'),'no_gps'),
+                      (tools.visibility(s,L1_KEY,1000,'P1'),'no_geometry'),(tools.speed_limit(s,L1_KEY,1000),'no_gps')]:
+        assert r.envelope.output=={'status':'UNRESOLVED','reason':reason} and not r.evidence
+        assert [g[2] for g in r.envelope.gaps]==[reason]
+
+
+def test_detections_2d_reads_the_street_boxes(tmp_path):
+    from app.tests.unit.test_agent import L1_KEY, corpus_store
+    s=corpus_store(tmp_path)
+    groups={'person':['person'],'vehicle':['car','truck']}
+    # the fixture car passes from 2.1 s
+    r=tools.detections_2d(s,L1_KEY,'fixture_cam-1',0,2000,groups)
+    ev,=r.evidence
+    assert (ev.kind,ev.method,ev.cam_id,ev.observation_ids)==('measure','yolo_coco_2d','fixture_cam-1',[])
+    assert ev.value['counts']=={'person':1} and ev.value['frames_together']==0 and r.envelope.pts_read==ev.value['frames_read']>0
+    r=tools.detections_2d(s,L1_KEY,'fixture_cam-1',2000,5000,groups)
+    assert r.evidence[0].value['frames_together']>0 and r.envelope.coverage==1 and r.envelope.gaps==[]
+
+
 def test_blind_presence_joins_gaps_shorter_than_the_visibility_step(tmp_path, monkeypatch):
     s=fixture_store(tmp_path)
     real=tools.geometry.floor_visibility

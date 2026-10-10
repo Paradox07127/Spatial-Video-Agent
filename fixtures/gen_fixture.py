@@ -11,7 +11,7 @@ Scenes (under <out>/sva-out/):
 Under <out>/l1/ (kept out of sva-out, whose readers know two workspaces only):
   st-fixture_cam_1-clip01  street (L1), one 2D camera, 10 s, one chunk: a person walks along the sidewalk while a car
                      passes in [2000, 8000); 2D detections only, no geometry, no track ids.
-Also <out>/asks.json, <out>/l1/asks_corpus.json (placeholder corpus asks), <out>/runs/*.json, <out>/labels/*.json.
+Also <out>/asks.json, <out>/l1/asks_corpus.json (corpus asks recorded from the real agent), <out>/runs/*.json, <out>/labels/*.json.
 JSON and points.bin are deterministic; videos and thumbnails are rendered with Pillow + ffmpeg unless --no-media.
 --index writes an index.duckdb from schemas/index.sql (sva-out scenes only; build_index(..., l1=True) adds the L1 scene).
 """
@@ -34,7 +34,7 @@ import numpy as np
 
 SVA = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SVA))
-from app.core.models import ABSTAIN_TEXT, Evidence, ObservationRef, make_record_id, scene_key_of  # noqa: E402
+from app.core.models import CosmosRecord, Evidence, ObservationRef, make_record_id, scene_key_of  # noqa: E402
 
 REV = "fx-0001"
 COMMIT = "w0-fixture"
@@ -960,155 +960,58 @@ def labels(wh) -> dict:
 
 
 ANCHOR_Q = "Show me every clip, from any camera in any site, where a person is close to a moving vehicle"
+CORPUS_ASKS = [
+    ("corpus-anchor", "warehouse", ANCHOR_Q,
+     {"workspace": "warehouse", "scene_key": WH_KEY, "scope": "corpus", "sources": ["warehouse", "fleet", "fixed", "mobile"]}),
+    ("corpus-street-distance", "street", "How far was the pedestrian from the car on the street?",
+     {"workspace": "street", "scene_key": ST_KEY, "scope": "corpus", "sources": ["fixed"]}),
+    ("corpus-nomatch", "street", "Find a person on the bike camera", {"workspace": "street", "scope": "corpus", "sources": ["mobile"]}),
+]
 
 
-def st_evidence(st, c0=5000) -> tuple[dict, dict]:
-    """Caption (model) and 2D detection (measure) evidence of one 5 s street clip."""
-    frames = sorted({r[0] for r in st["rows"] if c0 <= r[0] < c0 + 5000})
-    counts = {lab: max(sum(1 for r in st["rows"] if r[0] == t and r[1] == lab) for t in frames)
-              for lab in sorted({r[1] for r in st["rows"] if c0 <= r[0] < c0 + 5000})}
-    e_cap = ev(evidence_level="L1", scene_key=ST_KEY, cam_id=ST_CAM.id, t0_ms=c0, t1_ms=c0 + 5000, observation_ids=[], kind="model",
-               method="caption_embed1_rrf", value={"rank_text": 1, "rank_visual": 1, "rrf": 0.0328})
-    e_yolo = ev(evidence_level="L1", scene_key=ST_KEY, cam_id=ST_CAM.id, t0_ms=c0, t1_ms=c0 + 5000, observation_ids=[], kind="measure",
-                method="yolo_coco_2d", value={"counts": counts, "frames_read": len(frames), "source": ST_DETS})
-    return e_cap, e_yolo
+def corpus_asks(out: Path) -> list[dict]:
+    """The corpus asks run through the real agent on the generated scenes (sva-out plus the l1 street scene): recorded Cosmos
+    (a scene without a recorded file has none), the unit tests' in-memory trace, fixed run ids and timings."""
+    import tempfile
 
+    from app.api import agent
+    from app.core import embed, vlm
+    from app.tests.unit.a5_fakes import FixtureStore, install_trace
 
-def st_moment(e_cap, e_yolo, c0=5000) -> dict:
-    return {"moment_id": f"m_{ST_KEY}_{c0}", "scene_key": ST_KEY, "t0_ms": c0, "t1_ms": c0 + 5000, "cams": [ST_CAM.id],
-            "primary_cam": ST_CAM.id, "actor_refs": [], "evidence_ids": [e_cap["eid"], e_yolo["eid"]], "score": 0.0328,
-            "why": ["caption rank 1 · visual rank 1", "2D detections: person, car"],
-            "thumb": f"/api/assets/{ST_KEY}/thumbs/{ST_CAM.id}/{c0 // 1000:05d}.jpg", "exec_state": "live", "backend": "duckdb",
-            "clip_id": f"{ST_KEY}:{ST_CAM.id}:{c0 // 5000:05d}", "vss_rank": None, "time_filter": None,
-            "workspace": "street", "evidence_level": "L1"}
-
-
-def abstain(reason) -> dict:
-    return {"abstain": {"reason": reason, "text": ABSTAIN_TEXT[reason]}}
-
-
-def corpus_anchor(wh, fl, st) -> dict:
-    q = Seq("r_fixtureco0001")
-    P = lambda e, k: {"scene_key": WH_KEY, "entity_id": e, "kind": k}  # noqa: E731
-    e1 = wh["events"][0]
-    q.step("parse", "Template find: person, vehicle; relation close to; scope corpus", 4)
-    q.step("retrieve", "Retrieval per workspace; at most 4 moments per level; order L3, L2, L1, then score", 30)
-    e_wh_cap = ev(evidence_level="L3", scene_key=WH_KEY, cam_id="ceiling_04", t0_ms=0, t1_ms=5000, observation_ids=[], kind="model",
-                  method="caption_embed1_rrf", value={"rank_text": 1, "rank_visual": 1, "rrf": 0.0328})
-    e_wh_evt = ev(evidence_level="L3", scene_key=WH_KEY, cam_id=None, t0_ms=e1["t0_ms"], t1_ms=e1["t1_ms"], observation_ids=[], kind="measure",
-                  method="event_rule_near_miss", value={"event_id": f"{WH_KEY}:E1", "t0_ms": e1["t0_ms"]})
-    q.tool("search", {"q": ANCHOR_Q, "workspace": "warehouse", "scope": "corpus"}, "Retrieval in warehouse scenes",
-           [e_wh_cap, e_wh_evt], {"n_cards": 1}, 32, pts_read=6, scene_key=WH_KEY)
-    fe1 = fl["events"][0]
-    e_fl_cap = ev(evidence_level="L2", scene_key=FL_KEY, cam_id="dashcam", t0_ms=5000, t1_ms=10000, observation_ids=[], kind="model",
-                  method="caption_embed1_rrf", value={"rank_text": 1, "rank_visual": 2, "rrf": 0.0325})
-    e_fl_evt = ev(evidence_level="L2", scene_key=FL_KEY, cam_id="dashcam", t0_ms=fe1["t0_ms"], t1_ms=fe1["t1_ms"],
-                  observation_ids=[obs(FL_KEY, "dashcam", 1, 6000)], kind="measure", method="event_rule_ped_crossing",
-                  value={"event_id": f"{FL_KEY}:E1", "severity": 2, "t0_ms": fe1["t0_ms"]})
-    q.tool("search", {"q": ANCHOR_Q, "workspace": "fleet", "scope": "corpus"}, "Retrieval in fleet trips",
-           [e_fl_cap, e_fl_evt], {"n_cards": 1}, 34, pts_read=2, scene_key=FL_KEY)
-    e_st_cap, e_st_yolo = st_evidence(st)
-    q.tool("search", {"q": ANCHOR_Q, "workspace": "street", "scope": "corpus"}, "Retrieval in street cameras",
-           [e_st_cap, e_st_yolo], {"n_cards": 1}, 36, pts_read=e_st_yolo["value"]["frames_read"], scene_key=ST_KEY,
-           cam=ST_CAM.id, rng=(5000, 10000))
-    m_wh = {"moment_id": f"m_{WH_KEY}_{e1['t0_ms']}", "scene_key": WH_KEY, "t0_ms": e1["t0_ms"], "t1_ms": e1["t1_ms"],
-            "cams": CAM_ORDER, "primary_cam": "ceiling_04", "actor_refs": [P("P1", "person"), P("F1", "forklift")],
-            "evidence_ids": [e_wh_cap["eid"], e_wh_evt["eid"]], "score": 0.0328,
-            "why": ["caption rank 1 · visual rank 1", "Rule event near_miss"],
-            "thumb": f"/api/assets/{WH_KEY}/thumbs/ceiling_04/{e1['t0_ms'] // 1000:05d}.jpg", "exec_state": "live",
-            "backend": "duckdb", "clip_id": f"{WH_KEY}:ceiling_04:00000", "vss_rank": None, "time_filter": None,
-            "workspace": "warehouse", "evidence_level": "L3"}
-    m_fl = {"moment_id": f"m_{FL_KEY}_{fe1['t0_ms']}", "scene_key": FL_KEY, "t0_ms": fe1["t0_ms"], "t1_ms": fe1["t1_ms"],
-            "cams": ["dashcam"], "primary_cam": "dashcam", "actor_refs": [{"scene_key": FL_KEY, "entity_id": "P1", "kind": "person"}],
-            "evidence_ids": [e_fl_cap["eid"], e_fl_evt["eid"]], "score": 0.0325,
-            "why": ["caption rank 1 · visual rank 2", "Rule event ped_crossing"],
-            "thumb": f"/api/assets/{FL_KEY}/thumbs/dashcam/00006.jpg", "exec_state": "live", "backend": "duckdb",
-            "clip_id": f"{FL_KEY}:dashcam:00001", "vss_rank": None, "time_filter": None,
-            "workspace": "fleet", "evidence_level": "L2"}
-    m_st = st_moment(e_st_cap, e_st_yolo)
-    q.emit("hits", {"query_id": "q1", "moments": [m_wh, m_fl, m_st]})
-    q.emit("ui", {"cmd": "seek", "args": {"t_ms": wh["min_t"], "scene_key": WH_KEY}, "scene_key": WH_KEY})
-    q.emit("ui", {"cmd": "highlight", "args": {"ids": ["P1", "F1"], "mode": "outline"}, "scene_key": WH_KEY})
-    q.step("measure", "Warehouse hit: P1-F1 ground distance at the near miss", 60)
-    t = wh["min_t"]
-    e_dist = ev(evidence_level="L3", scene_key=WH_KEY, cam_id="ceiling_04", t0_ms=t, t1_ms=t + STEP,
-                observation_ids=[obs(WH_KEY, c, TRACK_IDS[(c, "P1")], t) for c in wh["seen"][("P1", t)]],
-                kind="measure", method="ground_distance_tri", params={"a": "P1", "b": "F1"}, value=round(wh["min_d"], 2),
-                unit="m", sigma=0.12)
-    q.tool("measure", {"scene_key": WH_KEY, "t_ms": t, "a": P("P1", "person"), "b": P("F1", "forklift"), "kind": "distance"},
-           "Measure the P1-F1 ground distance", [e_dist], {"value": round(wh["min_d"], 2), "sigma": 0.12}, 64,
-           scene_key=WH_KEY, cam="ceiling_04", rng=(t, t + STEP))
-    q.emit("claim", {"claim_id": "c1", "text": "The worker was less than 2 m from the moving forklift",
-                     "predicates": [{"predicate_id": "p1", "subject_refs": [P("P1", "person"), P("F1", "forklift")], "operator": "lt",
-                                     "value": 2.0, "unit": "m", "status": "supported", "eids": [e_dist["eid"]]}],
-                     "aggregate": "SUPPORTED", "before": None, "after": "SUPPORTED",
-                     "examined_eids": [e_wh_cap["eid"], e_wh_evt["eid"], e_dist["eid"]], "available_eids": [], "explain": None,
-                     "scene_key": WH_KEY, "moment_id": m_wh["moment_id"], "evidence_level": "L3"})
-    q.emit("ui", {"cmd": "seek", "args": {"t_ms": 5000, "scene_key": ST_KEY}, "scene_key": ST_KEY})
-    q.step("assess", "Street hit: 2D detections only; distance is not judged", 70)
-    st_claim = {"aggregate": "SUPPORTED", "before": None, "after": "SUPPORTED", "examined_eids": [e_st_cap["eid"], e_st_yolo["eid"]],
-                "available_eids": [], "scene_key": ST_KEY, "moment_id": m_st["moment_id"], "evidence_level": "L1"}
-    q.emit("claim", {**st_claim, "claim_id": "c2", "text": "A person and a car are in the same frame (2D)", "explain": None,
-                     "predicates": [{"predicate_id": "p1", "subject_refs": [], "operator": "detected", "value": ["person", "car"],
-                                     "unit": None, "status": "supported", "eids": [e_st_yolo["eid"]]}]})
-    q.emit("claim", {**st_claim, "claim_id": "c3", "text": "The person was close to the moving car",
-                     "aggregate": "UNRESOLVED", "after": "UNRESOLVED", "explain": abstain("no_geometry"),
-                     "predicates": [{"predicate_id": "p1", "subject_refs": [], "operator": "lt", "value": 2.0, "unit": "m",
-                                     "status": "unknown", "eids": []}]})
-    q.step("answer", "One sentence per level group", 80)
-    q.emit("answer", {"sentence_id": "a1", "text": f"In the warehouse, the worker came within {round(wh['min_d'], 2)} m of the moving forklift.",
-                      "claim_ids": ["c1"], "cites": [e_dist["eid"]], "measure_refs": [{"eid": e_dist["eid"], "field": "value"}],
-                      "evidence_level": "L3"})
-    q.emit("answer", {"sentence_id": "a2", "text": "A street camera shows a person and a moving car in the same frame; "
-                      "the distance is not judged because this camera has no geometry.",
-                      "claim_ids": ["c2", "c3"], "cites": [e_st_yolo["eid"]], "measure_refs": [], "evidence_level": "L1"})
-    q.end("SUPPORTED", "enough_evidence")
-    return {"ask_id": "corpus-anchor", "workspace": "warehouse", "q": ANCHOR_Q,
-            "context": {"workspace": "warehouse", "scene_key": WH_KEY, "scope": "corpus"}, "budget": {"tools": 8, "seconds": 25},
-            "expect": {"final": "SUPPORTED", "template": "find", "n_moments": 3}, "events": q.frames}
-
-
-def corpus_street_distance(st) -> dict:
-    q = Seq("r_fixtureco0002")
-    q.step("parse", "Template find: person, car; relation distance; scope corpus", 4)
-    q.step("retrieve", "Retrieval per workspace; at most 4 moments per level; order L3, L2, L1, then score", 30)
-    e_cap, e_yolo = st_evidence(st)
-    q.tool("search", {"q": "How far was the pedestrian from the car on the street?", "workspace": "street", "scope": "corpus"},
-           "Retrieval in street cameras", [e_cap, e_yolo], {"n_cards": 1}, 32, pts_read=e_yolo["value"]["frames_read"],
-           scene_key=ST_KEY, cam=ST_CAM.id, rng=(5000, 10000))
-    m = st_moment(e_cap, e_yolo)
-    q.emit("hits", {"query_id": "q1", "moments": [m]})
-    q.emit("ui", {"cmd": "seek", "args": {"t_ms": 5000, "scene_key": ST_KEY}, "scene_key": ST_KEY})
-    q.step("assess", "Street hit: distance needs geometry; abstain", 40)
-    q.emit("claim", {"claim_id": "c1", "text": "The pedestrian was close to the car",
-                     "predicates": [{"predicate_id": "p1", "subject_refs": [], "operator": "lt", "value": 2.0, "unit": "m",
-                                     "status": "unknown", "eids": []}],
-                     "aggregate": "UNRESOLVED", "before": None, "after": "UNRESOLVED", "examined_eids": [e_cap["eid"], e_yolo["eid"]],
-                     "available_eids": [], "explain": abstain("no_geometry"), "scene_key": ST_KEY, "moment_id": m["moment_id"],
-                     "evidence_level": "L1"})
-    q.step("answer", "One sentence per level group", 45)
-    q.emit("answer", {"sentence_id": "a1", "text": "A street camera shows the pedestrian and the car in the same frame, "
-                      "but this camera has no geometry, so the distance is not judged.",
-                      "claim_ids": ["c1"], "cites": [e_yolo["eid"]], "measure_refs": [], "evidence_level": "L1"})
-    q.end("UNRESOLVED", "abstained")
-    return {"ask_id": "corpus-street-distance", "workspace": "street", "q": "How far was the pedestrian from the car on the street?",
-            "context": {"workspace": "street", "scene_key": ST_KEY, "scope": "corpus"}, "budget": {"tools": 8, "seconds": 25},
-            "expect": {"final": "UNRESOLVED", "template": "find", "n_moments": 1}, "events": q.frames}
-
-
-def corpus_nomatch() -> dict:
-    q = Seq("r_fixtureco0003")
-    text = "Is anyone riding a horse on any camera?"
-    q.step("parse", "Template find: horse; scope corpus", 3)
-    q.step("retrieve", "Retrieval per workspace; at most 4 moments per level; order L3, L2, L1, then score", 20)
-    for ws, key in (("warehouse", WH_KEY), ("fleet", FL_KEY), ("street", ST_KEY)):
-        q.tool("search", {"q": text, "workspace": ws, "scope": "corpus"}, f"Retrieval in {ws} scenes", [], {"n_cards": 0}, 22,
-               pts_read=0, scene_key=key)
-    q.emit("hits", {"query_id": "q1", "moments": []})
-    q.end("NO_MATCH", "abstained")
-    return {"ask_id": "corpus-nomatch", "workspace": "fleet", "q": text, "context": {"workspace": "fleet", "scope": "corpus"},
-            "budget": {"tools": 8, "seconds": 25}, "expect": {"final": "NO_MATCH", "template": "find", "n_moments": 0},
-            "events": q.frames}
+    def recorded(task):
+        def call(scene_key, *args, run=None, **kwargs):
+            path = out / "sva-out" / scene_key / "cosmos" / f"{scene_key}.json"
+            records = json.loads(path.read_text())["records"] if path.is_file() else []
+            record = next((r for r in records if r["task"] == task), None)
+            if record is None:
+                raise vlm.VLMUnavailable("no recorded fixture")
+            return CosmosRecord.model_validate(record)
+        return call
+    install_trace(SimpleNamespace(setattr=setattr))
+    for name, task in (("situation", "C1"), ("predict_next", "C2"), ("ground_objects", "C3"), ("localize", "C4"), ("describe_region", "C5")):
+        setattr(vlm, name, recorded(task))
+    embed.embed_text = lambda q: [0.0] * 256
+    asks = []
+    with tempfile.TemporaryDirectory() as tmp:
+        assets = shutil.copytree(out / "sva-out", Path(tmp) / "sva-out")
+        shutil.copytree(out / "l1" / ST_KEY, assets / ST_KEY)
+        build_index(Path(tmp) / "index.duckdb", out, l1=True)
+        store = FixtureStore(index_path=Path(tmp) / "index.duckdb", app_path=Path(tmp) / "app.duckdb", asset_dir=assets)
+        for n, (ask_id, workspace, q, context) in enumerate(CORPUS_ASKS, 1):
+            budget = {"tools": 8, "seconds": 25}
+            frames = list(agent.ask_frames(store, agent.AskRequest(q=q, context=context, budget=budget)))
+            frames = json.loads(json.dumps(frames).replace(frames[0]["data"]["run_id"], f"r_fixtureco{n:04d}"))
+            for f in frames:
+                if f["event"] == "step":
+                    f["data"]["elapsed_ms"] = 5 * f["data"]["i"]
+                elif f["event"] == "tool_result":
+                    f["data"]["envelope"]["elapsed_ms"] = 12
+            hits = next((f["data"]["moments"] for f in frames if f["event"] == "hits"), [])
+            asks.append({"ask_id": ask_id, "workspace": workspace, "q": q, "context": context, "budget": budget,
+                         "expect": {"final": frames[-2]["data"]["final"], "template": "find", "n_moments": len(hits)},
+                         "events": frames})
+        store.index.close()
+    return asks
 
 
 # ---------------------------------------------------------------- media (Pillow + ffmpeg)
@@ -1341,8 +1244,8 @@ def main() -> None:
     write_json(out / "asks.json", {"schema_version": "1", "asks": [main_ask, wh_refuse(), wh_nomatch(), fl_where(fl)]})
     write_json(out / "l1" / "asks_corpus.json", {
         "schema_version": "1",
-        "note": "Placeholder SSE sequences, checked by schema and sequence rules only; T4 regenerates them from the real agent.",
-        "asks": [corpus_anchor(wh, fl, st), corpus_street_distance(st), corpus_nomatch()]})
+        "note": "SSE sequences recorded from the real agent on the fixture scenes; run ids and timings are fixed.",
+        "asks": corpus_asks(out)})
     write_json(out / "runs" / f"{run_doc['run_id']}.json", run_doc)
     write_json(out / "labels" / f"{WH_KEY}.json", labels(wh))
     if not a.no_media:

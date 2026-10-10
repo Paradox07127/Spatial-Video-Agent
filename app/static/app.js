@@ -22,12 +22,15 @@ import { trace } from './kernel/trace.js';
 import { runpage } from './run/page.js';
 
 const $ = (s) => document.querySelector(s);
-const PAGES = { home: './home/page.js', warehouse: './warehouse/page.js', fleet: './fleet/page.js', test: './kernel/_testpage.js' };
-// Spec §8.5; the last warehouse question must be refused (identity).
+const PAGES = { home: './home/page.js', warehouse: './warehouse/page.js', fleet: './fleet/page.js', street: './street/page.js', test: './kernel/_testpage.js' };
+// Each one was answered (not abstained) on the deployed site; the first two fleet ones are place questions.
 const PRESETS = {
-  warehouse: ['When did the worker start to dodge the forklift, and how far was it?', 'Was anyone where ceiling_00 cannot see in these 10 seconds?', 'Who is the person in eye_00?'],
-  fleet: ['Near the ROM, did a pedestrian cross in front of the car?', 'At Queen and Spadina, what is the building on the right?', 'Was this car speeding?'],
+  warehouse: ['When did the worker start to dodge the forklift, and how far was it?', 'How close did the forklift come to a person?', 'Was anyone where ceiling_00 cannot see in these 10 seconds?'],
+  fleet: ['At Queen and Spadina, what is the building on the right?', 'At Avenue Road and Cumberland Street, what is the building on the right?', 'Was this car speeding?'],
+  street: ['When does a pedestrian cross the street?', 'How many people walk past in this clip?', 'When is the street busiest in this clip?'],
 };
+// Presets asked from a chip on a route of their own: the fleet place questions search every trip. Others keep the current route.
+const PRESET_ROUTE = new Map(PRESETS.fleet.slice(0, 2).map((q) => [q, '#/fleet']));
 // Abstention code -> [why, what can be asked instead] (spec §8.3).
 const ABSTAIN = {
   UNSUPPORTED: ['The question is of a kind that cannot be answered (identity, intent, blame).', 'Ask what can be measured instead: when, where, how far apart, whether it appears. For example'],
@@ -45,8 +48,8 @@ const LAST_ROUTE = 'sva.lastRoute';
 const AGENT_LANE = { label: 'Agent looked', kind: 'agent' };
 const timeline = createTimeline($('#timeline'), clock.range);
 timeline.addLane('agent', AGENT_LANE);
-const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESETS, workspaces: () => workspaces, ask: async (q, { ws, hash } = {}) => ask(q, { home: hash ?? await defaultRoute(ws) }) };
-// Only workspaces that have a page template; /api/workspaces also lists street scenes, which have none yet.
+const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESETS, workspaces: () => workspaces, ask: async (q, { ws, hash, preset } = {}) => ask(q, { home: hash ?? (preset ? PRESET_ROUTE.get(q) : null) ?? await defaultRoute(ws) }) };
+// Only workspaces that have a page template.
 const workspaces = api.get('api/workspaces').then((ws) => ws.filter((w) => PAGES[w.id]));
 let page = null, pageKind = null, dispose = null, stream = null, run = null;
 let wsHash = null; // the route the run page opens over
@@ -64,6 +67,11 @@ const toPage = (fn) => {
   const r = run;
   mounted.then((p) => p && p === page && r === run && fn(p));
 };
+// Inside toPage: whether a frame, moment or evidence of scene `key` is for the mounted page. A route without a scene
+// (all trips, #/test) takes every scene; frames without a scene_key are from fixtures recorded before it existed.
+const here = (key) => !key || !ctx.route.scene_key || key === ctx.route.scene_key;
+// e2e hook: the current run.
+export const currentRun = () => run;
 
 const stored = (k) => {
   try {
@@ -82,11 +90,13 @@ const store = (k, v) => {
 const shortKey = (key) => key.replace(/^fl-pie-(set\d+)_video_(\d+)$/, '$1·$2');
 const mmss = (ms) => tc(ms).slice(0, 5);
 
-// ---- routing: #/ home; #/warehouse/<scene_key>, #/fleet, #/fleet/<trip_id>@<t_ms>, #/test; #/run/<run_id> and #/runs open over them
+// ---- routing: #/ home; #/warehouse/<scene_key>, #/fleet, #/fleet/<trip_id>@<t_ms>, #/street/<scene_key>[@<t_ms>], #/test;
+// #/run/<run_id> and #/runs open over them
 function parseRoute(hash) {
   let m;
   if (hash === '' || hash === '#/') return { workspace: null, page: 'home', scene_key: null };
   if ((m = hash.match(/^#\/warehouse\/([a-z0-9_-]+)$/))) return { workspace: 'warehouse', page: 'warehouse', scene_key: m[1] };
+  if ((m = hash.match(/^#\/street\/([a-z0-9_-]+)(?:@(\d+))?$/))) return { workspace: 'street', page: 'street', scene_key: m[1], t_ms: m[2] ? +m[2] : null };
   if ((m = hash.match(/^#\/fleet\/([a-z0-9_-]+)@(\d+)$/))) return { workspace: 'fleet', page: 'fleet', scene_key: m[1], trip_id: m[1], t_ms: +m[2] };
   if (hash === '#/fleet') return { workspace: 'fleet', page: 'fleet', scene_key: null };
   if (hash === '#/test') return { workspace: 'warehouse', page: 'test', scene_key: null };
@@ -98,25 +108,35 @@ async function firstWarehouse() {
   return s ? `#/warehouse/${s.scene_key}` : '#/fleet';
 }
 
+async function firstStreet() {
+  const s = (await workspaces).find((w) => w.id === 'street')?.scenes[0];
+  return s ? `#/street/${s.scene_key}` : firstWarehouse();
+}
+
 // The route a question without a chosen source runs against: the last workspace route (of workspace ws, if given), else the first one.
 async function defaultRoute(ws) {
   const last = state.sourceTag?.hash ?? stored(LAST_ROUTE);
   const r = last && parseRoute(last);
   if (r?.workspace && (!ws || r.workspace === ws)) return last;
-  return ws === 'fleet' ? '#/fleet' : firstWarehouse();
+  return ws === 'fleet' ? '#/fleet' : ws === 'street' ? firstStreet() : firstWarehouse();
 }
 
-async function resetTimeline(sceneKey) {
-  const [mf, tl] = sceneKey ? await Promise.all([api.get(`api/scene/${sceneKey}/manifest`), api.get(`api/scene/${sceneKey}/timeline`)]) : [];
+async function resetTimeline(sceneKey, ws) {
+  const street = ws === 'street';
+  const [mf, tl] = sceneKey ? await Promise.all([api.get(`api/scene/${sceneKey}/manifest`), street ? null : api.get(`api/scene/${sceneKey}/timeline`)]) : [];
+  // A street scene has no timeline asset: one coverage lane per camera from its video chunks, and no events.
+  const lanes = street
+    ? Object.fromEntries(await Promise.all(mf.cams.map(async (c) => [c.id, (await api.get(`api/street/${sceneKey}/chunks?cam=${encodeURIComponent(c.id)}`)).map((k) => [k.t0_ms, k.t1_ms, 'ok'])])))
+    : tl?.lanes;
   timeline.clear();
   if (sceneKey) {
     clock.bind({ kind: 'scene' });
     clock.setRange(mf.t0_ms, mf.t1_ms);
-    for (const [cam, items] of Object.entries(tl.lanes)) {
+    for (const [cam, items] of Object.entries(lanes)) {
       timeline.addLane(`cam:${cam}`, { label: cam, kind: 'coverage' });
       timeline.setLaneData(`cam:${cam}`, items);
     }
-    timeline.setEvents(tl.events);
+    timeline.setEvents(tl?.events ?? []);
   }
   timeline.addLane('agent', AGENT_LANE);
   timeline.setLaneData('agent', run?.lane ?? []);
@@ -164,7 +184,7 @@ async function mountWorkspace(hash) {
   const done = same ? null : hold();
   pageKind = route.page;
   // Lanes are reset before the page mounts so that lanes a page adds survive.
-  await resetTimeline(route.page === 'warehouse' ? route.scene_key : null);
+  await resetTimeline(route.page === 'warehouse' || route.page === 'street' ? route.scene_key : null, route.workspace);
   if (same) return (route.scene_key || route.page === 'fleet') && page?.loadScene(route.scene_key);
 
   dispose?.();
@@ -184,7 +204,7 @@ async function mountWorkspace(hash) {
 function renderSourceTag() {
   const r = ctx.route;
   const label = r.trip_id ? shortKey(r.trip_id) : r.scene_key ?? (r.page === 'fleet' ? 'all trips' : r.page);
-  $('#source-tag').innerHTML = `${icon(r.workspace === 'fleet' ? 'truck' : 'warehouse')}${esc(label)}${icon('chevron-down')}`;
+  $('#source-tag').innerHTML = `${icon({ fleet: 'truck', street: 'camera' }[r.workspace] ?? 'warehouse')}${esc(label)}${icon('chevron-down')}`;
 }
 
 // ---- layer state
@@ -257,6 +277,7 @@ function ask(q, { home = null, t_ms = null } = {}) {
   run = {
     id: null, q, home, held: home ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
     evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: [], lane: [], answers: [], calls: new Map(), moments: [], native: null, final: null,
+    skippedUi: 0,
   };
   document.body.dataset.run = 'running';
   setAgentCamera(true);
@@ -309,7 +330,7 @@ const handlers = {
     for (const e of d.evidence.filter((x) => x.method === 'ground_distance')) {
       const { a, b } = run.calls.get(d.call_id);
       const moment = run.moments.find((m) => m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms);
-      toPage((p) => p.showMeasure?.(e, [a.entity_id, b.entity_id], moment));
+      toPage((p) => here(e.scene_key) && p.showMeasure?.(e, [a.entity_id, b.entity_id], moment));
     }
     run.items.find((it) => it.call?.call_id === d.call_id).result = d;
     const r = d.envelope.input_range;
@@ -322,16 +343,23 @@ const handlers = {
     run.moments = d.moments;
     renderMoments(d.moments);
     setState('hit');
-    toPage((p) => p.applyHits(d.moments));
+    // Moments of other scenes stay in the panel's list only.
+    toPage((p) => {
+      const ms = d.moments.filter((m) => here(m.scene_key));
+      if (ms.length) p.applyHits(ms);
+    });
   },
   model_result(d) {
     run.models = d.results;
     modelpanel.render(d.results, 'summary');
-    toPage((p) => p.applyModelResults(d.results));
+    toPage((p) => {
+      const rs = d.results.filter((r) => here(r.scene_key));
+      if (rs.length || !d.results.length) p.applyModelResults(rs);
+    });
   },
   ui(d) {
     if (!state.agentCamera && CAMERA_CMDS.has(d.cmd)) return;
-    toPage((p) => p.applyUI(d));
+    toPage((p) => (here(d.scene_key) ? p.applyUI(d) : run.skippedUi++));
   },
   claim(d) {
     run.claims.set(d.claim_id, d);
@@ -421,14 +449,17 @@ function renderSlot() {
 
 // ---- answer header
 // The answer's numbers come from evidence fields (measure_refs, in text order, formatted like Python's '.4g');
-// each found in the text becomes a button to its evidence.
+// each found in the text becomes a button to its evidence. A time field (*_ms, *_s) is written in seconds ("4.6 s", "3.0 s")
+// and marked as a time, not a measured number.
 function numbered(d) {
   let html = '', rest = d.text;
   for (const r of d.measure_refs) {
-    const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid));
-    const m = typeof v === 'number' && rest.match(new RegExp(`(?<![\\d.])${String(+v.toPrecision(4)).replace('.', '\\.')}(?!\\d)`));
+    const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), ms = r.field.endsWith('_ms'), time = ms || r.field.endsWith('_s');
+    const n = typeof v === 'number' && String(+(ms ? v / 1000 : v).toPrecision(4)).replace('.', '\\.');
+    const pat = time ? `${n}${n.includes('.') ? '0*' : '(?:\\.0+)?'}(?:\\s?s\\b)?` : n;
+    const m = n && rest.match(new RegExp(`(?<![\\d.])${pat}(?!\\d)`));
     if (!m) continue;
-    html += `${esc(rest.slice(0, m.index))}<button class="ans-num mono" data-cite data-eid="${esc(r.eid)}" title="${esc(r.eid)} · ${esc(r.field)}">${m[0]}</button>`;
+    html += `${esc(rest.slice(0, m.index))}<button class="${time ? 'ans-time' : 'ans-num'} mono" data-cite data-eid="${esc(r.eid)}" title="${esc(r.eid)} · ${esc(r.field)}">${m[0]}</button>`;
     rest = rest.slice(m.index + m[0].length);
   }
   return html + esc(rest);
@@ -453,6 +484,8 @@ function evIds() {
   const claims = [...run.claims.values()];
   return [...new Set([...claims.flatMap((c) => [...c.examined_eids, ...c.predicates.flatMap((p) => p.eids)]), ...run.cites])].filter((e) => run.evidence.has(e));
 }
+// Evidence the answer cites or a predicate decides on.
+const usedIds = () => [...new Set([...[...run.claims.values()].flatMap((c) => c.predicates.flatMap((p) => p.eids)), ...run.cites])].filter((e) => run.evidence.has(e));
 // The timeline's Evidence lane, in wall time.
 const evMarks = () => evIds().map((eid) => {
   const e = run.evidence.get(eid);
@@ -461,7 +494,7 @@ const evMarks = () => evIds().map((eid) => {
 
 function renderTabs() {
   const last = ctx.route.workspace === 'fleet' ? ['trip', 'Trip'] : ['videos', 'Videos'];
-  const tabs = [['answer', 'Answer'], ['evidence', 'Evidence', evIds().length], ['steps', 'Steps', run.steps.length], last];
+  const tabs = [['answer', 'Answer'], ['evidence', 'Evidence', run.evidence.size], ['steps', 'Steps', run.steps.length], last];
   $('#tabs').innerHTML = tabs.map(([id, label, n]) => `<button type="button" data-tab="${id}">${label}${n != null ? ` <span class="mono">${n}</span>` : ''}</button>`).join('');
   setTab(state.panelTab);
 }
@@ -476,7 +509,7 @@ function renderKeyframe() {
       <figcaption class="mono"><span class="kf-at">${esc(m.primary_cam)} · ${tc(m.t0_ms)}</span>
         <button type="button" class="kf-play">${icon('play')}Play ${mmss(Math.max(0, m.t0_ms - 2500))}–${mmss(m.t0_ms + 2500)}</button></figcaption>
     </figure>`;
-  $('#keyframe .kf-play').onclick = () => clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500)));
+  $('#keyframe .kf-play').onclick = () => { clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500))); clock.play(); };
 }
 
 const predText = (p) => `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator)} ${esc(p.value)} ${esc(p.unit ?? '')}`;
@@ -485,6 +518,9 @@ function predValue(p) {
   const e = p.eids.map((id) => run.evidence.get(id)).find((x) => typeof x?.value === 'number');
   return e ? `<span class="mono pv pv-${e.kind}">${value(e)}</span>` : '<span class="mono pv muted">–</span>';
 }
+
+// A verdict that did not change shows once.
+const change = (before, after) => (before === after ? verdict(after) : transition(before, after));
 
 function renderClaims() {
   const claims = [...run.claims.values()];
@@ -500,7 +536,7 @@ function renderClaims() {
   $('#claims').innerHTML = claims.map((c) => {
     const at = run.changes.findLast((x) => x.claim_id === c.claim_id)?.step;
     return `<div class="claim" data-claim="${esc(c.claim_id)}">
-      <div class="claim-row"><span class="claim-head">${transition(c.before, c.after)}</span>${at ? `<span class="claim-once">at ${esc(at.summary)}</span>` : ''}</div>
+      <div class="claim-row"><span class="claim-head">${change(c.before, c.after)}</span>${at ? `<span class="claim-once">at ${esc(at.summary)}</span>` : ''}</div>
       <div class="preds">${c.predicates.map((p) => `<span class="pt">${predText(p)}</span>${predValue(p)}<span class="pst pst-${p.status}">${p.status}</span>`).join('')}</div>
     </div>`;
   }).join('');
@@ -596,12 +632,16 @@ function evRow(eid) {
   </div>`;
 }
 
+// Used evidence first; the rest the run read folds into one row, or is the whole list when nothing was claimed or cited.
 function renderEvidence() {
-  const eids = evIds();
-  $('#tab-evidence').innerHTML = KINDS.map((k) => {
+  const used = usedIds(), rest = [...run.evidence.keys()].filter((e) => !used.includes(e));
+  const groups = (eids) => KINDS.map((k) => {
     const rows = eids.filter((e) => run.evidence.get(e).kind === k);
     return rows.length ? `<section class="ev-group"><h3 class="ev-head ev-${k}">${srcIcon(k)}${srcLabel(k).toUpperCase()} · ${rows.length}</h3>${rows.map(evRow).join('')}</section>` : '';
   }).join('');
+  $('#tab-evidence').innerHTML = !run.claims.size && !run.cites.length
+    ? `<h3 class="p-label ev-read">Read, not used in an answer</h3>${groups(rest)}`
+    : `${groups(used)}${rest.length ? `<details class="ev-rest"><summary class="p-more ev-more">Other evidence read · ${rest.length}${icon('chevron-right')}</summary>${groups(rest)}</details>` : ''}`;
 }
 
 // ---- Steps tab
@@ -613,7 +653,7 @@ function renderSteps() {
       const s = it.step, changed = changedAt.has(s.i);
       return `<li class="st-step${changed ? ' changed' : ''}" data-step="${esc(s.step_id)}"><span class="st-ok">✓</span><span class="st-sum">${esc(s.summary)}</span>
         <span class="mono muted st-ms">${dur[run.steps.indexOf(s)]} ms</span>
-        ${changed ? `<span class="st-claims">${run.changes.filter((x) => x.step === s).map((x) => transition(x.before, x.after)).join('')}</span>` : ''}</li>`;
+        ${changed ? `<span class="st-claims">${run.changes.filter((x) => x.step === s).map((x) => change(x.before, x.after)).join('')}</span>` : ''}</li>`;
     }
     const { call, result } = it;
     return `<li class="st-tool${result && !result.ok ? ' failed' : ''}" data-call="${esc(call.call_id)}"><span></span>
@@ -678,8 +718,14 @@ $('#ask-form').addEventListener('submit', (e) => {
   ask($('#ask-input').value);
 });
 $('#source-tag').addEventListener('click', () => openCmdk());
-$('#presets').addEventListener('click', (e) => e.target.closest('.preset') && ask(e.target.closest('.preset').textContent));
-$('#answer').addEventListener('click', (e) => e.target.closest('.preset') && ask(e.target.closest('.preset').textContent));
+// A preset chip in a workspace; one with a route of its own opens that route first.
+function askPreset(q) {
+  const hash = PRESET_ROUTE.get(q);
+  if (hash && location.hash !== hash) go(hash);
+  ask(q);
+}
+$('#presets').addEventListener('click', (e) => e.target.closest('.preset') && askPreset(e.target.closest('.preset').textContent));
+$('#answer').addEventListener('click', (e) => e.target.closest('.preset') && askPreset(e.target.closest('.preset').textContent));
 $('#tabs').addEventListener('click', (e) => e.target.closest('[data-tab]') && setTab(e.target.closest('[data-tab]').dataset.tab));
 $('.p-moments').addEventListener('click', (e) => e.target.closest('.p-more') && $('.p-moments').classList.toggle('open'));
 $('#tab-evidence').addEventListener('click', (e) => {
@@ -704,17 +750,19 @@ $('#narration').addEventListener('click', (e) => {
 $('#takeover button').addEventListener('click', () => setAgentCamera(false));
 $('#stage').addEventListener('pointerdown', () => document.body.dataset.run === 'running' && setAgentCamera(false));
 document.addEventListener('click', (e) => {
-  const c = e.target.closest('.cite, .ans-num, .ev');
+  const c = e.target.closest('.cite, .ans-num, .ans-time, .ev');
   if (c && !e.target.closest('.ev-raw-btn, .ev-raw') && run?.evidence.has(c.dataset.eid)) flash(c.dataset.eid);
 });
 timeline.onEvidence((eid) => run?.evidence.has(eid) && flash(eid));
-document.addEventListener('pointerover', (e) => hover(e.target.closest('.ans-num, .cite, .ev')?.dataset.eid ?? null));
+document.addEventListener('pointerover', (e) => hover(e.target.closest('.ans-num, .ans-time, .cite, .ev')?.dataset.eid ?? null));
 document.addEventListener('pointerout', (e) => !e.relatedTarget && hover(null));
 $('#runpage').addEventListener('click', (e) => e.target.closest('.rp-back') && closeRunpage());
 
 async function openCmdk() {
   const items = (await workspaces).flatMap((w) => w.id === 'warehouse'
     ? w.scenes.map((s) => ({ icon: 'warehouse', label: s.title, hint: s.scene_key, run: () => (location.hash = `#/warehouse/${s.scene_key}`) }))
+    : w.id === 'street'
+    ? w.scenes.map((s) => ({ icon: 'camera', label: s.title, hint: s.scene_key, run: () => (location.hash = `#/street/${s.scene_key}`) }))
     : [{ icon: 'map', label: 'All trips', hint: count(w.scenes.length, 'trip'), run: () => (location.hash = '#/fleet') },
       ...w.scenes.map((s) => ({ icon: 'truck', label: `${shortKey(s.scene_key)} · ${s.title}`, hint: s.scene_key, run: () => (location.hash = `#/fleet/${s.scene_key}@${s.t0_ms ?? 0}`) }))]);
   cmdk.open([...items, { icon: 'workflow', label: 'Recent runs', hint: '#/runs', run: () => (location.hash = '#/runs') }], (q) => (ctx.route?.page === 'home' ? ctx.ask(q) : ask(q)));

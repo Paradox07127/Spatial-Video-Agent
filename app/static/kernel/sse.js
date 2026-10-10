@@ -5,10 +5,13 @@ import { api } from './api.js';
 export function askSSE(body, handlers) {
   const ctl = new AbortController();
   let runId = null;
+  let finalStatus = false;
   const dispatch = (event, data) => {
     if (ctl.signal.aborted) return;
     runId ??= data.run_id;
-    if (data.run_id === runId) handlers[event]?.(data);
+    if (data.run_id !== runId) return;
+    if (event === 'status' && data.final != null) finalStatus = true;
+    handlers[event]?.(data);
   };
   (async () => {
     const r = await fetch(api.url('api/agent/ask'), {
@@ -36,6 +39,8 @@ export function askSSE(body, handlers) {
         if (data) dispatch(event, JSON.parse(data));
       }
     }
+    // Final status completes the answer; site comparison frames can follow it, and dev fixtures may omit done.
+    if (!ctl.signal.aborted && !finalStatus) throw new Error('Agent stream ended before a final status. Please retry.');
   })().catch((e) => {
     if (ctl.signal.aborted) return;
     console.error(e); // a throwing frame handler lands here too; the stack is the only trace of it

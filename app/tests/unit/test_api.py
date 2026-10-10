@@ -210,10 +210,42 @@ def test_street_chunk_proxies_s3_with_range(tmp_path, monkeypatch):
 
 
 def test_static_files_are_revalidated(client):
-    for path in ['/', '/app.js', '/warehouse/page.js']:
+    for path in ['/app.js', '/warehouse/page.js']:
         r = client.get(path)
         assert r.status_code == 200 and r.headers['cache-control'] == 'no-cache'
         assert client.get(path, headers={'if-none-match': r.headers['etag']}).status_code == 304
+
+
+def test_index_versions_entry_assets_by_static_hash(client, tmp_path, monkeypatch):
+    import hashlib
+    import shutil
+    import app.main as main
+
+    def expected(root):
+        h = hashlib.sha256()
+        for p in sorted(p for p in root.rglob('*') if p.suffix in ('.js', '.css', '.html') and p.relative_to(root).parts[0] != 'lib'):
+            h.update(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes())
+        return h.hexdigest()[:12]
+
+    def served(c):
+        r = c.get('/')
+        assert r.status_code == 200 and r.headers['cache-control'] == 'no-cache'
+        assert c.get('/index.html').text == r.text
+        return r.text
+
+    v = expected(main.STATIC_DIR)
+    html = served(client)
+    assert f'href="styles.css?v={v}"' in html and f'src="app.js?v={v}"' in html
+    r = client.get(f'/app.js?v={v}')
+    assert r.status_code == 200 and r.content == (main.STATIC_DIR / 'app.js').read_bytes()
+
+    static = tmp_path / 'static'
+    shutil.copytree(main.STATIC_DIR, static, ignore=shutil.ignore_patterns('lib'))
+    monkeypatch.setattr(main, 'STATIC_DIR', static)
+    (static / 'kernel/extra.js').write_text('export {}\n')
+    with TestClient(main.create_app()) as c:
+        changed = expected(static)
+        assert changed != v and f'src="app.js?v={changed}"' in served(c)
 
 
 def test_json_is_gzipped_and_binary_ranges_are_not(client):

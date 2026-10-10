@@ -164,6 +164,18 @@ def test_moment_card_level_fields_are_optional():
     new = {**mc, "workspace": "street", "evidence_level": "L1", "actor_refs": []}
     assert sc.schema_errors(new, "ask_sse.json", "/$defs/moment_card") == []
     assert sc.schema_errors({**new, "evidence_level": "L4"}, "ask_sse.json", "/$defs/moment_card")
+    assert sc.schema_errors({**new, "tag": "mobile", "title": "New York bike GoPro 1 (GX050001)"}, "ask_sse.json", "/$defs/moment_card") == []
+    assert sc.schema_errors({**new, "tag": "street"}, "ask_sse.json", "/$defs/moment_card")
+
+
+def test_hits_auto_open_and_search_sources():
+    frames = load("asks.json")["asks"][0]["events"]
+    hits = next(f for f in frames if f["event"] == "hits")
+    assert sc.check_sse_sequence([f if f is not hits else {**hits, "data": {**hits["data"], "auto_open": None}} for f in frames]) == []
+    assert sc.schema_errors({**hits, "data": {**hits["data"], "auto_open": "Bad Key"}}, "ask_sse.json")
+    assert sc.schema_errors({"q": "a car", "sources": ["fixed", "mobile"]}, "search.json", "/$defs/request") == []
+    assert sc.schema_errors({"q": "a car", "sources": []}, "search.json", "/$defs/request")
+    assert sc.schema_errors({"q": "a car", "sources": ["street"]}, "search.json", "/$defs/request")
 
 
 def test_claim_abstain_and_ui_scene_key():

@@ -11,7 +11,7 @@ let el = null, ctx = null, sources = null;
 // at: the open @ list {start, end, rows, i}; i === rows.length is the "agent picks" row. src: the picked row or null.
 let at = null, src = null;
 
-const wsIcon = (ws) => icon(ws === 'fleet' ? 'truck' : 'warehouse');
+const wsIcon = (ws) => icon({ fleet: 'truck', street: 'camera' }[ws] ?? 'warehouse');
 const chip = (q, ws) => `<button type="button" class="preset" data-ws="${ws}">${wsIcon(ws)}${esc(q)}</button>`;
 const shortKey = (key) => key.replace(/^fl-pie-(set\d+)_video_(\d+)$/, '$1·$2');
 
@@ -23,10 +23,11 @@ function lastRoute() {
   }
 }
 
-function ask(q, ws, hash) {
+// opts: {ws, hash} of a picked source, or {ws, preset: true} for a chip.
+function ask(q, opts) {
   el.querySelector('#home-input').value = q;
   el.querySelector('.home-out').replaceChildren();
-  ctx.ask(q, { ws, hash });
+  ctx.ask(q, opts);
 }
 
 export function mount(root, c) {
@@ -57,7 +58,7 @@ export function mount(root, c) {
   el.querySelector('#home-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const q = input.value.trim();
-    if (q) ask(q, src?.ws, src?.hash);
+    if (q) ask(q, { ws: src?.ws, hash: src?.hash });
   });
   input.addEventListener('input', onInput);
   input.addEventListener('keydown', onKey);
@@ -71,7 +72,7 @@ export function mount(root, c) {
   el.addEventListener('click', (e) => {
     if (e.target.closest('.home-src-x')) return setSource(null);
     const b = e.target.closest('.preset');
-    if (b) ask(b.textContent, b.dataset.ws);
+    if (b) ask(b.textContent, { ws: b.dataset.ws, preset: true });
   });
 
   let stage = null, gone = false;
@@ -121,6 +122,8 @@ async function background(host, key) {
 function sourceRows(workspaces) {
   return workspaces.flatMap((w) => w.scenes.map((s) => (w.id === 'fleet'
     ? { ws: 'fleet', id: shortKey(s.scene_key), hash: `#/fleet/${s.scene_key}@${s.t0_ms ?? 0}`, meta: `dashcam · ${s.title}` }
+    : w.id === 'street'
+    ? { ws: 'street', id: s.scene_key, hash: `#/street/${s.scene_key}`, meta: `2D video · ${s.title}` }
     : { ws: 'warehouse', id: s.scene_key, hash: `#/warehouse/${s.scene_key}`, meta: `${Math.round((s.t1_ms - s.t0_ms) / 1000)} s` })));
 }
 

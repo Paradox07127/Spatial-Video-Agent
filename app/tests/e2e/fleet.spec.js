@@ -19,6 +19,12 @@ const seek = (page, t) => mod(page, 'kernel/clock.js', `m.clock.seek(${t})`);
 const camera = (page) => mod(page, 'fleet/page.js', 'm.view.overview.camera()');
 const car = (page, id) => page.locator(`.fl-car[data-trip="${id}"]`);
 const box = async (page, sel) => page.locator(sel).boundingBox();
+const big = (page) => mod(page, 'fleet/page.js', 'm.view.big');
+// Esc from the default dashcam view: the full overview map.
+async function toOverview(page) {
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.fl-root')).not.toHaveClass(/\bix\b/);
+}
 
 // index.html's web fonts are not the map's (another card owns that file).
 const FONTS = /^fonts\.(googleapis|gstatic)\.com$/;
@@ -47,6 +53,7 @@ test.afterEach(() => {
 });
 
 test('offline map: basemap and 3D Massing tiles are read from the local PMTiles with HTTP Range', async ({ page }) => {
+  await toOverview(page);
   const count = (source, layer) => mod(page, 'fleet/page.js', `m.view.overview.map.querySourceFeatures('${source}', { sourceLayer: '${layer}' }).length`);
   await mod(page, 'fleet/page.js', 'm.view.overview.map.jumpTo({ center: [-79.398, 43.6488], zoom: 16 })');
   await expect.poll(() => count('openmaptiles', 'transportation')).toBeGreaterThan(0);
@@ -56,9 +63,103 @@ test('offline map: basemap and 3D Massing tiles are read from the local PMTiles 
   expect(pmtiles.every((s) => s === 206)).toBe(true);
 });
 
-test('default state: full-bleed map, no video, replay clock label, trip lanes, event pins, thumbnail chip', async ({ page }) => {
+test('default state: dashcam view of the trip with video and the most events, boxes drawn, map a small inset', async ({ page }) => {
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  expect(await mod(page, 'fleet/page.js', 'm.view.ix.trip.id')).toBe(T1);
+  expect(await big(page)).toBe('video');
+  // E1, the trip's first event, starts at 3.0 s, where the mock has boxes.
+  expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(3000);
+  const stage = await box(page, '#stage'), vid = await box(page, '.fl-vid'), map = await box(page, '.fl-map');
+  expect([vid.x, vid.y, Math.round(vid.height)]).toEqual([stage.x, stage.y, Math.round(stage.height)]);
+  expect([map.x - stage.x, Math.round(stage.y + stage.height - map.y - map.height), map.width, map.height]).toEqual([12, 44, 300, 190]);
+  await expect(page.locator('.fl-legend .lg-detected')).toBeVisible();
+  const inked = () => page.locator('.fl-ovl').evaluate((c) => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 0).length);
+  expect(await inked()).toBeGreaterThan(0);
+  const video = page.locator('.fl-vid video');
+  await mod(page, 'kernel/clock.js', 'm.clock.play()');
+  await expect.poll(() => video.evaluate((v) => !v.paused && v.readyState >= 2)).toBe(true);
+  await mod(page, 'kernel/clock.js', 'm.clock.pause()');
+  // Outside the trip's coverage the video panel says so instead of a frozen frame.
+  await seek(page, 20000);
+  await expect(page.locator('.fl-novid')).toHaveText('No video at this time');
+  await expect(page.locator('.fl-novid')).toBeVisible();
+  await expect(page.locator('.fl-vbox')).toBeHidden();
+  await seek(page, 3000);
+  await expect(page.locator('.fl-novid')).toBeHidden();
+});
+
+test('layout B: a click on a small panel makes it big and swaps the old big panel into its place', async ({ page }) => {
+  const stage = await box(page, '#stage');
+  const isBig = async (sel) => {
+    const b = await box(page, sel);
+    return b.x === stage.x && Math.round(b.height) === Math.round(stage.height) && Math.round(b.width) === Math.round(stage.width - 361);
+  };
+  const isInset = async (sel) => {
+    const b = await box(page, sel);
+    return b.x - stage.x === 12 && b.width === 300 && b.height === 190;
+  };
+  const isSide = async (sel) => Math.round((await box(page, sel)).x) === Math.round(stage.x + stage.width - 360);
+  // Panel width less its 1 px inset border on each side.
+  const fills = (panel, inner) => expect.poll(async () => Math.abs((await box(page, panel)).width - (await box(page, inner)).width)).toBeLessThanOrEqual(2);
+  expect([await big(page), await isBig('.fl-vid'), await isInset('.fl-map'), await isSide('.fl-3d'), await isSide('.fl-place')]).toEqual(['video', true, true, true, true]);
+  // A click on the small map lands on the click-catcher, not on MapLibre.
+  const m = await box(page, '.fl-map');
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y).className, [m.x + m.width / 2, m.y + m.height / 2])).toBe('fl-grow');
+  await expect(page.locator('.fl-map > .fl-grow')).toHaveCSS('cursor', 'zoom-in');
+  await expect(page.locator('.fl-vid > .fl-grow')).toBeHidden();
+
+  await page.locator('.fl-map').click();
+  expect([await big(page), await isBig('.fl-map'), await isInset('.fl-vid'), await isSide('.fl-3d')]).toEqual(['map', true, true, true]);
+  await fills('.fl-map', '.fl-map canvas.maplibregl-canvas');
+  await page.locator('.fl-vid').click();
+  expect([await big(page), await isBig('.fl-vid'), await isInset('.fl-map')]).toEqual(['video', true, true]);
+  await fills('.fl-map', '.fl-map canvas.maplibregl-canvas');
+
+  await page.locator('.fl-3d').click();
+  expect([await big(page), await isBig('.fl-3d'), await isSide('.fl-vid'), await isInset('.fl-map')]).toEqual(['3d', true, true, true]);
+  await fills('.fl-3d', '.fl-3d canvas');
+  await page.locator('.fl-vid').click();
+  expect([await big(page), await isBig('.fl-vid'), await isSide('.fl-3d')]).toEqual(['video', true, true]);
+  await fills('.fl-3d', '.fl-3d canvas');
+});
+
+test('on the big map a click on another trip car with video opens that trip dashcam view at the clock time', async ({ page }) => {
+  // Trip 02 gets trip 01's dashcam and its media.
+  const mf1 = JSON.parse(fs.readFileSync(path.join(OUT, T1, 'manifest.json'), 'utf8'));
+  const mf2 = JSON.parse(fs.readFileSync(path.join(OUT, T2, 'manifest.json'), 'utf8'));
+  await page.route(new RegExp(`/api/scene/${T2}/manifest$`), (r) => r.fulfill({ json: { ...mf2, cams: mf1.cams, assets: { ...mf2.assets, ego_dir: 'ego', boxes_dir: 'boxes' } } }));
+  await page.route(new RegExp(`/api/assets/${T2}/(video|ego|boxes)/`), (r) => {
+    const rel = new URL(r.request().url()).pathname.split(`/${T2}/`)[1].replace(/\d{5}\.json$/, '00000.json');
+    return r.fulfill({ path: path.join(OUT, T1, rel) });
+  });
+  await page.reload();
+  await expect(page.locator('.fl-car')).toHaveCount(2);
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(T1);
+  await page.locator('.fl-map').click();
+  await expect.poll(() => big(page)).toBe('map');
+  const p = JSON.parse(fs.readFileSync(path.join(OUT, T2, 'trip.geojson'), 'utf8')).features.slice(1).map((f) => f.properties).find((q) => q.t_ms === 3000);
+  await mod(page, 'fleet/page.js', `m.view.overview.map.jumpTo({ center: [${p.lon}, ${p.lat}] })`);
+  await car(page, T2).locator('.fl-tag').click();
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix.trip.id')).toBe(T2);
+  expect(await mod(page, 'fleet/page.js', 'm.view.ix.moment.t0_ms')).toBe(3000);
+  expect(await big(page)).toBe('video');
+});
+
+test('Esc closes the default dashcam view to the full overview map; a click on a car with video opens it again', async ({ page }) => {
+  await toOverview(page);
+  await expect(page.locator('.fl-ix')).toHaveCount(0);
   expect(await page.locator('video').count()).toBe(0);
+  expect(await box(page, '.fl-map')).toEqual(await box(page, '#stage'));
+  expect(await page.evaluate(() => location.hash)).toBe('#/fleet');
+  await car(page, T1).locator('.fl-tag').click();
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  expect(await mod(page, 'fleet/page.js', 'm.view.ix.trip.id')).toBe(T1);
+  expect(await big(page)).toBe('video');
+});
+
+test('overview: full-bleed map, replay clock label, trip lanes, event pins, thumbnail chip', async ({ page }) => {
+  await toOverview(page);
   expect(await box(page, '.fl-map')).toEqual(await box(page, '#stage'));
   await expect(page.locator('.fl-map canvas.maplibregl-canvas')).toBeVisible();
   await expect(page.locator('.fl-sim')).toHaveAttribute('title', 'Simulated replay clock: trips were not filmed at the same time');
@@ -72,6 +173,7 @@ test('default state: full-bleed map, no video, replay clock label, trip lanes, e
 });
 
 test('crowded event pins merge into a counted cluster; a cluster click zooms in to the pins; a pin click selects its event', async ({ page }) => {
+  await toOverview(page);
   await mod(page, 'fleet/page.js', 'm.view.overview.map.jumpTo({ zoom: 10 })');
   const cl = page.locator('.fl-cluster');
   await expect(cl).toHaveText('2');
@@ -87,6 +189,7 @@ test('crowded event pins merge into a counted cluster; a cluster click zooms in 
 });
 
 test('a cluster on top of a car arrow still leaves the trip tag to select the car', async ({ page }) => {
+  await toOverview(page);
   await mod(page, 'fleet/page.js', 'm.view.overview.map.jumpTo({ zoom: 10 })');
   await expect(page.locator('.fl-cluster')).toHaveCount(1);
   await car(page, T2).locator('.fl-tag').click();
@@ -111,6 +214,7 @@ test('clock.map uses each trip ReplayMapping', async ({ page }) => {
 });
 
 test('cars move with the replay clock; only the selected trip draws a trail; a trip out of coverage hides its car', async ({ page }) => {
+  await toOverview(page);
   const trail = () => mod(page, 'fleet/page.js', "m.view.overview.map.queryRenderedFeatures({ layers: ['fl-trail'] }).length");
   await seek(page, 1000);
   const a = await box(page, `.fl-car[data-trip="${T2}"] .fl-arrow`);
@@ -127,6 +231,7 @@ test('cars move with the replay clock; only the selected trip draws a trail; a t
 });
 
 test('each trip has its own colour on route, gap, car arrow and lane; the selected trip is wider, the others fade', async ({ page }) => {
+  await toOverview(page);
   // Rendered route pieces with their evaluated paint, one entry per trip and layer.
   const routes = () => mod(page, 'fleet/page.js', `Object.fromEntries(m.view.overview.map.queryRenderedFeatures({ layers: ['fl-route', 'fl-route-gap'] })
     .map((f) => [f.properties.trip + ' ' + f.layer.id, ['line-color', 'line-width', 'line-opacity'].map((k) => JSON.stringify(f.layer.paint[k]))]))`);
@@ -187,7 +292,8 @@ async function askWhere(page) {
   await expect.poll(() => mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(6000);
 }
 
-test('fl-where: hits open the 2×2 result grid at once; building card; Esc restores the overview camera', async ({ page }) => {
+test('fl-where: hits open the result layout at once; building card; Esc restores the overview camera', async ({ page }) => {
+  await toOverview(page);
   await mockAsk(page, 'fl-where');
   const cam0 = await camera(page);
   await page.evaluate(() => {
@@ -209,16 +315,15 @@ test('fl-where: hits open the 2×2 result grid at once; building card; Esc resto
 
   const grid = await page.locator('.fl-root').evaluate((e) => {
     const s = getComputedStyle(e);
-    return [s.display, s.gridTemplateColumns.split(' ')[0], s.gridTemplateRows.split(' ')[0], s.rowGap, s.columnGap];
+    return [s.display, s.gridTemplateColumns.split(' ')[1], s.rowGap, s.columnGap];
   });
-  expect(grid).toEqual(['grid', '640px', '380px', '1px', '1px']);
-  const stage = await box(page, '#stage');
+  expect(grid).toEqual(['grid', '360px', '1px', '1px']);
+  // Video big on the left, the map inset in its bottom-left corner, 3D over the place card on the right.
+  const stage = await box(page, '#stage'), W = Math.round(stage.width), H = Math.round(stage.height);
   const [dash, map, ego, place] = await Promise.all(['.fl-vid', '.fl-map', '.fl-3d', '.fl-place'].map((s) => box(page, s)));
   const at = (b, x, y) => [Math.round(b.x - stage.x), Math.round(b.y - stage.y)].join(',') === `${x},${y}`;
-  expect([at(dash, 0, 0), at(map, 641, 0), at(ego, 0, 381), at(place, 641, 381)]).toEqual([true, true, true, true]);
-  expect(Math.round(dash.width)).toBe(640);
-  expect(Math.round(dash.height)).toBe(380);
-  expect(Math.round(map.x + map.width)).toBe(Math.round(stage.x + stage.width));
+  expect([at(dash, 0, 0), at(map, 12, H - 234), at(ego, W - 360, 0), at(place, W - 360, Math.round(ego.height) + 1)]).toEqual([true, true, true, true]);
+  expect([Math.round(dash.width), Math.round(dash.height), map.width, map.height]).toEqual([W - 361, H, 300, 190]);
   await expect(page.locator('.fl-3d canvas')).toBeVisible();
   await expect(page.locator('.fl-vid video')).toHaveCount(1);
   await expect(page.locator('.fl-map canvas.maplibregl-canvas')).toBeVisible();
@@ -241,10 +346,12 @@ test('fl-where: hits open the 2×2 result grid at once; building card; Esc resto
   await expect(card.locator('.fl-sign')).toContainText('FIXTURE CAFE');
   expect(await mod(page, 'fleet/page.js', "m.view.overview.map.getFeatureState({ source: 'fl-bld', id: 'w1001' })")).toEqual({ focus: true });
 
-  await page.locator('.fl-views [data-v="top"]').click();
-  await expect(page.locator('.fl-views [data-v="top"]')).toHaveClass(/on/);
   await page.locator('.fl-undist').click();
   await expect(page.locator('.fl-remap')).toBeVisible();
+  // The view buttons take clicks once the 3D panel is big.
+  await page.locator('.fl-3d').click();
+  await page.locator('.fl-views [data-v="top"]').click();
+  await expect(page.locator('.fl-views [data-v="top"]')).toHaveClass(/on/);
 
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
@@ -267,6 +374,8 @@ test('intersection view: agent labels do not overlap, the one nearest the ego wi
   const queue = Array.from({ length: 6 }, (_, i) => ({ entity_id: `V${11 + i}`, x: 14 + 0.05 * i, y: 0, yaw: 0, cls: 'car', dims: [4.5, 1.8, 1.5], sigma_m: 3 }));
   for (const f of ego.frames) f.vehs = [...f.vehs, ...queue];
   await page.route(/\/api\/assets\/fl-pie-fixture-01\/ego\/00000\.json$/, (r) => r.fulfill({ json: ego }));
+  // The default dashcam view has already loaded the chunk without the queue.
+  await page.reload();
   await askWhere(page);
   await expect(page.locator('.fl-al', { hasText: 'V16' })).toHaveCount(1);
   const shown = () => page.$$eval('.fl-al', (els) => els.filter((e) => e.checkVisibility({ visibilityProperty: true })).map((e) => {
@@ -281,6 +390,21 @@ test('intersection view: agent labels do not overlap, the one nearest the ego wi
   expect(ids).not.toContain('V16');
   await mod(page, 'kernel/selection.js', "m.selection.set(['V16'], { source: 'user' })");
   await expect(page.locator('.fl-al', { hasText: 'V16' })).toBeVisible();
+});
+
+test('building card: a markup string as the height or floors from the API is shown as text, not run', async ({ page }) => {
+  test.skip(LIVE, 'needs an injected building');
+  const xss = (id) => `<img src=x id=${id} onerror="window.__xss=1">`;
+  const b = JSON.parse(fs.readFileSync(path.join(OUT, T1, 'buildings.json'), 'utf8')).buildings.w1001;
+  await page.route(/\/api\/fleet\/building\/w1001$/, (r) => r.fulfill({ json: { ...b, bid: 'w1001', facade_note: null, height_m: xss('xss-h'), floors: xss('xss-f') } }));
+  await askWhere(page);
+  await seek(page, 2000);
+  await page.locator('.fl-col', { hasText: 'Fixture Block A' }).click();
+  const card = page.locator('.fl-card');
+  await expect(card.locator('.fl-bhead')).toContainText('Fixture Block A');
+  await expect(card).toContainText(`${xss('xss-h')} m · ${xss('xss-f')} floors`);
+  await expect(page.locator('#xss-h, #xss-f')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 });
 
 test('result map: the car sits in a dashed GPS ring of radius sigma_m in pixels at the current zoom', async ({ page }) => {
@@ -335,6 +459,53 @@ test('going back from a trip deep link to #/fleet keeps the trip lanes', async (
   await expect(page.locator('#timeline .lane-trip')).toHaveCount(2);
   await page.goto('#/fleet');
   await expect(page.locator('#timeline .lane-trip')).toHaveCount(2);
+});
+
+test('the place presets asked from a chip run against all trips; the speeding preset and typed questions keep the trip', async ({ page }) => {
+  test.skip(LIVE, 'needs mocked asks');
+  const { sseBody } = require('./mockapi');
+  const TRIP = `#/fleet/${T1}@0`, ROM = 'Near the ROM, did a pedestrian cross in front of the car?';
+  const sent = [];
+  page.on('request', (r) => r.url().endsWith('/api/agent/ask') && sent.push(r.postDataJSON().context));
+  const scope = async (n) => {
+    await expect.poll(() => sent.length).toBe(n);
+    return [sent[n - 1].workspace, sent[n - 1].scene_key ?? null];
+  };
+  // Esc ends the shown run, so the preset chips come back
+  const onTrip = async () => {
+    if (sent.length) await page.keyboard.press('Escape');
+    await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
+    await page.goto(TRIP);
+    await expect(page.locator('#source-tag')).toHaveText(T1);
+    await expect(page.locator('.fl-car')).toHaveCount(2);
+  };
+  const answered = (v = 'Supported') => expect(page.locator('#answer .verdict')).toHaveText(v);
+  await mockAsk(page, 'fl-where');
+  // workspace chips on a trip
+  await onTrip();
+  await page.locator('#presets .preset').nth(0).click();
+  expect(await scope(1)).toEqual(['fleet', null]);
+  await expect(page).toHaveURL(/#\/fleet$/);
+  await expect(page.locator('#source-tag')).toHaveText('all trips');
+  await answered();
+  await onTrip();
+  await page.locator('#presets .preset').nth(2).click();
+  expect(await scope(2)).toEqual(['fleet', T1]);
+  await answered();
+  await page.locator('#ask-input').fill(ROM);
+  await page.keyboard.press('Enter');
+  expect(await scope(3)).toEqual(['fleet', T1]);
+  await answered();
+  // an abstain suggestion
+  await onTrip();
+  await page.route(/\/api\/agent\/ask$/, (r) => r.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: sseBody('wh-nomatch') }));
+  await page.locator('#ask-input').fill('Did a cyclist pass the car?');
+  await page.keyboard.press('Enter');
+  expect(await scope(4)).toEqual(['fleet', T1]);
+  await answered('No match');
+  await page.locator('#answer .ans-instead .preset').nth(1).click();
+  expect(await scope(5)).toEqual(['fleet', null]);
+  await expect(page).toHaveURL(/#\/fleet$/);
 });
 
 test('⌘K lists each trip and jumps to it', async ({ page }) => {

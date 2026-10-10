@@ -1,8 +1,10 @@
-// Fleet workspace page (spec §9.3, board v2-4a). Default: full-bleed overview map under the simulated replay clock (trips
-// were not recorded at the same time). A hit opens the result layout at once: dashcam | map (the overview map moved into
-// its cell) over ego-frame 3D | place card. Esc (view state back to default) closes it and restores the map camera.
+// Fleet workspace page (spec §9.3, board v2-4a). Default: the result layout on the trip with video and the most events.
+// Result layout: one big panel on the left (dashcam, map or ego-frame 3D), the map as a small inset in its corner, the
+// other panel over the place card in the right column; the overview map moves into its panel. Esc (view state back to
+// default) closes it to the full-bleed overview map under the simulated replay clock and restores the map camera.
 import { icon } from '../kernel/badges.js';
 import { esc, sec, tc } from '../kernel/format.js';
+import { state } from '../kernel/state.js';
 import { createBuildings } from './buildings.js';
 import { en, posAt, tripT, wallOf } from './geo.js';
 import { createIntersection } from './intersection.js';
@@ -12,7 +14,10 @@ import { createVideo } from './videooverlay.js';
 const FLY_MS = 800;
 const STATE = { observed: 'fix', interpolated: 'interpolated', last_known: 'last fix', unknown: 'unknown' };
 const CHECKED = { verified: 'yes', conflict: 'conflict', unverified: 'no' };
-// Read by the e2e spec: {overview, ix}.
+const PANELS = { video: '.fl-vid', map: '.fl-map', '3d': '.fl-3d' };
+// Click-catcher over a small panel; a click makes the panel big.
+const GROW = (panel) => `<div class="fl-grow" data-panel="${panel}" title="Enlarge"></div>`;
+// Read by the e2e spec: {overview, ix, big}.
 export const view = {};
 let ctx, root, trips, places, ov, card, ix = null, saved = null, offs = [];
 // Resolves once mount has the trips, the map and the building card; the agent's hits can arrive before that.
@@ -88,6 +93,7 @@ function placeHtml(p, t, c5) {
 
 async function ixTick(wall) {
   const cur = ix, t = tripT(cur.trip.replay, wall);
+  cur.el.querySelector('.fl-vid').classList.toggle('novid', t == null);
   if (t == null) return;
   cur.video.sync(t, ctx.clock.playing);
   const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
@@ -146,16 +152,21 @@ function enterIx(trip, m) {
   root.classList.add('ix');
   const el = document.createElement('div');
   el.className = 'fl-ix';
-  el.innerHTML = '<div class="fl-vid"><div class="fl-vwrap"></div><div class="fl-facts mono"></div></div><div class="fl-3d"></div><div class="fl-place"></div>';
+  el.innerHTML = `<div class="fl-vid"><div class="fl-vwrap"></div><div class="fl-facts mono"></div><span class="fl-novid">No video at this time</span>${GROW('video')}</div>
+    <div class="fl-3d"></div><div class="fl-place"></div>`;
   root.querySelector('.fl-map').after(el);
+  view.big = 'video';
+  const slots = { video: 'big', map: 'inset', '3d': 'side' };
+  setSlots(slots);
   const p = posAt(trip.pts, m.t0_ms);
   ov.frame([p.lon, p.lat]);
   ov.result(trip.id);
   const pick = (bid) => card.focus(bid);
   const cite = m.actor_refs?.[0]?.entity_id ?? null;
   const scene = createIntersection(el.querySelector('.fl-3d'), { cam: trip.cam, origin: trip.line[0], buildings: trip.buildings, onPick: pick, cite });
+  el.querySelector('.fl-3d').insertAdjacentHTML('beforeend', GROW('3d'));
   const cur = view.ix = ix = {
-    trip, moment: m, el, scene, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
+    trip, moment: m, el, scene, slots, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
     facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
     video: createVideo(el.querySelector('.fl-vwrap'), {
       cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
@@ -178,12 +189,40 @@ function leaveIx() {
   ix.scene.dispose();
   ix.video.dispose();
   ix.el.remove();
-  view.ix = ix = null;
+  view.ix = ix = view.big = null;
+  delete root.querySelector('.fl-map').dataset.slot;
   root.classList.remove('ix');
   ov.gps(null);
   ov.place(null);
   ov.result(null);
   document.getElementById('tab-trip').replaceChildren();
+}
+
+// slots: panel name -> 'big' | 'inset' | 'side'.
+function setSlots(slots) {
+  for (const [k, sel] of Object.entries(PANELS)) root.querySelector(sel).dataset.slot = slots[k];
+}
+
+// A click on a small panel swaps it with the big one.
+function setBig(name) {
+  const s = ix.slots;
+  [s[view.big], s[name]] = [s[name], 'big'];
+  view.big = name;
+  setSlots(s);
+  ov.map.resize();
+}
+
+// Dashcam view of a trip with video at its trip time t_ms (the result layout without an agent moment).
+const openTrip = (trip, t0_ms) => enterIx(trip, { scene_key: trip.id, t0_ms });
+
+// Default view: the trip with video and the most events, at its first event.
+function openDefault() {
+  const trip = trips.filter((t) => t.cam).sort((a, b) => b.events.length - a.events.length)[0];
+  if (!trip) return tick(ctx.clock.t);
+  const t0 = Math.min(...trip.events.map((e) => e.t0_ms), Infinity);
+  const t = t0 === Infinity ? trip.replay.coverage_intervals[0][0] : t0;
+  ctx.clock.seek(wallOf(trip.replay, t));
+  openTrip(trip, t);
 }
 
 function toOverview() {
@@ -228,7 +267,11 @@ export async function mount(el, c) {
   addLanes();
   view.overview = ov = await createOverview(root.querySelector('.fl-map'), {
     trips, api: ctx.api,
-    onCar: (id) => ov.select(id),
+    onCar(id) {
+      const trip = byId(id), t = tripT(trip.replay, ctx.clock.t);
+      if (trip.cam && t != null) openTrip(trip, t);
+      else ov.select(id);
+    },
     onEvent(trip, e) {
       ov.select(trip.id);
       ctx.timeline.highlight(`${trip.id}:${e.id}`);
@@ -238,6 +281,11 @@ export async function mount(el, c) {
   });
   // Added after the map is created: MapLibre wants an empty container.
   root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: 'Dashed ring = GPS uncertainty' }));
+  root.querySelector('.fl-map').insertAdjacentHTML('beforeend', GROW('map'));
+  root.addEventListener('click', (e) => {
+    const g = e.target.closest('.fl-grow');
+    if (g && ix) setBig(g.dataset.panel);
+  });
   card = createBuildings(root.querySelector('.fl-card'), {
     api: ctx.api,
     tripOf: (bid) => trips.find((t) => bid in t.buildings),
@@ -250,10 +298,18 @@ export async function mount(el, c) {
   const onView = (s) => s === 'default' && toOverview();
   const onPlay = (on) => ix?.video.play(on);
   const onTab = (name) => name === 'trip' && renderTrip();
+  // Without an agent result the shell's Esc leaves the page; here it first closes the dashcam view to the overview.
+  const onKey = (e) => {
+    if (e.key !== 'Escape' || !ix || state.view !== 'default' || !document.getElementById('cmdk').hidden || !document.getElementById('runpage').hidden) return;
+    e.stopPropagation();
+    toOverview();
+  };
   ctx.bus.on('view:state', onView);
   ctx.bus.on('clock:play', onPlay);
   ctx.bus.on('panel:tab', onTab);
+  window.addEventListener('keydown', onKey, true);
   offs = [
+    () => window.removeEventListener('keydown', onKey, true),
     ctx.clock.onTick(tick),
     ctx.selection.onChange(() => ix && ((ix.frame = null), ixTick(ctx.clock.t))),
     () => ctx.bus.off('view:state', onView),
@@ -262,6 +318,8 @@ export async function mount(el, c) {
     () => links.forEach((l) => l.remove()),
   ];
   if (ctx.route.trip_id) loadScene(ctx.route.trip_id);
+  // A question still running (or its hit) replaces the view once mount returns.
+  else if (!['searching', 'hit'].includes(state.view)) openDefault();
   else tick(ctx.clock.t);
   return () => {
     leaveIx();
@@ -297,13 +355,16 @@ export async function applyUI({ cmd, args }) {
 // Model results are shown by the shell's model panel; the building and place cards fetch their own C5 records.
 export function applyModelResults() {}
 
-// #/fleet/<trip_id>@<t_ms>: select the trip, seek to t_ms and fly to the car. The shell cleared the timeline before calling.
+// #/fleet/<trip_id>@<t_ms>: select the trip, seek to t_ms and open its dashcam view (a GPS-only trip: fly to the car).
+// The shell cleared the timeline before calling.
 export function loadScene(id) {
   const trip = byId(id);
   addLanes();
   if (!trip) return;
   ov.select(id);
   if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
-  const p = posAt(trip.pts, tripT(trip.replay, ctx.clock.t) ?? trip.pts[0].t_ms);
+  const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0].t_ms;
+  if (trip.cam) return openTrip(trip, t);
+  const p = posAt(trip.pts, t);
   ov.fly([p.lon, p.lat], FLY_MS);
 }

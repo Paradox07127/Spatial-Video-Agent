@@ -34,7 +34,7 @@ export function createBuildings(el, { api, tripOf, onFocus }) {
         <header class="fl-bhead"><b>${esc(b.name ?? bid)}</b>${source('map')}<button class="icon-btn fl-close" title="Close">${icon('x')}</button></header>
         <dl class="fl-bdl">
           <dt>Address</dt><dd>${b.addr ? esc(b.addr) : '<span class="muted">No address on the map</span>'}</dd>
-          <dt>Height</dt><dd class="mono">${b.height_m != null ? `${b.height_m} m` : '—'}${b.floors ? ` · ${count(b.floors, 'floor')}` : ''}</dd>
+          <dt>Height</dt><dd class="mono">${b.height_m != null ? `${esc(b.height_m)} m` : '—'}${b.floors ? ` · ${esc(count(b.floors, 'floor'))}` : ''}</dd>
           <dt>POI</dt><dd>${b.pois.map((p) => `${esc(p.name)} <span class="muted">${esc(p.kind)}</span>`).join(', ') || '<span class="muted">none</span>'}</dd>
           <dt>Source</dt><dd class="mono muted">${esc(b.source)} ${esc(b.osm_id ?? '')} · snapshot ${esc(b.map_snapshot_date)}</dd>
         </dl>

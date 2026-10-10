@@ -17,6 +17,7 @@ ENTITY_ID_RE = re.compile(r"^[PFV][0-9]+$")
 Workspace = Literal["warehouse", "fleet", "street"]
 Level = Literal["L1", "L2", "L3"]
 Scope = Literal["scene", "corpus"]
+Tag = Literal["warehouse", "fleet", "fixed", "mobile"]
 EntityKind = Literal["person", "forklift", "vehicle"]
 EvidenceKind = Literal["measure", "map", "model", "human"]
 ExecState = Literal["cached", "live", "waiting", "failed"]
@@ -53,6 +54,18 @@ def level_of(manifest: dict) -> Level:
     if manifest["workspace"] == "warehouse" and manifest["metric"]:
         return "L3"
     return "L2"
+
+
+# street cameras that move with their rider; every other street camera is fixed
+MOBILE_CAMERAS = ("nyc_bike_gopro",)
+
+
+def tag_of(manifest: dict) -> Tag:
+    """Source tag: warehouse and fleet by workspace; a street scene is mobile when its VSS camera is in MOBILE_CAMERAS, else fixed."""
+    if manifest["workspace"] != "street":
+        return manifest["workspace"]
+    camera = manifest.get("sources", {}).get("vss", {}).get("camera_id") or manifest["cams"][0]["id"]
+    return "mobile" if camera.startswith(MOBILE_CAMERAS) else "fixed"
 
 
 def capabilities(manifest: dict) -> dict[str, dict]:
@@ -176,6 +189,8 @@ class MomentCard(_M):
     time_filter: dict | None = None
     workspace: Workspace | None = None
     evidence_level: Level | None = None
+    tag: Tag | None = None
+    title: str | None = None
 
 
 class Predicate(_M):
@@ -254,6 +269,7 @@ class Query(_M):
     workspace: Workspace
     abstain_reason: str | None = None
     scope: Scope = "scene"
+    sources: list[Tag] | None = None
 
 
 class SearchFilters(_M):

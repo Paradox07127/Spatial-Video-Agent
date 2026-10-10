@@ -149,6 +149,50 @@ def test_weave_child_failure_does_not_change_local_result(store, monkeypatch):
     assert saved.steps[0].trace_delivery_state == 'weave_failed'
 
 
+def _weave_delivery(store, monkeypatch, flush):
+    import threading, time
+    monkeypatch.setenv('WANDB_API_KEY', 'test-only')
+    monkeypatch.setenv('WEAVE_PROJECT', 'test/project')
+    class Client:
+        def create_call(self, name, inputs, parent=None):
+            return SimpleNamespace(id=name, ui_url='https://example.test/call')
+        def finish_call(self, *args, **kw):
+            pass
+    Client.flush = flush
+    monkeypatch.setitem(sys.modules, 'weave', SimpleNamespace(init=lambda *a, **k: Client()))
+    before = set(threading.enumerate())
+    run = trace.start_run(store, 'q', {})
+    with trace.traced(run, 'parse', {}, state='parse') as t:
+        t.output({'ok': True})
+    t0 = time.monotonic()
+    url = trace.finish_run(run, 'done', final='NO_MATCH', claims=[])
+    returned_s = time.monotonic() - t0
+    for th in set(threading.enumerate()) - before:
+        th.join(10)
+    return run, url, returned_s
+
+
+def test_finish_run_does_not_wait_for_weave_flush(store, monkeypatch):
+    import time
+    run, url, returned_s = _weave_delivery(store, monkeypatch, lambda self: time.sleep(3))
+    assert returned_s < 0.5
+    assert url == 'https://example.test/call'
+    saved = store.get_run(run.run_id)
+    assert saved.status == 'done' and saved.weave_url == 'https://example.test/call'
+    assert [s.trace_delivery_state for s in saved.steps] == ['weave_ok']
+
+
+def test_finish_run_flush_failure_goes_to_outbox(store, monkeypatch):
+    def fail(self):
+        raise RuntimeError('offline')
+    run, url, returned_s = _weave_delivery(store, monkeypatch, fail)
+    saved = store.get_run(run.run_id)
+    assert saved.status == 'done' and saved.weave_url is None
+    assert [s.trace_delivery_state for s in saved.steps] == ['weave_failed']
+    rows = (store.runs_dir / 'outbox.jsonl').read_text().splitlines()
+    assert [json.loads(r)['run_id'] for r in rows] == [run.run_id]
+
+
 def test_site_blob_uploaded_and_read_after_restart(store, monkeypatch):
     from io import BytesIO
     monkeypatch.setenv('MODE', 'site')

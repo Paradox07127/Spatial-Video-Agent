@@ -68,6 +68,27 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 50
+        },
+        "sources": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "warehouse",
+                  "fleet",
+                  "fixed",
+                  "mobile"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "source tags to search; set -> corpus retrieval over scenes with these tags (overrides scope)"
         }
       },
       "required": [
@@ -88,6 +109,11 @@
           },
           "required": [
             "scope"
+          ]
+        },
+        {
+          "required": [
+            "sources"
           ]
         }
       ]
@@ -188,6 +214,27 @@
             "scene",
             "corpus"
           ]
+        },
+        "sources": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "warehouse",
+                  "fleet",
+                  "fixed",
+                  "mobile"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "source tags to search; set -> corpus retrieval over scenes with these tags (overrides scope)"
         }
       },
       "required": [

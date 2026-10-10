@@ -7,12 +7,25 @@
 }
 .fl-root { position: absolute; inset: 0; }
 .fl-map { position: absolute; inset: 0; background: var(--paper); isolation: isolate; }
-/* Result layout (board v2-4a): dashcam | map over ego-frame 3D | place card; the overview map moves into its cell. */
-.fl-root.ix { display: grid; grid-template-columns: 640px 1fr; grid-template-rows: 380px 1fr; gap: 1px; background: var(--rule); }
-.fl-root.ix .fl-map { position: relative; inset: auto; grid-area: 1 / 2; min-width: 0; }
-.fl-root.ix .fl-car, .fl-root.ix .fl-clock, .fl-root.ix .fl-hit { display: none; }
+/* Result layout: the big panel (data-slot, set by page.js) fills the left area, the inset sits in its bottom-left corner,
+   the side panel is over the place card in the right column; the overview map moves into its panel. */
+.fl-root.ix { display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 1px; background: var(--rule); }
+.fl-root.ix .fl-map { position: relative; inset: auto; min-width: 0; min-height: 0; }
+.fl-root.ix [data-slot="big"] { grid-area: 1 / 1 / 3 / 2; }
+.fl-root.ix [data-slot="side"] { grid-area: 1 / 2; }
+.fl-root.ix [data-slot="inset"] {
+  position: absolute; left: 12px; bottom: 44px; z-index: 4; grid-area: auto; box-sizing: border-box; width: 300px; height: 190px;
+  border: 1px solid var(--thread); border-radius: var(--radius); overflow: hidden;
+}
+.fl-grow { display: none; position: absolute; inset: 0; z-index: 5; cursor: zoom-in; }
+.fl-root.ix [data-slot="inset"] > .fl-grow, .fl-root.ix [data-slot="side"] > .fl-grow { display: block; }
+.fl-grow::after {
+  content: '⤢'; position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px;
+  font-size: var(--fs-2); color: var(--ink); background: rgb(14 18 24 / 0.85); border: 1px solid var(--rule); border-radius: var(--radius);
+}
+.fl-root.ix .fl-map:not([data-slot="big"]) .fl-car, .fl-root.ix .fl-clock, .fl-root.ix .fl-hit { display: none; }
 .fl-cap { display: none; position: absolute; left: 12px; bottom: 12px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); }
-.fl-root.ix .fl-cap { display: block; }
+.fl-root.ix .fl-map[data-slot="big"] .fl-cap { display: block; }
 .fl-map .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact, .fl-map .maplibregl-ctrl-attrib { background: rgb(14 18 24 / 0.7); color: var(--ink-2); font: var(--fs-1)/1.4 var(--font-sans); border-radius: 6px; }
 .fl-map .maplibregl-ctrl-attrib a { color: var(--ink-2); }
 .fl-map .maplibregl-ctrl-attrib-button { border-radius: 6px; }
@@ -86,10 +99,12 @@
 
 /* ---- result layout cells (children of .fl-ix, laid out by the .fl-root grid) */
 .fl-ix { display: contents; }
-.fl-3d { position: relative; grid-area: 2 / 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--paper); }
+.fl-3d { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--paper); }
 .fl-3d > canvas { display: block; }
 .fl-labels { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .fl-3dcap { position: absolute; top: 12px; left: 12px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); text-transform: uppercase; }
+/* The 360 px side column is too narrow for the caption and the view buttons together. */
+.fl-root.ix .fl-3d[data-slot="side"] .fl-3dcap { display: none; }
 .fl-badge {
   position: absolute; bottom: 12px; left: 12px; z-index: 2; padding: 2px 8px; font-size: var(--fs-1); color: var(--neutral);
   background: rgb(14 18 24 / 0.85); border: 1px dashed var(--neutral); border-radius: 3px;
@@ -104,14 +119,18 @@
 .fl-gnss.stale { color: var(--neutral); border: 1px dashed var(--neutral); }
 .fl-bl { color: var(--src-map); border-bottom: 1.5px dotted var(--src-map); border-radius: 0; pointer-events: auto; cursor: pointer; }
 
-.fl-vid { position: relative; grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: hidden; background: #000; }
+.fl-vid { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; }
 .fl-vwrap { position: absolute; inset: 0; }
+.fl-novid { display: none; position: absolute; inset: 0; place-items: center; font-size: var(--fs-2); color: var(--ink-2); }
+.fl-vid.novid .fl-novid { display: grid; }
+.fl-vid.novid .fl-vwrap { visibility: hidden; }
+.fl-root.ix .fl-vid:not([data-slot="big"]) :is(.fl-vhead, .fl-legend) { display: none; }
 .fl-vhead { position: absolute; top: 8px; left: 12px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 10px; font-size: var(--fs-1); }
 .fl-vhead .ghost { margin-left: auto; background: rgb(14 18 24 / 0.8); }
 .fl-undist.on { color: var(--ink); border-color: var(--ink-2); background: var(--sunk); }
 .fl-vbox { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
 .fl-vbox video, .fl-vbox canvas, .fl-cols { position: absolute; inset: 0; width: 100%; height: 100%; }
-.fl-legend { position: absolute; left: 12px; bottom: 42px; z-index: 2; display: flex; gap: 12px; padding: 4px 8px; font-size: var(--fs-1); color: var(--ink-3); background: rgb(14 18 24 / 0.8); border-radius: 3px; }
+.fl-legend { position: absolute; right: 12px; bottom: 42px; z-index: 2; display: flex; gap: 12px; padding: 4px 8px; font-size: var(--fs-1); color: var(--ink-3); background: rgb(14 18 24 / 0.8); border-radius: 3px; }
 .fl-legend:empty { display: none; }
 .fl-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .fl-legend i { width: 10px; height: 8px; border: 1.5px solid var(--ink); }

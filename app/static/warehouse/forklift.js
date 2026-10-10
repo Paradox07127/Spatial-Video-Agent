@@ -1,6 +1,7 @@
 // Forklifts from forklift.json: a solid oriented box over the footprint, its front face light, and a heading arrow
 // (heading: rad from world +x, CCW).
 import * as THREE from 'three';
+import { esc } from '../kernel/format.js';
 
 const HEIGHT = 1.9; // drawn box height (m); the footprint has no height
 const MAX_GAP = 150;
@@ -12,7 +13,7 @@ export function createForklifts(kit) {
 
   function tag(f) {
     const on = selected.has(f.id);
-    kit.setTag(f.tag, `${f.id}${on && askable ? kit.askButton(f.id) : ''}`, on);
+    kit.setTag(f.tag, `${esc(f.id)}${on && askable ? kit.askButton(f.id) : ''}`, on);
   }
 
   return {

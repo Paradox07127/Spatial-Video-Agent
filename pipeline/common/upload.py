@@ -4,17 +4,20 @@
   python pipeline/common/upload.py [--dry-run] SRC [SCENE_KEY ...]
   python pipeline/common/upload.py --download DEST [SCENE_KEY ...]
 
-SRC holds scene directories (sva-out or an unpacked bundle). Resumable: an object that already exists with the same size
-is skipped, so a rerun after an interruption only sends what is missing. --dry-run lists what would be sent.
+SRC holds scene directories (sva-out or an unpacked bundle). Resumable: an object is skipped only when its size and
+content checksum match. --dry-run lists what would be sent.
 --download mirrors the other way, s3://<ASSET_BUCKET>/sva/<scene_key>/… and sva/_map/… to DEST/<scene_key>/…, skipping
-files whose size already matches and that are not older than the object, sva/runs/… and any key that would resolve outside DEST. S3_VERIFY=0 turns off TLS verification (the internal endpoint is self-signed).
+files whose size and checksum match, sva/runs/… and any key that would resolve outside DEST.
+S3_VERIFY=0 turns off TLS verification (the internal endpoint is self-signed).
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import mimetypes
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -41,16 +44,48 @@ def download(s3, bucket: str, dest: Path, scenes: list[str]) -> tuple[int, int, 
             if ("/" not in rel or rel.endswith("/") or top == "runs" or scenes and top not in [*scenes, "_map"]
                     or not f.resolve().is_relative_to(dest.resolve())):
                 continue
-            # the mirror persists across deploys, so a same-size object rewritten after the local copy is fetched again
-            if f.is_file() and f.stat().st_size == o["Size"] and (
-                    "LastModified" not in o or f.stat().st_mtime >= o["LastModified"].timestamp()):
+            if f.is_file() and f.stat().st_size == o["Size"] and same_content(s3, bucket, o, checksums(f)):
                 skipped += 1
                 continue
             f.parent.mkdir(parents=True, exist_ok=True)
-            s3.download_file(bucket, o["Key"], str(f))
+            with tempfile.NamedTemporaryFile(dir=f.parent, prefix='.' + f.name + '.', delete=False) as tmp:
+                pending = Path(tmp.name)
+            try:
+                s3.download_file(bucket, o["Key"], str(pending))
+                if pending.stat().st_size != o['Size']:
+                    raise OSError(f"Incomplete download: {o['Key']}")
+                pending.replace(f)
+            finally:
+                pending.unlink(missing_ok=True)
             fetched += 1
             size += o["Size"]
     return fetched, skipped, size
+
+
+def checksums(path: Path) -> tuple[str, str, str]:
+    sha, md5, part = hashlib.sha256(), hashlib.md5(usedforsecurity=False), hashlib.md5(usedforsecurity=False)
+    parts, part_size = [], 0
+    with path.open('rb') as stream:
+        while block := stream.read(1 << 20):
+            sha.update(block)
+            md5.update(block)
+            part.update(block)
+            part_size += len(block)
+            if part_size == 8 << 20:
+                parts.append(part.digest())
+                part, part_size = hashlib.md5(usedforsecurity=False), 0
+    if part_size:
+        parts.append(part.digest())
+    multipart = f"{hashlib.md5(b''.join(parts), usedforsecurity=False).hexdigest()}-{len(parts)}"
+    return sha.hexdigest(), md5.hexdigest(), multipart
+
+
+def same_content(s3, bucket: str, obj: dict, hashes: tuple[str, str, str]) -> bool:
+    sha, md5, multipart = hashes
+    # Legacy uploads use ordinary MD5 ETags or boto3's default 8 MiB multipart ETags.
+    if obj.get('ETag', '').strip('"') in (md5, multipart):
+        return True
+    return s3.head_object(Bucket=bucket, Key=obj['Key']).get('Metadata', {}).get('sha256') == sha
 
 
 def main() -> None:
@@ -80,14 +115,19 @@ def main() -> None:
     bucket = os.environ["ASSET_BUCKET"]
     have = {}
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=PREFIX + "/"):
-        have |= {o["Key"]: o["Size"] for o in page.get("Contents", [])}
+        have |= {o["Key"]: o for o in page.get("Contents", [])}
     sent = skipped = 0
     for f, key in files:
-        if have.get(key) == f.stat().st_size:
-            skipped += 1
-            continue
+        hashes = checksums(f)
+        sha = hashes[0]
+        old = have.get(key)
+        if old and old['Size'] == f.stat().st_size:
+            if same_content(s3, bucket, old, hashes):
+                skipped += 1
+                continue
         # the browser plays and parses these through presigned URLs, so the type must be right
-        s3.upload_file(str(f), bucket, key, ExtraArgs={"ContentType": mimetypes.guess_type(f.name)[0] or "application/octet-stream"})
+        s3.upload_file(str(f), bucket, key, ExtraArgs={"ContentType": mimetypes.guess_type(f.name)[0] or "application/octet-stream",
+                                                     "Metadata": {"sha256": sha}})
         sent += 1
     print(f"upload: {sent} sent, {skipped} already present, {len(files)} files -> s3://{bucket}/{PREFIX}/")
 

@@ -127,7 +127,7 @@ test('wh-main replay: hit, pinned answer header, tabs, claim UNRESOLVED → SUPP
 
   await page.locator('#tabs [data-tab="evidence"]').click();
   const row = page.locator('#tab-evidence .ev[data-eid="e_5d60fc7e6ed93290"]');
-  await expect(page.locator('#tab-evidence .ev-head')).toHaveText(['MEASURED · 3', 'MODEL · 1']);
+  await expect(page.locator('#tab-evidence .ev-head')).toHaveText(['MEASURED · 2', 'MEASURED · 1', 'MODEL · 1']);
   await expect(row.locator('.ev-label')).toHaveText('Distance P1 to F1');
   await expect(row.locator('.ev-val')).toHaveText('1.55 m ±0.12');
   await expect(row.locator('.ev-where')).toHaveText('ceiling_04 + eye_00 · 00:04.6');
@@ -160,6 +160,41 @@ test('evidence rows fold their raw fields into an aligned key / value block', as
   await expect(page.locator('#tab-evidence .ev-k-model .ev-label')).toHaveText('Caption and visual search rank');
 });
 
+test('Evidence tab: what the answer cites or a predicate uses first; the rest the run read folds into one row', async ({ page }) => {
+  await replay(page, 'wh-main');
+  await page.locator('#tabs [data-tab="evidence"]').click();
+  const pane = page.locator('#tab-evidence');
+  // cited: the dodge event and the distance (also its predicate's); examined only: the visibility cells and the search rank
+  await expect(pane.locator('.ev-group:visible .ev-head')).toHaveText(['MEASURED · 2']);
+  const more = pane.locator('.ev-more');
+  await expect(more).toHaveText('Other evidence read · 2');
+  const model = pane.locator('.ev[data-eid="e_a363d220af21b141"]');
+  await expect(model).toBeHidden();
+  await more.click();
+  await expect(model).toBeVisible();
+  await expect(pane.locator('.ev-group:visible .ev-head')).toHaveText(['MEASURED · 2', 'MEASURED · 1', 'MODEL · 1']);
+});
+
+test('a run that read evidence but ends without claims or cites lists all of it as read, not used; the timeline marks none', async ({ page }) => {
+  test.skip(LIVE, 'needs a spliced mock stream');
+  const ev = frames('wh-main').flatMap((f) => (f.event === 'tool_result' ? f.data.evidence : [])).find((e) => e.eid === 'e_5d60fc7e6ed93290');
+  const span = { ...ev, eid: 'e_00000000000000aa', kind: 'map', method: 'gps_pass', value: { t0_s: 496.5, t1_s: 505.5 }, unit: null, sigma: null };
+  await replayFrames(page, frames('wh-nomatch').map((f) => {
+    if (f.event === 'tool_result') return { ...f, data: { ...f.data, evidence: [ev, span] } };
+    if (f.event === 'status') return { ...f, data: { ...f.data, final: 'OUT_OF_RANGE' } };
+    return f;
+  }));
+  await expect(view(page)).toHaveAttribute('data-view', 'abstained');
+  await expect(page.locator('#tabs [data-tab="evidence"]')).toHaveText('Evidence 2');
+  await page.locator('#tabs [data-tab="evidence"]').click();
+  const pane = page.locator('#tab-evidence');
+  await expect(pane.locator('.ev-read')).toHaveText('Read, not used in an answer');
+  await expect(pane.locator('.ev-more')).toHaveCount(0);
+  await expect(pane.locator('.ev-group:visible .ev-head')).toHaveText(['MEASURED · 1', 'MAP · 1']);
+  await expect(pane.locator('.ev:visible')).toHaveCount(2);
+  await expect(page.locator('#timeline .tl-evidence')).toBeHidden();
+});
+
 test('Steps tab: a row per step and tool call, the claim-changing step expanded, duration bar and reasoning link', async ({ page }) => {
   await replay(page, 'wh-main');
   await page.locator('#tabs [data-tab="steps"]').click();
@@ -178,12 +213,50 @@ test('Steps tab: a row per step and tool call, the claim-changing step expanded,
 test('answer card: a number taken from evidence is a button to that evidence', async ({ page }) => {
   await replay(page, 'wh-main');
   const num = page.locator('#answer .ans-num');
-  // measure_refs of the fixture: value.t0_ms (4600, not the 4.6 in the text) and value (1.55)
+  // measure_refs of the fixture: value.t0_ms (a time, marked apart) and value (1.55)
   await expect(num).toHaveText(['1.55']);
   await expect(num).toHaveAttribute('data-eid', 'e_5d60fc7e6ed93290');
   await num.click();
   await expect(page.locator('#tab-evidence .ev[data-eid="e_5d60fc7e6ed93290"]')).toHaveClass(/flash/);
   expect(await kernel(page, 'clock', 'k.clock.t')).toBe(4600);
+});
+
+test('answer card: a time field in the text is a time (mono, grey underline, ink), not a measured number, and still opens its evidence', async ({ page }) => {
+  await replay(page, 'wh-main');
+  const t = page.locator('#answer .ans-time');
+  await expect(t).toHaveText(['4.6 s']);
+  await expect(t).toHaveAttribute('data-eid', 'e_4a18f3e5e7eeb929');
+  const css = await t.evaluate((e) => { const s = getComputedStyle(e); return [s.fontFamily.includes('IBM Plex Mono'), s.fontWeight, s.borderBottom, s.color]; });
+  expect(css).toEqual([true, '500', '1px solid rgb(74, 84, 98)', 'rgb(237, 240, 244)']);
+  await t.hover();
+  await expect(t).toHaveClass(/\bhover\b/);
+  await t.click();
+  expect(await kernel(page, 'state', '[k.state.stageMode, k.state.focusEid]')).toEqual(['evidence', 'e_4a18f3e5e7eeb929']);
+  expect(await kernel(page, 'clock', 'k.clock.t')).toBe(4600);
+});
+
+test('answer card: a time field in seconds (value.t_s, as the live agent sends it) is a time too', async ({ page }) => {
+  const EID = 'e_4a18f3e5e7eeb929';
+  await replayFrames(page, frames('wh-main').map((f) => {
+    if (f.event === 'tool_result') return { ...f, data: { ...f.data, evidence: f.data.evidence.map((e) => (e.eid === EID ? { ...e, value: { ...e.value, t_s: 4.6 } } : e)) } };
+    if (f.event === 'answer') return { ...f, data: { ...f.data, measure_refs: f.data.measure_refs.map((r) => (r.eid === EID ? { ...r, field: 'value.t_s' } : r)) } };
+    return f;
+  }));
+  await expect(page.locator('#answer .ans-time')).toHaveText(['4.6 s']);
+});
+
+test('a claim whose verdict did not change shows one badge, not X → X', async ({ page }) => {
+  const list = frames('wh-main');
+  const last = list.findLast((f) => f.event === 'claim');
+  const k = list.indexOf(last);
+  await replayFrames(page, [...list.slice(0, k + 1), { event: 'claim', data: { ...last.data, before: 'SUPPORTED', after: 'SUPPORTED' } }, ...list.slice(k + 1)]);
+  await expect(page.locator('#ask-status')).toContainText('Done');
+  const head = page.locator('#claims .claim-head');
+  await expect(head).toHaveText('SUPPORTED');
+  await expect(head.locator('.verdict')).toHaveCount(1);
+  await expect(head.locator('.arrow')).toHaveCount(0);
+  await page.locator('#tabs [data-tab="steps"]').click();
+  await expect(page.locator('#tab-steps .st-claims')).toHaveText('UNRESOLVED→SUPPORTED');
 });
 
 test('a moment card without actors starts its meta line with the primary camera', async ({ page }) => {
@@ -242,6 +315,18 @@ test('model line: situation and prediction with the measurement check by default
   await expect(mp.locator('.mp-row')).toHaveCount(0);
 });
 
+test('model line: a markup string in a C2 payload is shown as text, not run', async ({ page }) => {
+  test.skip(LIVE, 'needs a hand-built stream');
+  const probe = '<img src=x id=xss-probe onerror="window.__xss=1">';
+  await replayFrames(page, frames('wh-main').map((f) => f.event !== 'model_result' ? f
+    : { ...f, data: { ...f.data, results: f.data.results.map((r) => r.task === 'C2' ? { ...r, payload: { ...r.payload, horizon_s: probe } } : r) } }));
+  const mp = page.locator('#modelpanel');
+  await mp.locator('.mp-summary').click();
+  await expect(mp.locator('.mp-row').nth(1)).toContainText(`within ${probe} s`);
+  await expect(page.locator('#xss-probe')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__xss)).toBeUndefined();
+});
+
 test('wh-refuse replay: abstained; the answer card says why and what to ask instead, no moment card', async ({ page }) => {
   await mockAsk(page, 'wh-refuse');
   await page.goto('#/test');
@@ -255,7 +340,7 @@ test('wh-refuse replay: abstained; the answer card says why and what to ask inst
   await expect(card.locator('.ans-src')).toHaveCount(0);
   await expect(card.locator('.ans-instead')).toContainText('Ask what can be measured');
   const instead = card.locator('.ans-instead .preset');
-  await expect(instead).toHaveText(['When did the worker start to dodge the forklift, and how far was it?', 'Was anyone where ceiling_00 cannot see in these 10 seconds?']);
+  await expect(instead).toHaveText(['When did the worker start to dodge the forklift, and how far was it?', 'How close did the forklift come to a person?']);
   await expect(page.locator('#moments .moment')).toHaveCount(0);
   await expect(page.locator('#moments').locator('xpath=..')).toBeHidden();
   await expect(page.locator('#keyframe')).toBeHidden();
@@ -280,7 +365,7 @@ test('NO_MATCH with an answer frame: the card shows the plain verdict, the agent
   const card = page.locator('#answer');
   await expect(card.locator('.verdict')).toHaveText('No match');
   await expect(card.locator('.ans-text')).toHaveText(text);
-  await expect(card.locator('.ans-num')).toHaveText(['496.5', '505.5']);
+  await expect(card.locator('.ans-time')).toHaveText(['496.5', '505.5 s']);
   await expect(card.locator('.ans-src .src')).toHaveText(['Measured', 'Map']);
   await expect(page.locator('#tab-evidence .ev')).toHaveCount(2);
   await expect(page.locator('#tab-evidence .ev[data-eid="e_00000000000000aa"] .ev-label')).toHaveText('GPS pass near the place');

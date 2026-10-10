@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Request
+import re
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 import cv2
 import numpy as np
 from shapely.geometry import Point, Polygon
+from starlette.concurrency import run_in_threadpool
 
 from app.core import street
 from app.core.models import CosmosRecord, Moment, capabilities, level_of
@@ -71,21 +74,61 @@ def street_chunk(scene_key: str, cam: str, index: int, request: Request):
     if not uri.startswith('s3://'):
         return FileResponse(store.local_asset(f'{scene_key}/{uri}'), media_type='video/mp4')
     # the team chunk bucket is not reachable from the browser, so the app proxies it and passes Range through
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import BotoCoreError, ClientError
     bucket, key = uri[5:].split('/', 1)
     params = {'Bucket': bucket, 'Key': key}
-    if request.headers.get('range'):
-        params['Range'] = request.headers['range']
+    range_header = request.headers.get('range')
+    impossible = False
+    if range_header is not None:
+        # This proxy supports one byte range. Reject malformed/multipart ranges before contacting S3.
+        match = re.fullmatch(r'bytes=([0-9]*)-([0-9]*)', range_header.strip()) if len(range_header) <= 128 else None
+        if match is None or not any(match.groups()):
+            raise HTTPException(400, 'Provide a single byte range')
+        start, end = match.groups()
+        impossible = (not start and int(end) == 0) or (bool(start and end) and int(end) < int(start))
+        params['Range'] = range_header.strip()
+    s3 = store.s3()
+
+    def upstream_failure(exc):
+        if isinstance(exc, ClientError) and exc.response.get('Error', {}).get('Code') in ('404', 'NoSuchKey', 'NotFound'):
+            return HTTPException(404, 'Chunk not found')
+        return HTTPException(502, 'Video source unavailable')
+
+    def range_failure():
+        # Normal playback needs only GET. Ask for length only after a range cannot be satisfied.
+        try:
+            size = s3.head_object(Bucket=bucket, Key=key)['ContentLength']
+        except (BotoCoreError, ClientError) as exc:
+            raise upstream_failure(exc) from None
+        return HTTPException(416, 'Requested range is not satisfiable',
+                             headers={'Accept-Ranges': 'bytes', 'Content-Range': f'bytes */{size}'})
+
+    if impossible:
+        raise range_failure()
     try:
-        obj = store.s3().get_object(**params)
+        obj = s3.get_object(**params)
     except ClientError as exc:
-        if exc.response['Error']['Code'] in ('404', 'NoSuchKey', 'NotFound'):
-            raise FileNotFoundError('Chunk not found') from exc
-        raise
+        if range_header is not None and (exc.response.get('Error', {}).get('Code') in ('InvalidRange', 'RequestedRangeNotSatisfiable')
+                                         or exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 416):
+            raise range_failure() from None
+        raise upstream_failure(exc) from None
+    except BotoCoreError as exc:
+        raise upstream_failure(exc) from None
     headers = {'Accept-Ranges': 'bytes', 'Content-Length': str(obj['ContentLength'])}
     if obj.get('ContentRange'):
         headers['Content-Range'] = obj['ContentRange']
-    return StreamingResponse(obj['Body'].iter_chunks(1 << 16), status_code=206 if 'Range' in params else 200,
+    async def stream():
+        body = obj['Body']
+        try:
+            chunks = iter(body.iter_chunks(1 << 16))
+            while (chunk := await run_in_threadpool(next, chunks, None)) is not None:
+                yield chunk
+        finally:
+            # Close the S3 socket on completion, iterator failure or a disconnected browser.
+            if hasattr(body, 'close'):
+                body.close()
+
+    return StreamingResponse(stream(), status_code=206 if 'Range' in params else 200,
                              media_type='video/mp4', headers=headers)
 
 
