@@ -432,6 +432,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 final,stop_reason = 'UNRESOLVED','abstained'
             elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
                   and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
+                  and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']
+                  and (selection or parsed.zone or any(e!='vehicle' for e in parsed.entities)
+                       or spatial and spatial[0]!='ground_position')):
+                yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='located',value=None,
+                                             unit=None,status='unknown',eids=[])],
+                                  explain={'note':'Trip GPS locates the recording vehicle; the requested entity, object or zone was not verified.'})
+                final,stop_reason = 'UNRESOLVED','abstained'
+            elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
+                  and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
                   and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']):
                 key, tm = parsed.scene_key or scoped[0]['scene_key'], context['t_ms']
                 with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm},state='measure') as t:

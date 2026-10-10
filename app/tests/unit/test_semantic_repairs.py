@@ -253,3 +253,20 @@ def test_between_time_has_actual_search_bounds():
 def test_default_blind_spot_during_window_remains_explicit():
     parsed = llm.rule_parse('Is there anyone in the ceiling_00 blind spot during these 10 seconds?',{'workspace':'warehouse'})
     assert parsed.t_range==(0,10000) and 'temporal_relation' not in parsed.constraints
+
+
+@pytest.mark.parametrize('q,context,expected',[
+    ('Where is P2?',{'selection':['P2']},'UNRESOLVED'),
+    ('Where is P2?',{},'UNRESOLVED'),
+    ('Where is the worker?',{},'UNRESOLVED'),
+    ('Where is this car?',{'zone':[[0.,0.],[1.,0.],[1.,1.]]},'UNRESOLVED'),
+    ('Where is the building?',{},'UNRESOLVED'),
+    ('Where is this car?',{},'SUPPORTED'),
+])
+def test_camera_free_gps_only_locates_the_recording_vehicle(store,monkeypatch,q,context,expected):
+    original = store.manifest
+    monkeypatch.setattr(store,'manifest',lambda key:{**original(key),'cams':[]} if key=='fl-pie-fixture-01' else original(key))
+    frames = ask(store,q,'fleet',scene_key='fl-pie-fixture-01',t_ms=1000,**context)
+    assert final(frames)==expected
+    calls = [f['data']['name'] for f in frames if f['event']=='tool_call']
+    assert calls==(['gps_position'] if expected=='SUPPORTED' else [])
