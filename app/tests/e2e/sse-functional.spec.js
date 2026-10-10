@@ -10,8 +10,8 @@ test.beforeEach(async ({ page }) => {
   await page.goto('sse-functional.html');
 });
 
-async function replay(page, text, { abort = false, reject = false } = {}) {
-  return page.evaluate(async ({ text, abort, reject }) => {
+async function replay(page, text, { abort = false, reject = false, fail = false } = {}) {
+  return page.evaluate(async ({ text, abort, reject, fail }) => {
     const { askSSE } = await import(new URL('kernel/sse.js', document.baseURI).href);
     const events = [], errors = [], requests = [];
     let controller;
@@ -22,7 +22,7 @@ async function replay(page, text, { abort = false, reject = false } = {}) {
       return new Response(new ReadableStream({ start(c) { controller = c; } }), { headers: { 'content-type': 'text/event-stream' } });
     };
     try {
-      const handlers = Object.fromEntries(['step', 'status', 'vss_native', 'done', 'answer'].map((event) => [event, (data) => events.push({ event, data })]));
+      const handlers = Object.fromEntries(['step', 'status', 'vss_native', 'done', 'answer', 'comparison_error'].map((event) => [event, (data) => events.push({ event, data })]));
       handlers.error = (error) => errors.push(error.message);
       const stream = askSSE({ q: 'Mocked query', context: { workspace: 'warehouse' } }, handlers);
       if (abort) stream.abort();
@@ -30,7 +30,12 @@ async function replay(page, text, { abort = false, reject = false } = {}) {
         // Split every frame across read boundaries and use CRLF, as a network stream may do.
         const bytes = new TextEncoder().encode(text.replace(/\n/g, '\r\n'));
         for (let i = 0; i < bytes.length; i += 17) controller.enqueue(bytes.slice(i, i + 17));
-        controller.close();
+        if (!fail) controller.close();
+        else {
+          // error() drops chunks still queued, so the reset comes once the reader has taken them.
+          await new Promise((resolve) => setTimeout(resolve));
+          controller.error(new TypeError('network error'));
+        }
       }
       // The finite mocked stream is consumed in microtasks before the next rendering turns.
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -38,7 +43,7 @@ async function replay(page, text, { abort = false, reject = false } = {}) {
     } finally {
       window.fetch = originalFetch;
     }
-  }, { text, abort, reject });
+  }, { text, abort, reject, fail });
 }
 
 test('EOF after a step reports an incomplete answer', async ({ page }) => {
@@ -78,6 +83,18 @@ test('site comparison and done remain deliverable after final status', async ({ 
   expect(result.events).toEqual(frames);
   expect(result.errors).toEqual([]);
   expect(result.requests[0].url).toBe(new URL('api/agent/ask', page.url()).href);
+});
+
+test('a network error after the final status reaches comparison_error, not error', async ({ page }) => {
+  const result = await replay(page, encode([frame('step'), frame('status', { final: 'SUPPORTED' })]), { fail: true });
+  expect(result.events.map((f) => f.event)).toEqual(['step', 'status', 'comparison_error']);
+  expect(result.errors).toEqual([]);
+});
+
+test('a network error before the final status still reports an error', async ({ page }) => {
+  const result = await replay(page, encode([frame('step')]), { fail: true });
+  expect(result.events.map((f) => f.event)).toEqual(['step']);
+  expect(result.errors).toEqual(['network error']);
 });
 
 test('another run status and done cannot certify completion', async ({ page }) => {
