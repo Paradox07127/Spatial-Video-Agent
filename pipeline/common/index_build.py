@@ -144,7 +144,7 @@ def write_vastdb(con: duckdb.DuckDBPyConnection) -> None:
         return
     import vastdb
     session = vastdb.connect(endpoint=os.environ.get("VDB_ENDPOINT") or os.environ["S3_ENDPOINT"], access=os.environ["ACCESS_KEY"],
-                             secret=os.environ["SECRET_KEY"], ssl_verify=False)
+                             secret=os.environ["SECRET_KEY"], ssl_verify=os.environ.get('VDB_VERIFY', os.environ.get('S3_VERIFY','1')) != '0')
     with session.transaction() as tx:
         bucket = tx.bucket(os.environ["VASTDB_BUCKET"])
         schema = bucket.schema("sva", fail_if_missing=False) or bucket.create_schema("sva")

@@ -4,8 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import unicodedata
+from datetime import datetime, timezone
+import os
 
 from app.core import trace
+from app.settings import Settings
 
 APP = Path(__file__).resolve().parents[1]
 CODE_REV = hashlib.sha256(b''.join(p.read_bytes() for p in sorted(APP.rglob('*.py')) if 'tests' not in p.parts)).hexdigest()
@@ -18,8 +21,15 @@ def qhash(q, context):
 
 
 def key(store, q, context):
-    # Index row counts change on every rebuild and CODE_REV on every deploy, so stale answers are never replayed.
-    return qhash(q, [context, store.index_counts(), CODE_REV])
+    settings = Settings()
+    models = [getattr(settings, name) for name in ('vlm_url','vlm_model','embed_url','embed_model','llm_url','llm_model_small','llm_model_large')]
+    path = getattr(store, 'index_path', None)
+    stamp = None
+    if path and Path(path).is_file():
+        st = Path(path).stat()
+        stamp = [st.st_size, st.st_mtime_ns]
+    # Explicit release IDs cover S3/snapshot releases; local index rebuilds also change their file identity.
+    return qhash(q, [context, store.index_counts(), stamp, os.environ.get('EVIDENCE_REVISION',''), models, CODE_REV])
 
 
 def put(store, q, context, frames, backend, source_run_id):
@@ -31,6 +41,13 @@ def replay(store, q, context):
     if cached is None:
         return None
     source = store.get_run(cached['source_run_id'])
+    if source is None:
+        return None
+    created = datetime.fromisoformat(cached.get('created', source.created).replace('Z', '+00:00'))
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc)-created).total_seconds() > 300:
+        return None
     run = trace.start_run(store, q, context, source_run_id=source.run_id)
     frames = deepcopy(cached['response']['frames'])
     ids = {f['data']['run_id'] for f in frames} | {source.run_id}

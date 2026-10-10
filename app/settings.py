@@ -26,6 +26,7 @@ class Settings:
     site_map_path: Path = field(default_factory=lambda: Path(os.environ.get('SITE_MAP', 'site_map.json')))
     s3_endpoint: str = env('S3_ENDPOINT')
     s3_verify: bool = field(default_factory=lambda: os.environ.get('S3_VERIFY', '1') != '0')
+    vdb_verify: bool = field(default_factory=lambda: os.environ.get('VDB_VERIFY', os.environ.get('S3_VERIFY','1')) != '0')
     access_key: str = env('ACCESS_KEY', secret=True)
     secret_key: str = env('SECRET_KEY', secret=True)
     asset_bucket: str = env('ASSET_BUCKET')
@@ -47,6 +48,7 @@ class Settings:
     wandb_team: str = env('WANDB_TEAM')
     wandb_project: str = env('WANDB_PROJECT')
     weave_project: str = env('WEAVE_PROJECT')
+    webhook_url: str = env('WEBHOOK_URL', secret=True)
 
     def __post_init__(self):
         if self.mode not in ('dev', 'site') or self.data_backend not in ('duckdb', 'vastdb'):

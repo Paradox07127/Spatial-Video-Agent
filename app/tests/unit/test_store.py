@@ -158,8 +158,10 @@ def test_vastdb_load_write_count_and_fallback(index_db, tmp_path, monkeypatch):
     assert s.search_clips(SearchFilters(workspace='warehouse'), None, None)
     insert = Table.insert
     monkeypatch.setattr(Table, 'insert', lambda self, rows: None)
-    with pytest.raises(RuntimeError, match='row count'):
-        s.cache_put('hash', 'q', {}, {'frames': []}, 'vastdb', rid)
+    # A remote verification failure must preserve the durable local cache and queue delivery.
+    s.cache_put('hash', 'q', {}, {'frames': []}, 'vastdb', rid)
+    assert s.cache_get('hash') is not None
+    assert s.rows(s.app, "SELECT row_key FROM mirror_outbox WHERE table_name='query_cache'") == [{'row_key':'hash'}]
     monkeypatch.setattr(Table, 'insert', insert)
     s.close()
     # two app instances on the same VastDB can insert the same key; a restart must still load
@@ -222,7 +224,7 @@ def test_live_vss_rows_join_the_rrf_of_their_mapped_clip(store, monkeypatch):
     monkeypatch.setitem(sys.modules, 'vastdb', SimpleNamespace(connect=connect))
     store.load_vss_collection(({mapped['source']: mapped, gone['source']: gone},
                                {(mapped['original_video'], 0.0): mapped, (gone['original_video'], 5.0): gone}))
-    assert seen['connect']['ssl_verify'] is False and 'vectors_visual' in seen['columns']
+    assert seen['connect']['ssl_verify'] is store.settings.vdb_verify and 'vectors_visual' in seen['columns']
     assert store.index_counts()['vss_collection'] == 1
     ranked = store.search_clips(SearchFilters(workspace='warehouse'), q, None)
     first = ranked[0]

@@ -1,9 +1,42 @@
 from pathlib import Path
+import socket
+import time
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter()
+
+
+def dependency_status(settings):
+    """Cheap reachability checks, separate from asset readiness; never run GPU inference."""
+    services = {}
+    for name, field in [('vlm','vlm_url'), ('llm','llm_url'), ('embed','embed_url')]:
+        url = getattr(settings, field, '')
+        state = 'not_configured'
+        if url:
+            try:
+                parsed = urlsplit(url)
+                if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+                    raise ValueError('Invalid model endpoint')
+                with socket.create_connection((parsed.hostname, parsed.port or (443 if parsed.scheme=='https' else 80)), timeout=.4):
+                    state = 'reachable'
+            except (OSError, ValueError):
+                state = 'unavailable'
+        services[name] = {'configured': bool(url), 'status': state}
+    return {'services': services, 'degraded': any(s['status']=='unavailable' for s in services.values()),
+            'check': 'tcp_reachability', 'inference_verified': False}
+
+
+@router.get('/api/dependencies')
+def dependencies(request: Request):
+    state = request.app.state
+    cached = getattr(state, 'dependency_status', None)
+    if cached is None or time.monotonic()-cached[0] >= 5:
+        cached = (time.monotonic(), dependency_status(state.settings))
+        state.dependency_status = cached
+    return cached[1]
 
 
 def local_assets_ready(store, scenes):

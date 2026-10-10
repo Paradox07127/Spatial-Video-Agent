@@ -54,11 +54,14 @@ class Store:
         self.backend, self.settings = backend, Settings()
         self.runs_dir = self.settings.runs_dir
         self.lock = RLock()
+        self._mirror_lock = RLock()
         # per scene_key; the index and scene assets do not change while the process runs
         self._manifests, self._entities, self._events = {}, {}, {}
         self.app_path.parent.mkdir(parents=True, exist_ok=True)
         self.app = duckdb.connect(str(self.app_path))
         self.app.execute((SCHEMAS_DIR / 'app.sql').read_text())
+        self.app.execute('CREATE TABLE IF NOT EXISTS mirror_outbox(table_name TEXT, row_key TEXT, generation TEXT, PRIMARY KEY(table_name,row_key))')
+        self.app.execute('CREATE TABLE IF NOT EXISTS action_deliveries(action_id TEXT, channel TEXT, status TEXT, updated TIMESTAMP, PRIMARY KEY(action_id,channel))')
         self.index = None
         self.closed = False
         try:
@@ -95,7 +98,7 @@ class Store:
     def _connect_vastdb(self):
         import vastdb
         s = self.settings
-        return vastdb.connect(endpoint=s.vdb_endpoint, access=s.access_key, secret=s.secret_key, ssl_verify=False)
+        return vastdb.connect(endpoint=s.vdb_endpoint, access=s.access_key, secret=s.secret_key, ssl_verify=s.vdb_verify)
 
     def _load_vastdb(self):
         with self._connect_vastdb().transaction() as tx:
@@ -105,15 +108,33 @@ class Store:
                 if table is None:
                     continue
                 arrow = table.select().read_all()
-                db = self.app if name in APP_KEYS else self.index
-                db.register('_vast_rows', arrow)
-                try:
-                    db.execute(f'DELETE FROM {name}')
-                    # the app tables can hold one key twice when two app instances insert it; keep one row per key
-                    dedup = f' QUALIFY row_number() OVER (PARTITION BY {APP_KEYS[name]}) = 1' if name in APP_KEYS else ''
-                    db.execute(f'INSERT INTO {name} BY NAME SELECT * FROM _vast_rows{dedup}')
-                finally:
-                    db.unregister('_vast_rows')
+                if name in APP_KEYS:
+                    self._restore_app_rows(name, arrow)
+                else:
+                    self.index.register('_vast_rows', arrow)
+                    try:
+                        self.index.execute(f'DELETE FROM {name}')
+                        self.index.execute(f'INSERT INTO {name} BY NAME SELECT * FROM _vast_rows')
+                    finally:
+                        self.index.unregister('_vast_rows')
+
+    def _restore_app_rows(self, name, arrow):
+        """Local application data is authoritative. Remote snapshots only recover absent keys."""
+        if name not in APP_KEYS:
+            raise ValueError('Unknown application table')
+        key = APP_KEYS[name]
+        # A final run wins over an earlier running snapshot, regardless of remote row order.
+        order = "CASE WHEN status='running' THEN 0 ELSE 1 END DESC, elapsed_ms DESC NULLS LAST," if name == 'agent_runs' else ''
+        with self.lock:
+            self.app.register('_restore_rows', arrow)
+            try:
+                self.app.execute(f'''INSERT INTO {name} BY NAME
+                    SELECT * FROM _restore_rows r
+                    WHERE NOT EXISTS (SELECT 1 FROM {name} local WHERE local.{key}=r.{key})
+                    QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY {order} created DESC, to_json(r) DESC)=1
+                    ON CONFLICT DO NOTHING''')
+            finally:
+                self.app.unregister('_restore_rows')
 
     def load_vss_collection(self, maps: tuple[dict, dict]) -> None:
         """Keep the live rows that the site map places on one of our clips; a failed read leaves our clips only."""
@@ -144,10 +165,34 @@ class Store:
 
     def _mirror(self, name, key):
         if self.backend == 'vastdb':
-            column = APP_KEYS[name]
             with self.lock:
-                arrow = self.app.execute(f'SELECT * FROM {name} WHERE {column}=?', [key]).to_arrow_table()
-            self.write_vastdb({name: arrow})
+                self.app.execute('INSERT OR REPLACE INTO mirror_outbox VALUES (?,?,?)', [name, key, uuid4().hex])
+            return self._deliver_mirror(name, key)
+        return True
+
+    def _deliver_mirror(self, name, key):
+        # Serialize delivery, not database reads. A newer queued write cannot be erased by an older delivery.
+        with self._mirror_lock:
+            with self.lock:
+                pending = self.app.execute('SELECT generation FROM mirror_outbox WHERE table_name=? AND row_key=?', [name, key]).fetchone()
+                if not pending:
+                    return True
+                arrow = self.app.execute(f'SELECT * FROM {name} WHERE {APP_KEYS[name]}=?', [key]).to_arrow_table()
+            try:
+                self.write_vastdb({name: arrow})
+            except Exception:
+                logger.warning('VastDB mirror deferred for %s/%s', name, key)
+                return False
+            with self.lock:
+                self.app.execute('DELETE FROM mirror_outbox WHERE table_name=? AND row_key=? AND generation=?', [name, key, pending[0]])
+            return True
+
+    def retry_mirrors(self, limit=100):
+        """Retry durable pending rows, reading their latest local state rather than stale payloads."""
+        if self.backend != 'vastdb':
+            return 0
+        pending = self.rows(self.app, 'SELECT table_name,row_key FROM mirror_outbox ORDER BY table_name,row_key LIMIT ?', [limit])
+        return sum(self._deliver_mirror(r['table_name'], r['row_key']) for r in pending)
 
     def search_clips(self, filters: SearchFilters, qvec_txt: list[float] | None, qvec_vis: list[float] | None) -> list[Clip]:
         where, args = ['workspace=?'], [filters.workspace]

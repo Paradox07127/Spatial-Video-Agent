@@ -63,7 +63,7 @@ def scene_of(row: dict, pie: dict) -> tuple[str, tuple[str, str, int] | None]:
 def vastdb_rows() -> list[dict]:
     import vastdb
     session = vastdb.connect(endpoint=os.environ.get("VDB_ENDPOINT") or os.environ["S3_ENDPOINT"], access=os.environ["ACCESS_KEY"],
-                             secret=os.environ["SECRET_KEY"], ssl_verify=False)
+                             secret=os.environ["SECRET_KEY"], ssl_verify=os.environ.get('VDB_VERIFY', os.environ.get('S3_VERIFY','1')) != '0')
     with session.transaction() as tx:
         table = tx.bucket(os.environ["VASTDB_BUCKET"]).schema(os.environ["VDB_SCHEMA"]).table(os.environ["VDB_COLLECTION"])
         return table.select(columns=COLUMNS).read_all().to_pylist()
