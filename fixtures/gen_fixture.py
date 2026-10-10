@@ -993,8 +993,12 @@ def corpus_asks(out: Path) -> list[dict]:
     embed.embed_text = lambda q: [0.0] * 256
     asks = []
     with tempfile.TemporaryDirectory() as tmp:
-        assets = shutil.copytree(out / "sva-out", Path(tmp) / "sva-out")
-        shutil.copytree(out / "l1" / ST_KEY, assets / ST_KEY)
+        # Record data-only availability consistently, even when --out already
+        # contains rendered media from a previous invocation. No frames are
+        # invented: the private agent store genuinely has no media files.
+        no_media = shutil.ignore_patterns('*.jpg','*.jpeg','*.png','*.mp4','*.mov','*.webm')
+        assets = shutil.copytree(out / "sva-out", Path(tmp) / "sva-out",ignore=no_media)
+        shutil.copytree(out / "l1" / ST_KEY, assets / ST_KEY,ignore=no_media)
         build_index(Path(tmp) / "index.duckdb", out, l1=True)
         store = FixtureStore(index_path=Path(tmp) / "index.duckdb", app_path=Path(tmp) / "app.duckdb", asset_dir=assets)
         for n, (ask_id, workspace, q, context) in enumerate(CORPUS_ASKS, 1):
