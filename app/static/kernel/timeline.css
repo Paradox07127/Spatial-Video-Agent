@@ -39,3 +39,7 @@
   top: 6px; height: 6px; border: 0;
   background: repeating-linear-gradient(135deg, var(--trip, var(--ink-2)) 0 2px, transparent 2px 5px);
 }
+
+/* Keyboard targets remain visible on the dense ruler and evidence/event lanes. */
+.tl .tl-ruler [role="slider"]:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.tl :is(.ev-mark, .tl-evm, button):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; z-index: 4; }

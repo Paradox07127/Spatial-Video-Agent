@@ -13,7 +13,7 @@ export function createTimeline(el, { t0, t1 }) {
   document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./timeline.css', import.meta.url).href }));
   el.classList.add('tl');
   el.innerHTML = `
-    <div class="tl-row tl-ruler"><div class="tl-label"><button class="tl-play" title="Play/pause">${icon('play')}</button><span class="tl-now mono"></span></div><div class="tl-track"></div></div>
+    <div class="tl-row tl-ruler"><div class="tl-label"><button type="button" class="tl-play" title="Play/pause" aria-label="Play timeline" aria-pressed="false">${icon('play')}</button><span class="tl-now mono"></span></div><div class="tl-track"></div></div>
     <div class="tl-lanes">
       <div class="tl-row tl-evidence" hidden><div class="tl-label"></div><div class="tl-track"></div></div>
       <div class="tl-row tl-others" hidden><button type="button" class="tl-label"></button><div class="tl-others-line"></div></div>
@@ -27,6 +27,7 @@ export function createTimeline(el, { t0, t1 }) {
   const ruler = el.querySelector('.tl-ruler .tl-track');
   Object.assign(ruler, { tabIndex: 0 });
   ruler.setAttribute('role', 'slider'); ruler.setAttribute('aria-label', 'Scene time');
+  ruler.setAttribute('aria-orientation', 'horizontal');
   const evTrack = el.querySelector('.tl-events .tl-track');
   const lanesEl = el.querySelector('.tl-lanes');
   const evidenceRow = el.querySelector('.tl-evidence');
@@ -55,12 +56,18 @@ export function createTimeline(el, { t0, t1 }) {
     for (const fn of seekFns) fn(clock.t);
   };
 
+  function rulerValue(t) {
+    const value = Math.min(Math.max(Math.round(t), range.t0), range.t1 - 1);
+    ruler.setAttribute('aria-valuenow', String(value));
+    ruler.setAttribute('aria-valuetext', `${(value / 1000).toFixed(1)} seconds`);
+  }
   function renderRuler() {
     const step = TICK_STEPS.find((s) => (range.t1 - range.t0) / s <= 12) ?? TICK_STEPS.at(-1);
     let html = '';
     for (let t = Math.ceil(range.t0 / step) * step; t < range.t1; t += step) html += `<span class="tick" style="left:${pct(t)}">${esc(tc(t))}</span>`;
     ruler.innerHTML = html;
     ruler.setAttribute('aria-valuemin', String(range.t0)); ruler.setAttribute('aria-valuemax', String(range.t1 - 1));
+    rulerValue(clock.t);
   }
   function renderLane(lane) {
     lane.track.innerHTML = lane.items
@@ -68,13 +75,16 @@ export function createTimeline(el, { t0, t1 }) {
       .join('');
   }
   function renderEvents() {
+    const focused = evTrack.contains(document.activeElement) ? document.activeElement.dataset.ev : null;
     evTrack.innerHTML = events
       .map((e) => `<i class="ev-mark sev-${e.severity}${e.id === highlighted || eventsShown ? ' on' : ''}" data-ev="${esc(e.id)}" role="button" tabindex="0" aria-label="${esc(e.type)} at ${tc(e.t0_ms)}" style="left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}" title="${esc(e.id)} ${esc(e.type)} · severity ${e.severity} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`)
       .join('');
     renderCams();
+    if (focused) [...evTrack.children].find((node) => node.dataset.ev === focused)?.focus({ preventScroll: true });
   }
   // Measured and human evidence is a tick at t0; map and model evidence covers its span.
   function renderEvidence() {
+    const focused = evidenceTrack.contains(document.activeElement) ? document.activeElement.dataset.eid : null;
     evidenceRow.hidden = !evidence.length;
     el.classList.toggle('has-ev', evidence.length > 0);
     evidenceRow.querySelector('.tl-label').textContent = `Evidence · ${evidence.length}`;
@@ -85,6 +95,7 @@ export function createTimeline(el, { t0, t1 }) {
       })
       .join('');
     outlineEvidence();
+    if (focused) [...evidenceTrack.children].find((node) => node.dataset.eid === focused)?.focus({ preventScroll: true });
   }
   function outlineEvidence() {
     for (const m of evidenceTrack.children) m.classList.toggle('on', m.dataset.eid === hoverEid || m.dataset.eid === focusEid);
@@ -96,6 +107,7 @@ export function createTimeline(el, { t0, t1 }) {
     camsEl.hidden = !state.cameraLanesOpen && !eventsShown;
     camLanes.hidden = !state.cameraLanesOpen;
     el.classList.toggle('cams-open', state.cameraLanesOpen);
+    camsBtn.setAttribute('aria-expanded', String(!camsEl.hidden));
   }
   // Trip lanes: the route's trip (else the first) stays; the others fold into one line until it is clicked.
   function renderTrips() {
@@ -125,12 +137,17 @@ export function createTimeline(el, { t0, t1 }) {
   }
 
   ruler.addEventListener('keydown', (e) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
-    e.preventDefault(); seek(e.key === 'Home' ? range.t0 : e.key === 'End' ? range.t1 - 1 : clock.t + (e.key === 'ArrowLeft' ? -100 : 100));
+    const steps = { ArrowLeft: -100, ArrowDown: -100, ArrowRight: 100, ArrowUp: 100,
+      PageDown: -Math.max(1000, Math.round((range.t1 - range.t0) / 10)),
+      PageUp: Math.max(1000, Math.round((range.t1 - range.t0) / 10)) };
+    if (!(e.key in steps) && !['Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    const t = e.key === 'Home' ? range.t0 : e.key === 'End' ? range.t1 - 1 : clock.t + steps[e.key] * (e.shiftKey ? 10 : 1);
+    seek(Math.min(Math.max(t, range.t0), range.t1 - 1));
   });
   el.addEventListener('keydown', (e) => {
     if (!['Enter', ' '].includes(e.key)) return;
-    const mark = e.target.closest('[data-ev], [data-eid]'); if (!mark) return; e.preventDefault();
+    const mark = e.target.closest('[data-ev], [data-eid]'); if (!mark) return; e.preventDefault(); e.stopPropagation();
     if (mark.dataset.eid) for (const fn of evidenceFns) fn(mark.dataset.eid);
     else { const event = events.find((x) => x.id === mark.dataset.ev); if (event) { tl.highlight(event.id); seek(event.t0_ms); } }
   });
@@ -187,11 +204,15 @@ export function createTimeline(el, { t0, t1 }) {
     renderTrips();
   });
   play.addEventListener('click', () => (clock.playing ? clock.pause() : clock.play()));
-  bus.on('clock:play', (on) => (play.innerHTML = icon(on ? 'pause' : 'play')));
+  bus.on('clock:play', (on) => {
+    play.innerHTML = icon(on ? 'pause' : 'play');
+    play.setAttribute('aria-label', on ? 'Pause timeline' : 'Play timeline');
+    play.setAttribute('aria-pressed', String(on));
+  });
   bus.on('clock:tick', (t) => {
     head.style.left = pct(t);
     now.textContent = tc(t);
-    ruler.setAttribute('aria-valuenow', String(t)); ruler.setAttribute('aria-valuetext', tc(t));
+    rulerValue(t);
   });
   bus.on('clock:range', (r) => {
     range = { ...r };

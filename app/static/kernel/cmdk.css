@@ -1,0 +1,3 @@
+/* The dialog keeps keyboard focus in its combobox; the active option is explicit. */
+.cmdk-input:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+.cmdk [role="option"][aria-selected="true"] { box-shadow: inset 2px 0 var(--ink); }
