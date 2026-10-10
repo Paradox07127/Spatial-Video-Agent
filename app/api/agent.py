@@ -110,6 +110,21 @@ def spatial_of(q, template):
     return None
 
 
+def moving_target(q, subjects, vehicle=None):
+    """Bind a single explicit moving modifier to the vehicle it actually describes."""
+    if len(re.findall(r'\bmoving\b',q,re.I))!=1:
+        return None
+    match = re.search(r'\bmoving\s+(forklift|car|vehicle|[FV]\d+)\b',q,re.I)
+    if not match:
+        return None
+    token = match[1].lower()
+    candidates = {s.entity_id:s for s in [*subjects,*([vehicle] if vehicle else [])] if s.kind in {'forklift','vehicle'}}
+    matching = [s for s in candidates.values() if
+                (s.entity_id.lower()==token if re.fullmatch(r'[fv]\d+',token) else
+                 s.kind=='forklift' if token=='forklift' else s.kind=='vehicle' if token=='car' else True)]
+    return matching[0] if len(matching)==1 else None
+
+
 def abstained(claim):
     return bool((claim.explain or {}).get('abstain'))
 
@@ -820,7 +835,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                     predicates[0].status=distance_status(ev,operator,predicates[0].value)
                                     predicates[0].eids=[ev.eid,*event_eids]
                                 if 'action_modifier:moving' in parsed.constraints:
-                                    moving_vehicle = vehicle or next((s for s in subjects if s.kind in {'forklift','vehicle'}),None)
+                                    moving_vehicle = moving_target(body.q,subjects,vehicle)
                                     if moving_vehicle:
                                         movement = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':moving_vehicle.model_dump(),'b':None,'kind':'speed'},
                                                                    lambda:tools.measure(store,key,tm,moving_vehicle,None,'speed'))

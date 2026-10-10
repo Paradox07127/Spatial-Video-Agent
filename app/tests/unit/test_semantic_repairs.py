@@ -204,3 +204,28 @@ def test_universal_variants_cannot_be_proved_by_one_retrieved_worker(store,q):
 def test_count_duration_and_unparsed_time_conditions_cannot_disappear(store,q,condition):
     assert condition in llm.rule_parse(q,{'workspace':'warehouse'}).constraints
     assert final(ask(store,q))=='UNRESOLVED'
+
+
+@pytest.mark.parametrize('q,expected',[
+    ('When did the moving worker dodge the forklift, and how far was it?','UNRESOLVED'),
+    ('When did the moving worker dodge the moving forklift, and how far was it?','UNRESOLVED'),
+    ('When did the worker dodge the moving forklift, and how far was it?','SUPPORTED'),
+])
+def test_moving_modifier_uses_the_described_actor(store,monkeypatch,q,expected):
+    from app.core import tools
+    original_moment,original_measure = store.moment,tools.measure
+    def stationary_person(key,t):
+        moment = original_moment(key,t)
+        return moment.model_copy(update={'persons':[p.model_copy(update={'root_world':(0.,0.)}) if p.entity_id=='P1' else p for p in moment.persons]})
+    monkeypatch.setattr(store,'moment',stationary_person)
+    speed_reads = []
+    def certain_vehicle_speed(s,key,t,a,b,kind,**kw):
+        result = original_measure(s,key,t,a,b,kind,**kw)
+        if kind=='speed':
+            speed_reads.append(a.entity_id)
+            result.evidence = [e.model_copy(update={'value':10.,'sigma':.1}) for e in result.evidence]
+        return result
+    monkeypatch.setattr(tools,'measure',certain_vehicle_speed)
+    frames = ask(store,q)
+    assert final(frames)==expected
+    assert speed_reads==(['F1'] if expected=='SUPPORTED' else [])
