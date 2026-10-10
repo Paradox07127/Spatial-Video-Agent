@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import tempfile
+from statistics import median
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from contextlib import closing
@@ -285,7 +286,10 @@ def people_statistics(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int, m
             if not blocks or any(blocks[-1][-1][0]<b and a<f[0] for a,b,_ in dets['gaps']):
                 blocks.append([])
             blocks[-1].append(f)
-        value['count'] = sum(len({r[1] for r in live_measure.track(block,m['fps'],{'person'})}) for block in blocks)
+        steps = [b[0]-a[0] for block in blocks for a,b in zip(block,block[1:]) if b[0]>a[0]]
+        sampled_fps = max(1,1000/median(steps)) if steps else m['fps']
+        value['tracker_fps'] = sampled_fps
+        value['count'] = sum(len({r[1] for r in live_measure.track(block,sampled_fps,{'person'})}) for block in blocks)
         value['definition'] = 'ByteTrack trajectories observed in the counting window; not verified line crossings or unique identities.'
         method = 'bytetrack_people_count'
     elif mode=='peak_count':

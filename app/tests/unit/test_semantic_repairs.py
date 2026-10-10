@@ -74,7 +74,7 @@ def test_location_does_not_claim_visibility_is_position(store):
 
 
 @pytest.mark.parametrize('q,method,words',[
-    ('How many people walk past?','bytetrack_people_count',['ByteTrack','0–10 s']),
+    ('How many people walk past?','bytetrack_people_count',['person tracks','0–10 s']),
     ('When is the street busiest?','yolo_people_peak',['peak','person detections','0–10 s']),
 ])
 def test_street_statistics_measure_whole_window_and_cite_numbers(store,q,method,words):
@@ -130,3 +130,40 @@ def test_explicit_ids_use_full_interval_closest_path(store):
     calls = [f['data'] for f in frames if f['event']=='tool_call']
     assert calls[0]['name']=='closest_approach'
     assert next(c['args']['a']['entity_id'] for c in calls if c['name']=='measure')=='P2'
+
+
+def test_tracker_uses_detection_sampling_rate_not_video_fps(store,monkeypatch):
+    rows = [[t,'person',10,20,40,80,.95] for t in range(0,4000,1000)]
+    monkeypatch.setattr(street,'detections',lambda *a:{'rows':rows,'frame_times':list(range(0,4000,1000)),
+                                                     'source':'test','gaps':[],'frames_read':4})
+    rates = []
+    original = street.live_measure.track
+    def track(frames,fps,labels):
+        rates.append(fps)
+        return original(frames,fps,labels)
+    monkeypatch.setattr(street.live_measure,'track',track)
+    stats = street.people_statistics(store,L1_KEY,L1_CAM,0,4000,'tracked_count')
+    assert rates==[1.] and stats.envelope.output['count']==1
+
+
+def test_moving_measurement_does_not_satisfy_a_running_person_condition(store):
+    frames = ask(store,'Did the running worker dodge the moving forklift?')
+    assert final(frames)=='UNRESOLVED'
+    assert any(p['operator']=='action_modifier:running' and p['status']=='unknown'
+               for f in frames if f['event']=='claim' for p in f['data']['predicates'])
+
+
+def test_person_statistics_do_not_answer_a_car_count(store):
+    frames = ask(store,'How many cars are there?','street')
+    assert final(frames)=='UNRESOLVED'
+
+
+def test_count_does_not_ignore_a_requested_zone(store):
+    frames = ask(store,'How many people walk past?','street',zone=[[-1.,-1.],[1.,-1.],[1.,1.]])
+    assert final(frames)=='UNRESOLVED'
+
+
+@pytest.mark.parametrize('q',['How many people crossed the street?','How many people were within 2 meters of the car?'])
+def test_count_does_not_drop_action_or_distance_conditions(store,q):
+    frames = ask(store,q,'street')
+    assert final(frames)=='UNRESOLVED'
