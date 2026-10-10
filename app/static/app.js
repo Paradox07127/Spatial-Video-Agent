@@ -707,7 +707,7 @@ function renderTabs() {
 
 // ---- Answer tab
 function renderKeyframe() {
-  const m = run.activeMoment ?? run.moments.find((m) => m.scene_key === run.activeScene) ?? run.moments[0];
+  const m = run.activeMoment ?? run.moments[0];
   if (!m) return;
   $('#keyframe').innerHTML = `
     <figure class="keyframe">
