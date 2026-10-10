@@ -100,6 +100,7 @@ export function createStage(canvas) {
   const hazards = createHazards(kit), cosmos = createCosmos(kit), zone = createZoneDraw(kit);
   // measureGroup and cells.group switch their own visibility, so their layers wrap them
   const measureLayer = new THREE.Group().add(measureGroup), blindLayer = new THREE.Group().add(cells.group);
+  let answerLayers = null;
   const layerGroups = { people: people.group, forklift: lifts.group, measures: measureLayer, blind: blindLayer, cloud, frusta: frustaGroup };
   cloud.visible = false;
   scene.add(ground, blocks, cloud, blindLayer, zone.group, hazards.group, cosmos.group, trackGroup, measureLayer, people.group, lifts.group, frustaGroup, pinGroup);
@@ -450,6 +451,12 @@ export function createStage(canvas) {
     },
     setHazards: (zones, fresh) => hazards.set(zones, fresh),
     setModelResults: (results) => cosmos.set(results),
+    setAnswerMode(on) {
+      const groups = [cosmos.group, pinGroup, frustaGroup, trackGroup, hazards.group];
+      if (on && !answerLayers) answerLayers = new Map(groups.map((g) => [g, g.visible]));
+      for (const g of groups) g.visible = on ? false : answerLayers?.get(g) ?? g.visible;
+      if (!on) answerLayers = null;
+    },
     // pins: [{id, xy, text, t_ms, on, kind:'event'|'label'}]
     setPins(pins) {
       kit.clear(pinGroup);

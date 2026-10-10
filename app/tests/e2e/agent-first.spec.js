@@ -41,3 +41,103 @@ test('three fleet candidates keep the cited trip active; selecting another synch
   await page.locator('#followup-input').fill('What happened then?'); await page.locator('#followup-input').press('Enter');
   expect((await request).postDataJSON().context).toMatchObject({ scene_key: T3, t_ms: 7000 });
 });
+
+test('answer first: level, missing conditions, merged verdict card and removable follow-up constraints', async ({ page }) => {
+  await mockApi(page);
+  const frames = structuredClone(ASKS.find(a => a.ask_id === 'wh-main').events);
+  const claim = frames.find(f => f.event === 'claim' && f.data.after === 'SUPPORTED');
+  claim.data.predicates.push({ predicate_id: 'missing', subject_refs: [], operator: 'attribute:red', value: true, unit: null, status: 'unknown', eids: [] });
+  claim.data.explain = { not_measured: ['attribute:red'] };
+  frames.splice(frames.indexOf(claim) + 1, 0, { event: 'claim', data: { ...structuredClone(claim.data), claim_id: 'same-moment' } });
+  await mockAskFrames(page, frames);
+  await page.goto('#/warehouse/wh-sdg-fixture-01');
+  await expect(page.locator('.wh')).toBeVisible();
+  await page.locator('#ask-input').fill('Was a red worker close to the forklift?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await expect(page.locator('#answer .evidence-level')).toHaveText('L3');
+  await expect(page.locator('.not-measured')).toContainText('attribute:red — not checked');
+  await expect(page.locator('.verdict-card')).toHaveCount(1);
+  await expect(page.locator('.condition-chip').filter({ hasText: 'attribute:red' })).toHaveCount(1);
+  await expect(page.locator('#followup [data-context="time"]')).toBeVisible();
+  await mod(page, 'kernel/selection.js', "m.selection.set(['P2', 'F1'], {source:'user'})");
+  await page.locator('#followup [data-context="time"]').click();
+  await page.locator('#followup [data-context="selection"]').click();
+  const request = page.waitForRequest(/\/api\/agent\/ask$/);
+  await page.locator('#followup-input').fill('What was checked?'); await page.locator('#followup-input').press('Enter');
+  const context = (await request).postDataJSON().context;
+  expect(context).not.toHaveProperty('t_ms'); expect(context).not.toHaveProperty('selection');
+  await page.evaluate(() => location.hash = '#/street/st-fixture_cam_1-clip01');
+  await expect(page.locator('#ask-input')).toHaveValue('');
+});
+
+test('40 percent panel resizes within confirmed bounds and narrow workspace stacks', async ({ page }) => {
+  await mockApi(page); await page.goto('#/street/st-fixture_cam_1-clip01');
+  const ratio = () => page.locator('#panel').evaluate(el => el.getBoundingClientRect().width / el.closest('main').getBoundingClientRect().width);
+  await expect.poll(ratio).toBeCloseTo(0.4, 2);
+  const handle = await page.locator('.panel-resize').boundingBox();
+  await page.mouse.move(handle.x + 2, handle.y + 50); await page.mouse.down(); await page.mouse.move(720, handle.y + 50); await page.mouse.up();
+  await expect.poll(ratio).toBeCloseTo(0.5, 2);
+  await page.locator('.panel-resize').focus(); await page.keyboard.press('Home');
+  await page.locator('.panel-resize').focus(); await page.keyboard.press('ArrowLeft');
+  await expect.poll(ratio).toBeCloseTo(0.42, 2);
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowLeft');
+  await expect.poll(ratio).toBeCloseTo(2/3, 2);
+  await page.keyboard.press('Home'); await expect.poll(ratio).toBeCloseTo(0.4, 2);
+  await page.setViewportSize({ width: 486, height: 900 });
+  const stage = await page.locator('.stage-wrap').boundingBox(), panel = await page.locator('#panel').boundingBox();
+  expect(stage.width).toBeGreaterThan(400); expect(stage.height).toBeGreaterThan(200);
+  expect(panel.y).toBeGreaterThanOrEqual(stage.y + stage.height - 1);
+});
+
+test('a count without a numeric measure_ref is not labelled Measured; model timing stays approximate', async ({ page }) => {
+  await mockApi(page);
+  const frames = structuredClone(ASKS.find(a => a.ask_id === 'fl-where').events);
+  frames.find(f => f.event === 'answer').data.measure_refs = [];
+  await mockAskFrames(page, frames);
+  await page.goto('#/fleet'); await expect(page.locator('.fl-car')).toHaveCount(2);
+  await page.locator('#ask-input').fill('How many pedestrians?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-run', 'done');
+  await expect(page.locator('#answer .src-measure')).toHaveCount(0);
+  await expect(page.locator('#modelpanel')).toContainText('model says ≈');
+  await expect(page.locator('#modelpanel')).toContainText('not measured');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await expect(page.locator('.fl-cols .fl-col')).toHaveCount(0);
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
+});
+
+test('Fleet annotations use presented mediaTime while the master clock is ahead', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => { window.__frames = []; HTMLVideoElement.prototype.requestVideoFrameCallback = function (fn) { window.__frames.push(fn); return window.__frames.length; }; });
+  await page.goto(`#/fleet/${T1}@6000`);
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.frame?.t_ms')).toBe(6000);
+  await expect.poll(() => page.locator('.fl-vid video').evaluate(v => v.readyState >= 2 && !v.seeking)).toBe(true);
+  await page.evaluate(() => window.__frames.at(-1)(0, { mediaTime: 3 }));
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix.presented')).toBe(3000);
+  expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(6000);
+  expect(await mod(page, 'fleet/page.js', 'm.view.ix.frame.t_ms')).toBe(6000);
+});
+
+test('timeline brush and drawn zone reach the request as explicit removable scope', async ({ page }) => {
+  await mockApi(page); await mockAskFrames(page, structuredClone(ASKS.find(a => a.ask_id === 'wh-main').events));
+  await page.goto('#/warehouse/wh-sdg-fixture-01'); await expect(page.locator('.wh')).toBeVisible();
+  await page.locator('#ask-input').fill('How close did the forklift come?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-run', 'done');
+  const track = await page.locator('[data-lane="agent"] .tl-track').boundingBox();
+  await page.mouse.move(track.x + track.width * .2, track.y + track.height / 2); await page.mouse.down();
+  await page.mouse.move(track.x + track.width * .6, track.y + track.height / 2); await page.mouse.up();
+  await expect(page.locator('#followup [data-context="range"]')).toBeVisible();
+  const zone = [[0,0],[3,0],[3,3],[0,3]];
+  await page.evaluate(async zone => (await import(new URL('kernel/bus.js', document.baseURI).href)).bus.emit('context:zone', zone), zone);
+  await expect(page.locator('#followup [data-context="zone"]')).toBeVisible();
+  const request = page.waitForRequest(/\/api\/agent\/ask$/);
+  await page.locator('#followup-input').fill('What about this area?'); await page.locator('#followup-input').press('Enter');
+  const context = (await request).postDataJSON().context;
+  expect(context).not.toHaveProperty('t_ms'); expect(context.t_range[0]).toBeCloseTo(2000, -1); expect(context.t_range[1]).toBeCloseTo(6000, -1); expect(context.zone).toEqual(zone);
+});
+
+test('degraded model dependencies are visible without claiming inference readiness', async ({ page }) => {
+  await mockApi(page); await page.route(/\/api\/dependencies$/, r => r.fulfill({ json: { degraded: true, services: { vlm: { configured: true, status: 'unavailable' } }, check: 'tcp_reachability', inference_verified: false } }));
+  await page.goto('#/'); await expect(page.locator('#dependency-status')).toHaveText('Live models unavailable');
+  await expect(page.locator('#dependency-status')).toHaveAttribute('title', /connection check only/);
+});

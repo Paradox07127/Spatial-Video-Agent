@@ -327,7 +327,7 @@ test('evidence:focus with a ground distance enters Evidence mode: others dimmed,
   await focus();
   await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
   expect(await mod(page, 'kernel/state.js', '[k.state.stageMode, k.state.focusEid]')).toEqual(['evidence', 'e_test_ground']);
-  await expect(page.locator('.wh-mode button.on')).toHaveText('Evidence');
+  await expect(page.locator('.wh-mode button.on')).toHaveText('Answer');
   await expect(dock).toBeVisible();
   await expect(head).toContainText('Source');
   await expect(head).toContainText('ceiling_04 · 00:04.6');

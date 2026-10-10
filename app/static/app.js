@@ -53,9 +53,9 @@ const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESET
   ask(q, { home: corpus ? null : hash ?? (preset ? PRESET_ROUTE.get(q) : null) ?? await defaultRoute(ws), corpus });
 } };
 // Only workspaces that have a page template.
-const sceneWorkspaces = new Map();
+const sceneWorkspaces = new Map(), sceneDetails = new Map();
 const workspaces = api.get('api/workspaces').then((ws) => {
-  for (const w of ws) for (const s of w.scenes) sceneWorkspaces.set(s.scene_key, w.id);
+  for (const w of ws) for (const s of w.scenes) { sceneWorkspaces.set(s.scene_key, w.id); sceneDetails.set(s.scene_key, s); }
   return ws.filter((w) => PAGES[w.id]);
 });
 let page = null, pageKind = null, dispose = null, stream = null, run = null;
@@ -209,6 +209,8 @@ async function mountWorkspace(hash, evidence = false) {
   if (changed && !evidence) {
     toDefault();
     selection.clear();
+    $('#ask-input').value = '';
+    followContext = { time: true, selection: true, t_range: null, zone: null };
   }
   ctx.route = route;
   if (evidence && run) {
@@ -334,6 +336,7 @@ async function activateEvidence(e, after = null, automatic = false) {
   r.activeScene = e.scene_key;
   r.activeMoment = r.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms) ?? r.moments.find((m) => m.scene_key === e.scene_key);
   renderKeyframe();
+  renderMoments(r.moments);
   setState('hit');
   document.body.dataset.candidates = '';
   renderModels();
@@ -419,7 +422,7 @@ function statusLine(text) {
 const took = () => run.steps.at(-1)?.elapsed_ms ?? 0;
 
 // home: the route a question asked from the home page runs against; it opens on the first hits (or an answer that is not a refusal).
-function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
+function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {}) {
   q = q.trim();
   if (!q) return;
   toDefault();
@@ -428,7 +431,7 @@ function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
   run = {
     id: null, q, home, source: route.scene_key, held: ctx.route.page === 'home' ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
     evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], calls: new Map(), moments: [], native: null, final: null,
-    skippedUi: 0, corpus,
+    skippedUi: 0, corpus, measureRefs: [],
   };
   document.body.dataset.run = 'running';
   setAgentCamera(true);
@@ -437,9 +440,11 @@ function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
   statusLine('Sent, waiting for the agent…');
   renderSlot();
   renderNarration();
-  const context = corpus ? { scope: 'corpus' } : { workspace: route.workspace, scene_key: route.scene_key };
-  if (!corpus && selection.ids.size) context.selection = [...selection.ids];
-  if (t_ms != null) context.t_ms = t_ms;
+  const context = corpus ? { scope: 'corpus' } : { workspace: route.workspace, scene_key: route.scene_key ?? (follow && route.workspace === 'fleet' ? state.activeFleetScene : null) };
+  if (!corpus && selection.ids.size && (!follow || followContext.selection)) context.selection = [...selection.ids];
+  if (t_ms != null && (!follow || followContext.time)) context.t_ms = t_ms;
+  if (!corpus && followContext.t_range) { context.t_range = followContext.t_range; delete context.t_ms; }
+  if (!corpus && followContext.zone) context.zone = followContext.zone;
   const r = run, generation = runGeneration;
   stream = askSSE({ q, context }, Object.fromEntries(Object.entries(handlers).map(([event, fn]) => [event, (data) => {
     if (r === run && generation === runGeneration) fn(data);
@@ -447,11 +452,12 @@ function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
 }
 
 const sceneT = () => {
-  const key = ctx.route.scene_key ?? run?.activeScene ?? state.sourceTag?.scene_key;
+  const key = ctx.route.scene_key ?? state.activeFleetScene ?? run?.activeScene ?? state.sourceTag?.scene_key;
   const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
   return replay ? Math.round(replay.source_start_ms + (clock.t - replay.replay_start_ms) * replay.rate) : clock.map(clock.t)?.t_ms ?? clock.t;
 };
-const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT() });
+let followContext = { time: true, selection: true, t_range: null, zone: null };
+const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT(), follow: true });
 
 function stop() {
   runGeneration++;
@@ -535,6 +541,7 @@ const handlers = {
   },
   answer(d) {
     run.cites.push(...d.cites);
+    run.measureRefs.push(...d.measure_refs);
     // One answer owns the stage. Candidates are registered above; only the cited scene is activated.
     const cited = d.measure_refs.map((r) => run.evidence.get(r.eid)).find(Boolean) ?? d.cites.map((id) => run.evidence.get(id)).find(Boolean);
     if (cited && ctx.route.page === 'fleet' && !ctx.route.scene_key && !run.answerActivated) {
@@ -626,6 +633,13 @@ function finish() {
   renderEvidence();
   renderSteps();
   renderFollowup();
+  const r = run;
+  Promise.resolve(r.opening).then(() => run === r ? replayEvidence() : null).then(() => {
+    if (run !== r || !r.final || r.userExplored || document.body.dataset.run !== 'done') return;
+    const eid = r.measureRefs.map((x) => x.eid).find((id) => r.evidence.has(id)) ?? r.cites.find((id) => r.evidence.has(id));
+    if (eid) focusEvidence(eid, r.evidence.get(eid));
+    else setStage('evidence', null);
+  }).catch((e) => { if (run === r) statusLine(`Evidence could not load: ${e.message}. Please retry.`); });
 }
 
 // ---- running: narration card and the reserved answer slot
@@ -648,7 +662,7 @@ function renderSlot() {
   $('#answer').innerHTML = `
     <div class="ans-slot">
       <span class="p-label">ANSWER</span>
-      ${run.answers.length ? `<p class="ans-text">${run.answers.join('')}</p>` : '<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">Appears here once the distance is measured.</span>'}
+      ${run.answers.length ? `<p class="ans-text">${run.answers.join('')}</p>` : `<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">${/how many|busiest|count/i.test(run.q) ? 'Checking people and the requested time window…' : /distance|how close|how far/i.test(run.q) ? 'Checking distance evidence and uncertainty…' : /speed/i.test(run.q) ? 'Checking speed and limit evidence…' : 'Checking the requested conditions and evidence…'}</span>`}
     </div>`;
 }
 
@@ -672,7 +686,8 @@ function numbered(d) {
 
 function renderAnswer() {
   const abstain = ABSTAIN[run.final];
-  const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))];
+  const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))].filter((kind) => kind !== 'measure' || run.measureRefs.some((r) => run.evidence.get(r.eid)?.kind === 'measure'));
+  const levels = [...new Set([...run.moments.map((m) => m.evidence_level ?? sceneDetails.get(m.scene_key)?.evidence_level), ...[...run.claims.values()].map((c) => c.evidence_level), !run.moments.length && sceneDetails.get(run.source)?.evidence_level].filter(Boolean))].sort().reverse();
   const text = run.answers.join('') || (abstain ? `${abstain[0]}<span class="muted"> (${esc(run.lastStep?.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
   // The first two presets of each workspace are answerable ones.
   const instead = (PRESETS[ctx.route.workspace] ?? PRESETS.warehouse).slice(0, 2).filter((q) => q !== run.q);
@@ -681,9 +696,20 @@ function renderAnswer() {
       <span class="mono muted ans-meta">${count(run.steps.length, 'step')} · ${sec(took())}</span>
       ${run.id ? `<a class="ans-run" href="#/run/${esc(run.id)}">${icon('workflow')}Reasoning</a>` : ''}</div>
     <p class="ans-text">${text}</p>
+    <p class="not-measured"><b>Not measured:</b> ${esc(notMeasured())}</p>
     ${run.stopReason === 'error' || run.stopReason === 'budget_exhausted' ? `<p class="ans-instead">${esc(completion({ stop_reason: run.stopReason, error: run.failure }))}</p>` : ''}
-    ${kinds.length ? `<div class="ans-src">${kinds.map(source).join('')}</div>` : ''}
+    ${kinds.length || levels.length ? `<div class="ans-src">${levels.map((lv) => `<span class="evidence-level mono" title="Evidence capability level">${esc(lv)}</span>`).join('')}${kinds.map(source).join('')}</div>` : ''}
     ${abstain ? `<p class="ans-instead">${abstain[1]}${instead.map((q) => `<button class="preset">${esc(q)}</button>`).join('')}</p>` : ''}`;
+}
+
+function notMeasured() {
+  const reasons = [];
+  for (const c of run.claims.values()) {
+    if (c.explain?.abstain) reasons.push(c.explain.abstain.text ?? c.explain.abstain.reason?.replace(/_/g, ' '));
+    for (const p of c.predicates) if (!['supported', 'contradicted'].includes(p.status)) reasons.push(`${p.operator.replace(/_/g, ' ')} — ${p.eids.length ? 'checked but unresolved' : 'not checked'}`);
+    for (const name of c.explain?.not_measured ?? []) if (!c.predicates.some((p) => p.operator === name)) reasons.push(`${String(name).replace(/_/g, ' ')} — not checked`);
+  }
+  return [...new Set(reasons.filter(Boolean))].join('; ') || (run.measureRefs.length ? 'Other quantities were not checked for this question.' : 'No metric quantities were checked for this question.');
 }
 
 function evIds() {
@@ -739,19 +765,30 @@ function renderClaims() {
     }).join('')}`;
     return;
   }
-  $('#claims').innerHTML = claims.map((c) => {
-    const at = run.changes.findLast((x) => x.claim_id === c.claim_id)?.step;
-    return `<div class="claim" data-claim="${esc(c.claim_id)}">
-      <div class="claim-row"><span class="claim-head">${change(c.before, c.after)}</span>${at ? `<span class="claim-once">at ${esc(at.summary)}</span>` : ''}</div>
-      <div class="preds">${c.predicates.map((p) => `<span class="pt">${predText(p)}</span>${predValue(p)}<span class="pst pst-${p.status}">${p.status}</span>`).join('')}</div>
+  const groups = new Map();
+  for (const c of claims) {
+    const evidence = [...c.predicates.flatMap((p) => p.eids), ...c.examined_eids].map((id) => run.evidence.get(id)).find(Boolean);
+    const moment = run.moments.find((m) => m.moment_id === c.moment_id) ?? run.moments.find((m) => evidence && m.scene_key === evidence.scene_key && m.t0_ms <= evidence.t0_ms && evidence.t0_ms < m.t1_ms);
+    const key = moment?.moment_id ?? `${c.scene_key ?? evidence?.scene_key ?? ''}:${evidence?.t0_ms ?? ''}`;
+    if (!groups.has(key)) groups.set(key, { moment, claims: [] });
+    groups.get(key).claims.push(c);
+  }
+  $('#claims').innerHTML = [...groups.values()].map(({ moment, claims: cs }) => {
+    const status = cs.some((c) => c.after === 'CONTRADICTED') ? 'CONTRADICTED' : cs.some((c) => c.after !== 'SUPPORTED') ? 'UNRESOLVED' : 'SUPPORTED';
+    const seen = new Set();
+    const predicates = cs.flatMap((c) => c.predicates).filter((p) => { const key = JSON.stringify([p.subject_refs, p.operator, p.value, p.status]); if (seen.has(key)) return false; seen.add(key); return true; });
+    return `<div class="claim verdict-card v-${status.toLowerCase()}" data-claim="${esc(cs[0].claim_id)}">
+      <div class="claim-row"><span class="claim-head">${change(cs[0].before, status)}</span>${moment ? `<span class="mono muted">${esc(moment.primary_cam)} · ${tc(moment.t0_ms)}</span>` : ''}</div>
+      <div class="preds condition-chips">${predicates.map((p) => { const checked = p.eids.length > 0, label = p.status === 'supported' ? (p.eids.some((id) => run.evidence.get(id)?.kind === 'measure') ? 'measured' : 'checked') : p.status === 'contradicted' ? 'contradicted' : checked ? 'unresolved' : 'not checked'; const mark = p.status === 'supported' ? '✓' : p.status === 'contradicted' ? '✗' : checked ? '?' : '—'; return `<span class="condition-chip pst-${p.status}" title="${esc(label)}"><b>${mark}</b> <span class="pt">${predText(p)}</span>${predValue(p)} <small>${label}</small></span>`; }).join('')}</div>
     </div>`;
   }).join('');
 }
 
 function renderMoments(moments) {
   renderMomentsHead();
-  $('#moments').innerHTML = moments.map((m, i) => `
-    <button class="moment" data-i="${i}">
+  const ordered = moments.map((m, i) => ({ m, i, level: m.evidence_level ?? sceneDetails.get(m.scene_key)?.evidence_level ?? '' })).sort((a, b) => b.level.localeCompare(a.level));
+  $('#moments').innerHTML = ordered.map(({ m, i, level }, at) => `${level && ordered[at - 1]?.level !== level ? `<h3 class="moment-level mono">${esc(level)} evidence</h3>` : ''}
+    <button class="moment" data-i="${i}" data-active="${m.moment_id === run.activeMoment?.moment_id || !run.activeMoment && i === 0}">
       ${m.thumb ? `<img src="${esc(api.url(m.thumb))}" alt="">` : '<span class="thumb-empty">No thumbnail</span>'}
       <span class="m-body">
         <span class="m-head"><span class="mono">${span(m.t0_ms, m.t1_ms)}</span>${m.exec_state ? exec(m.exec_state) : ''}</span>
@@ -764,7 +801,11 @@ function renderMoments(moments) {
     if (!b) return;
     const m = moments[+b.dataset.i];
     document.querySelectorAll('.moment').forEach((x) => x.classList.toggle('on', x === b));
-    activateEvidence(m, () => selection.set(m.actor_refs.map((a) => a.entity_id), { source: 'user' }));
+    activateEvidence(m, () => {
+      selection.set(m.actor_refs.map((a) => a.entity_id), { source: 'user' });
+      const e = m.evidence_ids.map((id) => run.evidence.get(id)).find((e) => e?.scene_key === m.scene_key);
+      if (e) focusEvidence(e.eid, e); else setStage('evidence', null);
+    });
   };
 }
 
@@ -785,7 +826,13 @@ function renderFollowup() {
 
 function renderContext() {
   if (document.body.dataset.run !== 'done') return;
-  $('#followup .fu-ctx').textContent = [...selection.ids, tc(sceneT())].join(' · ');
+  $('#followup .fu-ctx').innerHTML = [
+    ctx.route.page === 'fleet' && !ctx.route.scene_key && state.activeFleetScene ? `<span class="fu-source">${esc(shortKey(state.activeFleetScene))}</span>` : '',
+    followContext.time && !followContext.t_range ? `<button type="button" data-context="time" title="Remove current-time constraint">about ${tc(sceneT())} ×</button>` : '',
+    followContext.t_range ? `<button type="button" data-context="range" title="Remove time-window constraint">${span(...followContext.t_range)} ×</button>` : '',
+    followContext.selection && selection.ids.size ? `<button type="button" data-context="selection" title="Remove selected-object constraint">${esc([...selection.ids].join('–'))} ×</button>` : '',
+    followContext.zone ? '<button type="button" data-context="zone" title="Remove zone constraint">within drawn zone ×</button>' : '',
+  ].join('');
 }
 
 // ---- Evidence tab
@@ -918,7 +965,8 @@ function stepBack() {
 
 // ---- wiring
 bus.on('view:state', (s) => (document.body.dataset.view = s));
-selection.onChange(renderContext);
+selection.onChange(({ ids, source }) => { if (source === 'user' && ids.size) followContext.selection = true; renderContext(); });
+bus.on('fleet:active', ({ scene_key }) => { state.activeFleetScene = scene_key; renderContext(); });
 clock.onTick(renderContext);
 window.addEventListener('hashchange', onRoute);
 $('#ask-form').addEventListener('submit', (e) => {
@@ -956,7 +1004,27 @@ $('#narration').addEventListener('click', (e) => {
   renderNarration();
 });
 $('#takeover button').addEventListener('click', () => setAgentCamera(false));
-$('#stage').addEventListener('pointerdown', () => document.body.dataset.run === 'running' && setAgentCamera(false));
+$('#stage').addEventListener('pointerdown', () => {
+  if (document.body.dataset.run === 'running') setAgentCamera(false);
+  if (run && document.body.dataset.run === 'done') { run.userExplored = true; setStage('explore', null); }
+});
+$('.stage-controls').addEventListener('click', (e) => { const mode = e.target.closest('[data-mode]')?.dataset.mode; if (!mode) return; if (run) run.userExplored = mode === 'explore'; setStage(mode, mode === 'evidence' ? run?.cites[0] ?? null : null); });
+bus.on('stage:mode', ({ mode }) => $('.stage-controls').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode)));
+$('#followup .fu-ctx').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-context]')?.dataset.context;
+  if (key === 'time' || key === 'selection') followContext[key] = false;
+  if (key === 'range') { followContext.t_range = null; timeline.clearBrush(); }
+  if (key === 'zone') { followContext.zone = null; bus.emit('context:zone-clear'); }
+  renderContext();
+});
+timeline.onBrush(({ t0, t1 }) => {
+  const key = ctx.route.scene_key ?? run?.activeScene;
+  const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
+  const sourceT = (t) => replay ? Math.round(replay.source_start_ms + (t - replay.replay_start_ms) * replay.rate) : t;
+  followContext.t_range = [sourceT(t0), sourceT(t1)];
+  renderContext();
+});
+bus.on('context:zone', (zone) => { followContext.zone = zone; renderContext(); });
 $('#panel').addEventListener('click', (e) => {
   const c = e.target.closest('.cite, .ans-num, .ans-time, .ev');
   if (c && !e.target.closest('.ev-raw-btn, .ev-raw') && run?.evidence.has(c.dataset.eid)) flash(c.dataset.eid);
@@ -992,5 +1060,26 @@ api.get('health').then(
   },
   () => ($('#data-badge').innerHTML = `${icon('database')}Data · backend unreachable`),
 );
+
+const resizeHandle = $('.panel-resize');
+function panelWidth(percent) {
+  const n = Math.min(2 / 3 * 100, Math.max(100 / 3, percent));
+  document.documentElement.style.setProperty('--panel-w', `${n}%`);
+  resizeHandle.setAttribute('aria-valuenow', String(Math.round(n)));
+  window.dispatchEvent(new Event('resize'));
+}
+resizeHandle.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); resizeHandle.setPointerCapture(e.pointerId);
+  const move = (e) => { const box = $('.main').getBoundingClientRect(); panelWidth((box.right - e.clientX) / box.width * 100); };
+  const up = () => { resizeHandle.removeEventListener('pointermove', move); resizeHandle.removeEventListener('pointerup', up); };
+  resizeHandle.addEventListener('pointermove', move); resizeHandle.addEventListener('pointerup', up);
+});
+resizeHandle.addEventListener('keydown', (e) => { if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(e.key)) return; e.preventDefault(); panelWidth(e.key === 'Home' ? 40 : Number(resizeHandle.getAttribute('aria-valuenow')) + (e.key === 'ArrowLeft' ? 2 : -2)); });
+api.get('api/dependencies').then((d) => {
+  const el = $('#dependency-status');
+  el.hidden = !d.degraded;
+  el.textContent = d.degraded ? 'Live models unavailable' : '';
+  el.title = Object.entries(d.services ?? {}).filter(([, s]) => s.configured && s.status === 'unavailable').map(([name]) => name).join(', ') + ' · connection check only';
+}).catch(() => {});
 
 onRoute();

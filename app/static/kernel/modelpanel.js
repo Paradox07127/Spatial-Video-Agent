@@ -8,7 +8,7 @@ let last = [];
 
 const CHECK = { verified: 'yes', unverified: 'no', conflict: 'conflict' };
 const check = (r) => `<span class="mp-check ck-${esc(r.verification.status)}" title="${esc(r.verification.method)}">Checked by measure: ${CHECK[r.verification.status]}</span>`;
-const seg = (s) => `${span(s.start_s * 1000, s.end_s * 1000)} ${esc(s.text)}`;
+const seg = (s) => `model says ≈${span(s.start_s * 1000, s.end_s * 1000)} ${esc(s.text)} · not measured`;
 
 function rows(by) {
   const { C1: c1, C2: c2, C3: c3, C4: c4, C5: c5 } = by;
@@ -43,14 +43,14 @@ export const modelpanel = {
     const parts = [
       by.C1 && `Situation <b class="mono">${esc(by.C1.payload.label)}</b>`,
       by.C2 && `predicts <b class="mono">${esc(by.C2.payload.actions.join('/'))}</b>`,
-      by.C4?.payload.segments[0] && `located ${span(by.C4.payload.segments[0].start_s * 1000, by.C4.payload.segments[0].end_s * 1000)}`,
+      by.C4?.payload.segments[0] && `model says ≈${span(by.C4.payload.segments[0].start_s * 1000, by.C4.payload.segments[0].end_s * 1000)}`,
     ].filter(Boolean);
     const shown = [by.C1, by.C2, by.C4?.payload.segments[0] && by.C4].filter(Boolean);
     el().dataset.mode = mode;
     el().innerHTML = `
       <button class="mp-summary" aria-expanded="${mode === 'full'}">
         ${icon('cpu')}<span class="mp-text"><span class="mp-line">${parts.join(' · ') || 'No model record this run'}</span>
-        ${shown.length ? `<span class="mp-sub">Checked by measure: ${checked(shown)} · describes only, no numbers</span>` : ''}</span>${icon(mode === 'full' ? 'chevron-down' : 'chevron-right')}
+        ${shown.length ? `<span class="mp-sub">Checked by measure: ${checked(shown)} · Model description · not measured</span>` : ''}</span>${icon(mode === 'full' ? 'chevron-down' : 'chevron-right')}
       </button>
       ${mode === 'full' ? `<div class="mp-rows">${rows(by)}</div>` : ''}`;
     el().querySelector('.mp-summary').addEventListener('click', () => (mode === 'full' ? modelpanel.collapse() : modelpanel.expand()));

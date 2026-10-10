@@ -57,7 +57,7 @@ export async function mount(root, ctx) {
       <div class="wh-hud">
         <nav class="wh-rail" aria-label="Cameras"></nav>
         <div class="wh-bar">
-          <nav class="seg wh-mode" aria-label="Stage mode"><button type="button" data-mode="explore" class="on">Explore</button><button type="button" data-mode="evidence" disabled>Evidence</button></nav>
+          <nav class="seg wh-mode" aria-label="Stage mode"><button type="button" data-mode="explore" class="on">Explore</button><button type="button" data-mode="evidence" disabled>Answer</button></nav>
           <span class="wh-focus" hidden></span>
           <nav class="seg wh-views" aria-label="View"></nav>
           <button class="ghost wh-zone" title="Click the floor to add points, double-click to close">${ZONE_ICON}Draw zone</button>
@@ -92,6 +92,7 @@ export async function mount(root, ctx) {
     sub('evidence:focus', onFocus),
     sub('evidence:hover', (eid) => P?.mf && P.stage.setMeasureHot(!!eid && eid === P.measure?.eid)),
     sub('stage:mode', onStageMode),
+    sub('context:zone-clear', () => P.host.querySelector('.wh-zone-clear')?.click()),
     sub('panel:tab', () => P?.mf && renderVideos()),
     stage.onPick((id) => id && ctx.selection.set([id], { source: 'user' })),
     () => document.removeEventListener('pointerdown', closeLayers),
@@ -357,6 +358,7 @@ function onFocus(e) {
 
 function onStageMode({ mode, eid }) {
   if (!P?.mf) return;
+  P.stage.setAnswerMode(mode === 'evidence');
   if (mode === 'evidence' && P.focus?.eid === eid) enterEvidence();
   else exitEvidence();
 }
@@ -481,6 +483,7 @@ async function drawZone(btn) {
   const poly = await P.stage.drawZone(true);
   btn.classList.remove('on');
   if (!poly) return;
+  P.ctx.bus.emit('context:zone', poly);
   const r = await api.post(`api/scene/${P.key}/zone`, { polygon_world: poly, t_range: [P.mf.t0_ms, P.mf.t1_ms] });
   const inZone = new Set(r.events_in_zone.map((e) => e.event_id.slice(e.event_id.indexOf(':') + 1)));
   const events = P.events.filter((e) => inZone.has(e.id));
@@ -514,6 +517,7 @@ function onClick(e) {
     hideToast();
   } else if (t.closest('.wh-zone')) drawZone(t.closest('.wh-zone'));
   else if (t.closest('.wh-zone-clear')) {
+    P.ctx.bus.emit('context:zone', null);
     P.stage.drawZone(false);
     timeline.setEvents(P.events);
     timeline.showEvents(false);
@@ -596,7 +600,7 @@ export function applyModelResults(results) {
   addModels(results);
   const c4 = results.filter((r) => r.task === 'C4').flatMap((r) => r.payload.segments.map((s) => [s.start_s * 1000, s.end_s * 1000, 'model']));
   const c2 = results.filter((r) => r.task === 'C2').map((r) => [r.payload.max_frame_ms, r.payload.max_frame_ms + r.payload.horizon_s * 1000, 'model']);
-  timeline.addLane('cosmos', { label: 'Cosmos C4', kind: 'model' });
+  timeline.addLane('cosmos', { label: 'Model says ≈ · unmeasured', kind: 'model' });
   timeline.addLane('predict', { label: 'Prediction', kind: 'model' });
   timeline.setLaneData('cosmos', c4);
   timeline.setLaneData('predict', c2);

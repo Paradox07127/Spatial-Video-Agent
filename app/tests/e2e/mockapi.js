@@ -173,6 +173,7 @@ async function mockApi(page) {
     const p = url.pathname.replace(/^.*?\/api\//, '');
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     let m;
+    if (p === 'dependencies') return json({ services: {}, degraded: false, check: 'tcp_reachability', inference_verified: false });
     if (p === 'workspaces') {
       return json(fixtureWorkspaces());
     }

@@ -150,7 +150,7 @@ test('while running: the narration card names the step, Stop ends the run as sto
   await expect(card.locator('.nr-step')).toHaveText('STEP 2 OF 6');
   await expect(card.locator('.nr-sum')).toContainText('Hard-filter preselection');
   await expect(card.locator('.nr-seg.on')).toHaveCount(1);
-  await expect(page.locator('#answer .ans-slot')).toContainText('Appears here once the distance is measured.');
+  await expect(page.locator('#answer .ans-slot')).toContainText('Checking distance evidence and uncertainty…');
   await expect(page.locator('#moments .moment')).toHaveCount(1);
   await card.locator('.nr-stop').click();
   await expect(card).toBeHidden();
@@ -188,7 +188,8 @@ test('a follow-up carries the selection and the clock time as context', async ({
   page.on('request', (r) => r.url().endsWith('/api/agent/ask') && sent.push(r.postDataJSON()));
   await kernel(page, 'selection', "k.selection.set(['P1', 'F1'], { source: 'user' })");
   await kernel(page, 'clock', 'k.clock.seek(4600)');
-  await expect(page.locator('#followup .fu-ctx')).toHaveText('P1 · F1 · 00:04.6');
+  await expect(page.locator('#followup [data-context="time"]')).toHaveText('about 00:04.6 ×');
+  await expect(page.locator('#followup [data-context="selection"]')).toHaveText('P1–F1 ×');
   await expect(page.locator('#followup .preset')).toHaveCount(2);
   await page.locator('#followup-input').fill('Could the driver see the worker?');
   await page.locator('#followup-input').press('Enter');

@@ -25,6 +25,8 @@ export function createTimeline(el, { t0, t1 }) {
     <button type="button" class="tl-cams-btn" hidden></button>
     <div class="tl-over"><div class="tl-brush" hidden></div><div class="tl-head"></div></div>`;
   const ruler = el.querySelector('.tl-ruler .tl-track');
+  Object.assign(ruler, { tabIndex: 0 });
+  ruler.setAttribute('role', 'slider'); ruler.setAttribute('aria-label', 'Scene time');
   const evTrack = el.querySelector('.tl-events .tl-track');
   const lanesEl = el.querySelector('.tl-lanes');
   const evidenceRow = el.querySelector('.tl-evidence');
@@ -58,6 +60,7 @@ export function createTimeline(el, { t0, t1 }) {
     let html = '';
     for (let t = Math.ceil(range.t0 / step) * step; t < range.t1; t += step) html += `<span class="tick" style="left:${pct(t)}">${esc(tc(t))}</span>`;
     ruler.innerHTML = html;
+    ruler.setAttribute('aria-valuemin', String(range.t0)); ruler.setAttribute('aria-valuemax', String(range.t1 - 1));
   }
   function renderLane(lane) {
     lane.track.innerHTML = lane.items
@@ -66,7 +69,7 @@ export function createTimeline(el, { t0, t1 }) {
   }
   function renderEvents() {
     evTrack.innerHTML = events
-      .map((e) => `<i class="ev-mark sev-${e.severity}${e.id === highlighted || eventsShown ? ' on' : ''}" data-ev="${esc(e.id)}" style="left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}" title="${esc(e.id)} ${esc(e.type)} · severity ${e.severity} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`)
+      .map((e) => `<i class="ev-mark sev-${e.severity}${e.id === highlighted || eventsShown ? ' on' : ''}" data-ev="${esc(e.id)}" role="button" tabindex="0" aria-label="${esc(e.type)} at ${tc(e.t0_ms)}" style="left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}" title="${esc(e.id)} ${esc(e.type)} · severity ${e.severity} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`)
       .join('');
     renderCams();
   }
@@ -78,7 +81,7 @@ export function createTimeline(el, { t0, t1 }) {
     evidenceTrack.innerHTML = evidence
       .map((e) => {
         const at = e.kind === 'measure' || e.kind === 'human' ? `left:${pct(e.t0_ms)}` : `left:${pct(e.t0_ms)};width:${width(e.t0_ms, e.t1_ms)}`;
-        return `<i class="tl-evm k-${esc(e.kind)}" data-eid="${esc(e.eid)}" style="${at}" title="${esc(e.eid)} · ${esc(e.kind)} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`;
+        return `<i class="tl-evm k-${esc(e.kind)}" data-eid="${esc(e.eid)}" role="button" tabindex="0" aria-label="${esc(e.kind)} evidence at ${tc(e.t0_ms)}" style="${at}" title="${esc(e.eid)} · ${esc(e.kind)} · ${esc(span(e.t0_ms, e.t1_ms))}"></i>`;
       })
       .join('');
     outlineEvidence();
@@ -121,6 +124,16 @@ export function createTimeline(el, { t0, t1 }) {
     head.style.left = pct(clock.t);
   }
 
+  ruler.addEventListener('keydown', (e) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); seek(e.key === 'Home' ? range.t0 : e.key === 'End' ? range.t1 - 1 : clock.t + (e.key === 'ArrowLeft' ? -100 : 100));
+  });
+  el.addEventListener('keydown', (e) => {
+    if (!['Enter', ' '].includes(e.key)) return;
+    const mark = e.target.closest('[data-ev], [data-eid]'); if (!mark) return; e.preventDefault();
+    if (mark.dataset.eid) for (const fn of evidenceFns) fn(mark.dataset.eid);
+    else { const event = events.find((x) => x.id === mark.dataset.ev); if (event) { tl.highlight(event.id); seek(event.t0_ms); } }
+  });
   el.addEventListener('pointerdown', (e) => {
     const track = e.target.closest('.tl-track');
     if (!track) return;
@@ -178,11 +191,13 @@ export function createTimeline(el, { t0, t1 }) {
   bus.on('clock:tick', (t) => {
     head.style.left = pct(t);
     now.textContent = tc(t);
+    ruler.setAttribute('aria-valuenow', String(t)); ruler.setAttribute('aria-valuetext', tc(t));
   });
   bus.on('clock:range', (r) => {
     range = { ...r };
     renderAll();
   });
+  bus.on('fleet:active', ({ scene_key }) => { curTrip = scene_key; renderTrips(); });
   bus.on('route', (r) => {
     curTrip = r.trip_id ?? null;
     renderTrips();
@@ -244,6 +259,7 @@ export function createTimeline(el, { t0, t1 }) {
       eventsShown = false;
       renderAll();
     },
+    clearBrush() { brush.hidden = true; },
     onSeek(fn) {
       seekFns.add(fn);
       return () => seekFns.delete(fn);

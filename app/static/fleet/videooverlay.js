@@ -3,6 +3,8 @@
 // outlines, and a legend of the element types drawn. "Pinhole crop" remaps the fisheye frame (cv2.fisheye, K and dist from
 // the manifest) to a pinhole image with the same K, i.e. the central crop.
 import { esc } from '../kernel/format.js';
+import { state } from '../kernel/state.js';
+import { selection } from '../kernel/selection.js';
 
 // COCO-17 limbs.
 const LIMBS = [[0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
@@ -37,7 +39,7 @@ export function undistortPx(cam, [u, v]) {
 
 // names: Map of local_track_id -> entity_id for this camera; bname(bid) -> building name; onPick(bid); cite: entity_id of
 // the actor the answer cites, or null.
-export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
+export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onPresented = () => {} }) {
   const { w, h } = cam;
   el.innerHTML = `
     <div class="fl-vbox" style="aspect-ratio:${w}/${h}">
@@ -48,7 +50,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
     </div>
     <div class="fl-vhead"><span class="mono">${esc(cam.id)}</span><span class="muted">fisheye · ${w}×${h}</span>
       <button class="ghost fl-undist" aria-pressed="false">Pinhole crop</button></div>
-    <div class="fl-legend"></div>`;
+    <div class="fl-legend"></div><span class="fl-media-status muted" role="status" hidden></span>`;
   const video = el.querySelector('video'), remapEl = el.querySelector('.fl-remap'), ovl = el.querySelector('.fl-ovl').getContext('2d');
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
@@ -74,12 +76,21 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
     for (let i = 0; i < lut.length; i++) dst32[i] = lut[i] >= 0 ? src32[lut[i]] : 0xff000000;
     out.putImageData(img, 0, 0);
   }
-  const onFrame = () => {
+  const onFrame = (now, md) => {
     if (!alive) return;
     if (undist) remap();
+    if (!video.seeking) onPresented(Math.round(md.mediaTime * 1000) + cam.offset_ms);
     video.requestVideoFrameCallback(onFrame);
   };
   video.requestVideoFrameCallback(onFrame);
+  video.addEventListener('seeked', () => { if (alive && !playing) onPresented(Math.round(Math.min(video.currentTime, Number.isFinite(video.duration) ? Math.max(0, video.duration - 1 / fps) : video.currentTime) * 1000) + cam.offset_ms); });
+  for (const event of ['waiting', 'stalled', 'error', 'playing', 'canplay']) video.addEventListener(event, () => {
+    el.dataset.media = event === 'error' ? 'error' : ['waiting', 'stalled'].includes(event) ? 'waiting' : 'ready';
+    const status = el.querySelector('.fl-media-status');
+    status.hidden = el.dataset.media === 'ready';
+    status.textContent = event === 'error' ? 'Video unavailable · reopen this evidence to retry' : 'Waiting for video…';
+    el.querySelector('.fl-vhead').title = event === 'error' ? 'Video failed to load. Reopen this evidence to retry.' : event === 'waiting' || event === 'stalled' ? 'Waiting for video; overlays follow presented frames.' : '';
+  });
 
   function draw(frame, boxes) {
     last = [frame, boxes];
@@ -96,11 +107,13 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
         tracked = [a, b];
         continue;
       }
+      if (state.stageMode === 'evidence') continue;
       drawn.add('detected');
       ovl.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
       ovl.fillText(`${names.get(tid) ?? `#${tid}`} ${cls}`, a[0], a[1] - 4);
     }
     for (const p of frame.peds) {
+      if (state.stageMode === 'evidence' && p.entity_id !== cite && !selection.ids.has(p.entity_id)) continue;
       const k = p.kpts2d.map(([u, v, c]) => [...P([u, v]), c]);
       ovl.lineWidth = 1.5;
       for (const [i, j] of LIMBS) {
@@ -125,10 +138,11 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
       drawn.add('tracked');
     }
     cols.innerHTML = frame.buildings.map((b) => {
+      if (state.stageMode === 'evidence' && b.bid !== cite && !selection.ids.has(b.bid)) return '';
       const u0 = Math.max(0, P([b.u0, cam.K[3]])[0]), u1 = Math.min(w, P([b.u1, cam.K[3]])[0]);
       if (u1 <= u0) return '';
       drawn.add('map');
-      return `<button class="fl-col" data-bid="${esc(b.bid)}" style="left:${(100 * u0) / w}%;width:${(100 * (u1 - u0)) / w}%"><span>${esc(bname(b.bid))} facade · map</span></button>`;
+      return `<button class="fl-col" data-bid="${esc(b.bid)}" title="${state.stageMode === 'explore' ? esc(b.bid) : ''}" style="left:${(100 * u0) / w}%;width:${(100 * (u1 - u0)) / w}%"><span>${esc(bname(b.bid) === b.bid ? 'Map' : bname(b.bid))} facade · map</span></button>`;
     }).join('');
     legend.innerHTML = Object.entries(LEGEND).filter(([k]) => drawn.has(k)).map(([k, v]) => `<span class="lg-${k}"><i></i>${v}</span>`).join('');
   }
@@ -149,6 +163,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
 
   const player = {
     draw,
+    redraw() { if (last) draw(...last); },
     clear() {
       last = null;
       ovl.clearRect(0, 0, w, h);

@@ -6,7 +6,7 @@ export const sec = (ms) => `${(ms / 1000).toFixed(1)} s`;
 export const span = (t0, t1) => `${(t0 / 1000).toFixed(2)}–${(t1 / 1000).toFixed(2)} s`;
 // mm:ss.d timecode
 export const tc = (ms) => {
-  const s = Math.max(0, ms) / 1000;
+  const s = Math.round(Math.max(0, ms) / 100) / 10;
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 };
 export const shortEid = (eid) => eid.slice(0, 10);

@@ -2,6 +2,7 @@
 // detection boxes (class and score; no track ids, no geometry) drawn over it. A chip names the level and one muted line
 // says what the scene cannot measure, from its caps in api/workspaces. The agent's moments are thin time bands under the video.
 import { esc, span } from '../kernel/format.js';
+import { state } from '../kernel/state.js';
 
 const WINDOW_MS = 10000;
 const MEASURE = '#56B4E9';
@@ -40,6 +41,8 @@ function draw(rows) {
   ovl.lineWidth = 1;
   ovl.strokeStyle = ovl.fillStyle = MEASURE;
   ovl.font = '500 11px "IBM Plex Mono", monospace';
+  const allowed = S.answerLabels;
+  if (state.stageMode === 'evidence') rows = rows.filter((r) => allowed.has(r[1]));
   for (const [, label, x1, y1, x2, y2, conf] of rows) {
     ovl.strokeRect(x1, y1, x2 - x1, y2 - y1);
     ovl.fillText(`${label} ${conf.toFixed(2)}`, x1, Math.max(11, y1 - 3));
@@ -121,7 +124,10 @@ export async function mount(el, c) {
   });
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
-  offs = [ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
+  const onFocus = (e) => { if (!S || e.scene_key !== S.key) return; S.answerLabels = new Set(Object.keys(e.value?.counts ?? {})); if (/people|person|pedestrian|bytetrack|yolo_people/.test(e.method)) S.answerLabels.add('person'); tick(ctx.clock.t); };
+  const onMode = () => tick(ctx.clock.t);
+  ctx.bus.on('evidence:focus', onFocus); ctx.bus.on('stage:mode', onMode);
+  offs = [() => ctx.bus.off('evidence:focus', onFocus), () => ctx.bus.off('stage:mode', onMode), ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
   const dispose = () => {
     alive = false;
     offs.forEach((off) => off());
@@ -157,7 +163,7 @@ async function load(key) {
   const box = root.querySelector('.st-vbox'), canvas = root.querySelector('.st-ovl');
   box.style.setProperty('--ar', cam.w / cam.h);
   Object.assign(canvas, { width: cam.w, height: cam.h });
-  S = { key, mf, cam, chunks, cur: -1, presented: null, dets: new Map(), moments: [], boxes: 0 };
+  S = { key, mf, cam, chunks, cur: -1, presented: null, dets: new Map(), moments: [], boxes: 0, answerLabels: new Set() };
   renderBands();
   if (ctx.route.t_ms != null) ctx.clock.seek(ctx.route.t_ms);
   else tick(ctx.clock.t);

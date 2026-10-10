@@ -195,3 +195,17 @@
 /* ---- timeline lanes added by the page */
 .lane-trip .s-ok { background: color-mix(in srgb, var(--trip) 45%, transparent); }
 .lane-trip .s-gap { top: 4px; height: 10px; border: 1.5px dashed var(--trip); }
+
+@media (max-width: 1200px) {
+  .fl-root.ix { grid-template-columns: minmax(0, 1fr) minmax(150px, 28%); }
+  .fl-root.ix [data-slot="inset"] { width: min(240px, 38%); height: 140px; }
+}
+@media (max-width: 850px) {
+  .fl-root.ix { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .fl-root.ix [data-slot="big"] { grid-area: 1 / 1; }
+  .fl-root.ix [data-slot="side"], .fl-place { display: none; }
+  .fl-root.ix [data-slot="inset"] { width: 150px; height: 90px; bottom: 34px; left: 8px; }
+  .fl-facts { font-size: 10px; gap: 5px; overflow: hidden; }
+}
+
+.fl-media-status { position: absolute; left: 10px; top: 10px; background: var(--paper); padding: 5px 8px; border: 1px solid var(--rule); z-index: 6; font-size: var(--fs-2); }

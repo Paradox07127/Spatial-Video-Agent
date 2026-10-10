@@ -43,7 +43,7 @@ async function replayFrames(page, list) {
   await page.locator('.preset').first().click();
 }
 
-test('default state: top-bar Ask with its source tag, presets in the 420 px panel, timeline, no video, no page scroll', async ({ page }) => {
+test('default state: top-bar Ask with its source tag, presets in the 40 percent panel, timeline, no video, no page scroll', async ({ page }) => {
   await page.goto('#/test');
   await expect(view(page)).toHaveAttribute('data-view', 'default');
   await expect(page.locator('#ask-input')).toBeVisible();
@@ -53,7 +53,7 @@ test('default state: top-bar Ask with its source tag, presets in the 420 px pane
   await expect(page.locator('#timeline .tl-ruler')).toBeVisible();
   await expect(page.locator('#narration')).toBeHidden();
   expect(await page.locator('video').count()).toBe(0);
-  expect(await width(page, '#panel')).toBe(420);
+  expect(await width(page, '#panel')).toBe(576);
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
 });
 
@@ -156,8 +156,8 @@ test('evidence rows fold their raw fields into an aligned key / value block', as
   await expect(raw).toBeVisible();
   await expect(raw).toHaveText(['eid     e_5d60fc7e6ed93290', 'method  ground_distance_tri', 'value   1.55', 'unit    m', 'sigma   0.12', 'cams    ceiling_04, eye_00'].join('\n'));
   await expect(raw.locator('.num')).toHaveText(['1.55', '0.12']);
-  // opening raw is not a citation click
-  expect(await kernel(page, 'state', 'k.state.stageMode')).toBe('explore');
+  // Opening raw preserves the completed answer's default Answer mode.
+  expect(await kernel(page, 'state', 'k.state.stageMode')).toBe('evidence');
   await expect(page.locator('#tab-evidence .ev-k-model .ev-label')).toHaveText('Caption and visual search rank');
 });
 
@@ -306,8 +306,8 @@ test('model line: situation and prediction with the measurement check by default
   const mp = page.locator('#modelpanel');
   await expect(mp.locator('.mp-summary')).toContainText('Situation yielding');
   await expect(mp.locator('.mp-summary')).toContainText('predicts continue');
-  await expect(mp.locator('.mp-summary')).toContainText('located 4.75–5.60 s');
-  await expect(mp.locator('.mp-sub')).toHaveText('Checked by measure: yes · describes only, no numbers');
+  await expect(mp.locator('.mp-summary')).toContainText('model says ≈4.75–5.60 s');
+  await expect(mp.locator('.mp-sub')).toHaveText('Checked by measure: yes · Model description · not measured');
   await expect(mp.locator('.mp-row')).toHaveCount(0);
   await mp.locator('.mp-summary').click();
   await expect(mp.locator('.mp-row')).toHaveCount(4);
@@ -367,14 +367,15 @@ test('NO_MATCH with an answer frame: the card shows the plain verdict, the agent
   await expect(card.locator('.verdict')).toHaveText('No match');
   await expect(card.locator('.ans-text')).toHaveText(text);
   await expect(card.locator('.ans-time')).toHaveText(['496.5', '505.5 s']);
-  await expect(card.locator('.ans-src .src')).toHaveText(['Measured', 'Map']);
+  // Cited measurements without a numeric measure_ref do not earn a Measured answer badge.
+  await expect(card.locator('.ans-src .src')).toHaveText(['Map']);
   await expect(page.locator('#tab-evidence .ev')).toHaveCount(2);
   await expect(page.locator('#tab-evidence .ev[data-eid="e_00000000000000aa"] .ev-label')).toHaveText('GPS pass near the place');
   await expect(card).not.toContainText('No matching clip was found');
   await expect(card.locator('.ans-instead')).toContainText('Widen');
 });
 
-test('a final answer without hits shows the full answer header in the same 420 px panel', async ({ page }) => {
+test('a final answer without hits shows the full answer header in the same 40 percent panel', async ({ page }) => {
   test.skip(LIVE, 'needs a spliced mock stream');
   const text = 'Someone is where ceiling_00 cannot see: worker P1 at 0–6 s (seen by ceiling_04, eye_00).';
   await replayFrames(page, frames('wh-main').filter((f) => f.event !== 'hits').map((f) => (f.event === 'answer' ? { ...f, data: { ...f.data, text } } : f)));
@@ -383,8 +384,8 @@ test('a final answer without hits shows the full answer header in the same 420 p
   await expect(page.locator('#moments').locator('xpath=..')).toBeHidden();
   await expect(page.locator('#answer .ans-meta')).toHaveText(/^\d+ steps · 0\.1 s$/);
   await expect(page.locator('#ask-status')).toHaveText(/^Done · \d+ steps · 0\.1 s$/);
-  expect(await width(page, '#panel')).toBe(420);
-  expect(await width(page, '#stage')).toBe(1440 - 420);
+  expect(await width(page, '#panel')).toBe(576);
+  expect(await width(page, '#stage')).toBe(1440 - 576 - 5);
 });
 
 test('a new Ask aborts the old stream; frames of another run_id are dropped', async ({ page }) => {

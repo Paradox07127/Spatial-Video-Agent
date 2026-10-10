@@ -368,11 +368,13 @@ test('cross-page-citation-bubbling: old reasoning cites do not seek the retained
   await page.goto('#/test');
   await ask(page);
   await expect(page.locator('#answer .verdict')).toHaveText('Supported');
+  // Completed investigations now default to Answer mode; opening an old run must preserve that mode.
+  const priorMode = await page.locator('body').getAttribute('data-stage');
   await seek(page, 1000);
   await routeTo(page, '#/run/r_older');
   await expect(page.locator('#runpage .rp-q')).toBeVisible();
   await page.locator('#runpage .rp-sent .cite').click();
-  await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', priorMode);
   expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(1000);
   await expect(page.locator(`#runpage .rp-evrow[data-eid="${DIST}"]`)).toHaveClass(/flash/);
 });

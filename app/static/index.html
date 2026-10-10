@@ -17,10 +17,10 @@
     <form id="ask-form" class="ask" autocomplete="off">
       <svg class="i"><use href="icons.svg#search"/></svg>
       <button type="button" id="source-tag" class="source-tag mono" title="Scene or trip the question is about"></button>
-      <input id="ask-input" placeholder="Ask about this scene: when, where, how far apart">
+      <input id="ask-input" maxlength="500" placeholder="Ask about this scene: when, where, how far apart">
       <span class="ask-hint mono">Esc steps back</span>
     </form>
-    <span class="top-right">
+    <span class="top-right"><span id="dependency-status" role="status" hidden></span>
       <a id="runs-btn" class="ghost" href="#/runs"><svg class="i"><use href="icons.svg#workflow"/></svg>Runs</a>
       <button id="cmdk-btn" class="ghost mono" title="Go to (⌘K)"><svg class="i"><use href="icons.svg#command"/></svg>K</button>
     </span>
@@ -28,11 +28,11 @@
 
   <main class="main">
     <div class="stage-wrap">
-      <section id="stage" class="stage" data-stage></section>
+      <section id="stage" class="stage" data-stage></section><nav class="seg stage-controls" aria-label="Stage mode"><button type="button" data-mode="evidence">Answer</button><button type="button" data-mode="explore" class="on">Explore</button></nav>
       <div id="narration" class="narration" aria-live="polite"></div>
       <div id="takeover" class="takeover"><svg class="i"><use href="icons.svg#workflow"/></svg>Agent is steering the view<button type="button">Take over</button></div>
     </div>
-    <aside id="panel" class="panel" aria-label="Answer">
+    <div class="panel-resize" role="separator" tabindex="0" aria-label="Resize answer panel" aria-orientation="vertical" aria-valuemin="33" aria-valuemax="67" aria-valuenow="40"></div><aside id="panel" class="panel" aria-label="Answer">
       <div class="p-empty">
         <p>Ask about this scene</p>
         <span id="presets" class="presets"></span>
@@ -53,7 +53,7 @@
       </div>
       <form id="followup" class="followup" autocomplete="off">
         <span class="fu-chips"></span>
-        <label class="fu-box"><span class="fu-ctx mono"></span><input id="followup-input" placeholder="Ask a follow-up"><svg class="i"><use href="icons.svg#corner-down-left"/></svg></label>
+        <div class="fu-box"><span class="fu-ctx mono"></span><input id="followup-input" aria-label="Follow-up question" maxlength="500" placeholder="Ask a follow-up"><svg class="i"><use href="icons.svg#corner-down-left"/></svg></div>
       </form>
       <span id="ask-status" class="sr-only" role="status"></span>
     </aside>

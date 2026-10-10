@@ -126,7 +126,7 @@ async function ixTick(wall) {
   cur.el.querySelector('.fl-3d').style.visibility = '';
   cur.scene.setFrame(f, ctx.selection.ids);
   if (cur.frames !== frames) cur.scene.setPath((cur.frames = frames));
-  cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - f.t_ms) < 50));
+
   const p = posAt(cur.trip.pts, t);
   if (!p) {
     ov.gps(null);
@@ -146,6 +146,20 @@ async function ixTick(wall) {
     <span class="fl-rate">${icon('play')}${ctx.clock.rate}×</span>`;
   const html = placeHtml(p, t, cur.c5);
   if (html !== cur.placeHtml) cur.place.innerHTML = cur.placeHtml = html;
+}
+
+// Video annotations follow the decoded source frame; map/GPS and 3D retain the master clock.
+async function presented(cur, t) {
+  if (ix !== cur) return;
+  const current = cur.videoTick = (cur.videoTick ?? 0) + 1;
+  try {
+    const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
+    if (ix !== cur || current !== cur.videoTick) return;
+    const f = frames.findLast((x) => x.t_ms <= t) ?? frames[0];
+    if (!f || Math.abs(f.t_ms - t) > 1000 / cur.trip.mf.fps) return cur.video.clear();
+    cur.presented = t;
+    cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - t) < 500 / cur.trip.mf.fps));
+  } catch { if (ix === cur && current === cur.videoTick) cur.video.clear(); }
 }
 
 function tick(wall) {
@@ -187,6 +201,7 @@ async function renderTrip() {
 
 function enterIx(trip, m) {
   if (ix?.moment === m) return;
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms });
   leaveIx();
   const p = posAt(trip.pts, m.t0_ms);
   if (!p) {
@@ -215,6 +230,7 @@ function enterIx(trip, m) {
     facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
     video: createVideo(el.querySelector('.fl-vwrap'), {
       cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
+      onPresented: (t) => ix && ix.trip === trip && presented(ix, t),
       src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
     }),
   };
@@ -327,6 +343,7 @@ export async function mount(el, c) {
       }
     },
     onEvent(trip, e) {
+      ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: e.t0_ms });
       if (!trip.cam) leaveIx();
       ov.select(trip.id);
       ctx.timeline.highlight(`${trip.id}:${e.id}`);
@@ -362,14 +379,17 @@ export async function mount(el, c) {
   ctx.bus.on('view:state', onView);
   ctx.bus.on('clock:play', onPlay);
   ctx.bus.on('panel:tab', onTab);
+  const onMode = () => { ix?.video.redraw(); if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids); };
+  ctx.bus.on('stage:mode', onMode);
   window.addEventListener('keydown', onKey, true);
   offs = [
     () => window.removeEventListener('keydown', onKey, true),
     ctx.clock.onTick(tick),
-    ctx.selection.onChange(() => ix && ((ix.frame = null), ixTick(ctx.clock.t))),
+    ctx.selection.onChange(() => ix?.video.redraw()),
     () => ctx.bus.off('view:state', onView),
     () => ctx.bus.off('clock:play', onPlay),
     () => ctx.bus.off('panel:tab', onTab),
+    () => ctx.bus.off('stage:mode', onMode),
     () => links.forEach((l) => l.remove()),
   ];
   if (ctx.route.trip_id) loadScene(ctx.route.trip_id);

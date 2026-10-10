@@ -3,6 +3,7 @@
 // frame (facades dotted green), the dashed GNSS ±σ ring, the cited actor's measure line and dashed path; agents outside the
 // dashcam's field of view are grey. Views: chase (follow) / top / dashcam, and free for an agent's setView.
 import * as THREE from 'three';
+import { state } from '../kernel/state.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { esc } from '../kernel/format.js';
@@ -115,9 +116,11 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
     meshes.set(mesh, bid);
     geo.computeBoundingBox();
     const c = geo.boundingBox.getCenter(new THREE.Vector3());
-    const l = label(esc(b.name ?? bid), 'fl-bl');
+    const l = label(esc(b.name && b.name !== bid ? b.name : 'Map facade'), 'fl-bl');
     // Street-level label: the follow view does not see roof tops.
     l.position.set(c.x, c.y, Math.min(height, 6));
+    l.userData.bid = bid;
+    l.element.title = bid;
     l.element.addEventListener('click', () => onPick(bid));
     world.add(l);
     blabels.push(l);
@@ -239,7 +242,10 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
       world.rotation.z = th;
       world.position.set(-x, -y, 0).applyAxisAngle(Z, th);
       world.updateMatrixWorld();
-      for (const l of blabels) l.visible = l.getWorldPosition(new THREE.Vector3()).setZ(0).length() < LABEL_RANGE;
+      for (const l of blabels) {
+        l.visible = (state.stageMode !== 'evidence' || l.userData.bid === cite || sel.has(l.userData.bid)) && l.getWorldPosition(new THREE.Vector3()).setZ(0).length() < LABEL_RANGE;
+        l.element.title = state.stageMode === 'explore' ? l.userData.bid : '';
+      }
       const stale = f.ego.state === 'last_known';
       gnss.scale.setScalar(f.ego.sigma_m);
       gnssLabel.element.textContent = `GNSS ±${f.ego.sigma_m.toFixed(1)} m${stale ? ' · last fix' : ''}`;
@@ -254,7 +260,7 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
         const fig = o.getObjectByName('fig');
         fig.scale.setScalar(p.h);
         fig.material.color.setHex(color);
-        fig.material.opacity = conf;
+        fig.material.opacity = state.stageMode === 'evidence' && p.entity_id !== cite && !sel.has(p.entity_id) ? 0.15 : conf;
         o.getObjectByName('sigma').scale.setScalar(p.sigma_m);
         o.userData.label.position.set(0, 0, p.h + 0.5);
         o.userData.label.element.innerHTML = `<b>${esc(p.entity_id)}</b> approx <span class="mono">±${p.sigma_m.toFixed(1)} m</span>`;

@@ -45,6 +45,8 @@ test('after a result the Evidence lane shows one mark per evidence, styled by it
   await expect(lane(page).locator('.tl-evm')).toHaveCount(4);
   await expect(lane(page).locator('.tl-evm.k-measure')).toHaveCount(3);
   await expect(lane(page).locator('.tl-evm.k-model')).toHaveCount(1);
+  // First Esc exits the completed answer's default Answer mode; the next clears the run.
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
   await expect(lane(page)).toBeHidden();
@@ -53,7 +55,8 @@ test('after a result the Evidence lane shows one mark per evidence, styled by it
 
 test('hovering an answer number outlines its evidence mark', async ({ page }) => {
   await replay(page);
-  expect(await outline(mark(page, DIST))).toBe('none');
+  // Answer mode focuses its primary citation; hover can still outline this distance.
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
   await page.locator(`#answer .ans-num[data-eid="${DIST}"]`).hover();
   await expect.poll(() => outline(mark(page, DIST))).toBe('solid');
   expect(await outline(mark(page, CELLS))).toBe('none');
@@ -91,6 +94,7 @@ test('camera lanes and Events are collapsed behind the Cameras toggle', async ({
 test('the timeline is 72 px high, 84 px while the Evidence lane is shown', async ({ page }) => {
   await replay(page);
   await expect.poll(() => height(page)).toBe(84);
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(lane(page)).toBeHidden();
   expect(await height(page)).toBe(72);

@@ -35,7 +35,7 @@ const METHOD_LABEL = {
 const NOTES = {
   C1: ['Situation C1', (p) => `<b class="mono">${esc(p.label)}</b> <span class="rp-dim">${esc(p.reason)}</span>`],
   C2: ['Next C2', (p) => `predicts <b class="mono">${esc(p.actions.join(' / '))}</b> <span class="rp-dim">within ${esc(p.horizon_s)} s · actual ${p.actual ? esc(p.actual.actions.join(' / ')) : 'unknown'}</span>`],
-  C4: ['Timing C4', (p) => p.segments.map((s) => `<span class="mono">${tc(s.start_s * 1000)}–${tc(s.end_s * 1000)}</span> <span class="rp-dim">"${esc(s.text)}"</span>`).join('; ') || `<span class="rp-dim">"${esc(p.query)}" not found</span>`],
+  C4: ['Timing C4', (p) => p.segments.map((s) => `<span class="mono">model says ≈${tc(s.start_s * 1000)}–${tc(s.end_s * 1000)}</span> <span class="rp-dim">not measured</span> <span class="rp-dim">"${esc(s.text)}"</span>`).join('; ') || `<span class="rp-dim">"${esc(p.query)}" not found</span>`],
 };
 const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./run.css', import.meta.url).href });
 let observer = null, pinned = false, generation = 0;
