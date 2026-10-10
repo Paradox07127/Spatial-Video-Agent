@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -25,7 +25,7 @@ def deliver_notifications(store, action):
             row = store.app.execute('SELECT status,updated FROM action_deliveries WHERE action_id=? AND channel=?', [action.action_id,channel]).fetchone()
             if row and row[0] == 'sent':
                 continue
-            if row and row[0] == 'sending' and row[1] > datetime.now()-timedelta(seconds=60):
+            if row and row[0] == 'sending' and row[1] > datetime.now(timezone.utc).replace(tzinfo=None)-timedelta(seconds=60):
                 delivered = False
                 continue
             store.app.execute('INSERT OR REPLACE INTO action_deliveries VALUES (?,?,?,?)', [action.action_id,channel,'sending',now()])
