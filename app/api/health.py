@@ -3,12 +3,14 @@ import socket
 import time
 import os
 import re
+from threading import Lock
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter()
+_remote_validator_lock = Lock()
 
 
 def dependency_status(settings):
@@ -89,13 +91,26 @@ def health(request: Request):
                          for f in manifest['files'])
     except OSError:
         libs_ready = False
+    asset_validation = None
     try:
         scenes = store.list_scenes()
-        assets_ok = local_assets_ready(store, scenes)
+        if store.asset_dir is None:
+            from app.core.asset_readiness import RemoteAssetReadiness
+            state = request.app.state
+            # FastAPI sync health handlers may run concurrently in worker threads.
+            if not hasattr(state,'remote_asset_readiness'):
+                with _remote_validator_lock:
+                    if not hasattr(state,'remote_asset_readiness'):
+                        state.remote_asset_readiness = RemoteAssetReadiness()
+            asset_validation = state.remote_asset_readiness.status(settings,scenes)
+            assets_ok = asset_validation['state']=='ready'
+        else:
+            assets_ok = local_assets_ready(store, scenes)
         index_rows = store.index_counts()
     except Exception:
         # A local index failure makes the app unready; keep the established response contract.
         assets_ok, index_rows = False, {}
     ok = libs_ready and assets_ok
     return JSONResponse({'ok': ok, 'mode': settings.mode, 'backend': store.backend, 'libs_ready': libs_ready,
-                         'index_rows': index_rows, 'assets_ok': assets_ok}, status_code=200 if ok else 503)
+                         'index_rows': index_rows, 'assets_ok': assets_ok,
+                         **({'asset_validation':asset_validation} if asset_validation is not None else {})}, status_code=200 if ok else 503)
