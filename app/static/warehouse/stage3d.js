@@ -10,6 +10,7 @@ import { createHazards } from './hazard.js';
 import { blocksObject, parsePoints, pointsObject } from './points.js';
 import { createSkeletons } from './skeleton.js';
 import { createZoneDraw } from './zonedraw.js';
+import { releaseTree } from './dispose.js';
 
 // Distance (m) of the drawn image plane (frustum base) from the camera centre: at least FRUSTUM_D, FRUSTUM_K per metre of
 // floor diagonal on larger floors, and short enough that the base stays FRUSTUM_CLEAR (m) above the floor.
@@ -45,8 +46,7 @@ const kit = {
   },
   // CSS2D elements of nested labels are not removed by Object3D.clear().
   clear(group) {
-    group.traverse((o) => o.isCSS2DObject && o.element.remove());
-    group.clear();
+    releaseTree(group, new Set([kit.pickMaterial]));
   },
   // Index of the sample in ascending ts closest to t.
   nearest(ts, t) {
@@ -113,6 +113,8 @@ export function createStage(canvas) {
   let activeCam = null; // the camera the stage video dock shows; its frustum is drawn in --ink
   const frusta = new Map(), pickFns = new Set();
   const loader = new THREE.TextureLoader(), textures = new Map();
+  const ownedTextures = new Set();
+  let disposed = false;
 
   const camOf = (v) => mf?.cams.find((c) => `cam:${c.id}` === v);
   const active = () => (camOf(view) ? real : free);
@@ -213,9 +215,11 @@ export function createStage(canvas) {
   function texture(url) {
     if (!textures.has(url)) {
       textures.set(url, new Promise((res) => loader.load(url, (tx) => {
+        if (disposed) { tx.dispose(); res(null); return; }
+        ownedTextures.add(tx);
         tx.colorSpace = THREE.SRGBColorSpace;
         res(tx);
-      })));
+      }, undefined, () => { textures.delete(url); res(null); })));
     }
     return textures.get(url);
   }
@@ -387,8 +391,8 @@ export function createStage(canvas) {
       pose('free', 0);
     },
     setPoints(buf) {
-      cloud.clear();
-      blocks.clear();
+      kit.clear(cloud);
+      kit.clear(blocks);
       if (!buf) return;
       const pts = parsePoints(buf);
       cloud.add(pointsObject(pts, mf.ground));
@@ -434,7 +438,7 @@ export function createStage(canvas) {
           paint(f);
         } else {
           texture(frame_url).then((tx) => {
-            if (f.url !== frame_url) return;
+            if (disposed || !tx || f.url !== frame_url) return;
             f.tex = tx;
             paint(f);
           });
@@ -573,6 +577,7 @@ export function createStage(canvas) {
     },
     probe: () => ({
       view,
+      resources: { ...renderer.info.memory },
       thumbs: Object.fromEntries([...frusta].map(([id, f]) => [id, f.tex?.image?.src ?? null])),
       single: people.single(),
       entities: { ...people.drawn(), ...lifts.drawn() },
@@ -596,9 +601,17 @@ export function createStage(canvas) {
       controls.autoRotateSpeed = 0.3;
     },
     dispose() {
+      if (disposed) return;
+      disposed = true;
       renderer.setAnimationLoop(null);
       ro.disconnect();
       controls.dispose();
+      scene.background = null;
+      kit.clear(scene);
+      for (const tx of ownedTextures) tx.dispose();
+      ownedTextures.clear();
+      textures.clear();
+      renderer.renderLists.dispose();
       renderer.dispose();
       labels.domElement.remove();
     },
