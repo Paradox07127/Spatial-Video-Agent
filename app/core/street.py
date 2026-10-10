@@ -160,7 +160,7 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
             stamps.update(r[0] for r in inside)
             rows.extend(inside)
     gaps = availability_gaps(t0_ms,t1_ms,[(a,b) for a,b in available if a<b],gaps)
-    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps, 'frames_read': len(stamps)}
+    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps, 'frames_read': len(stamps), 'frame_times':sorted(stamps)}
 
 
 def counts_of(store, clip: Clip) -> dict | None:
@@ -235,3 +235,51 @@ def moment(store, clip: Clip, *, backend: str, vss=None) -> tuple[MomentCard, li
                       thumb=f'/api/street/{clip.scene_key}/thumb?cam={clip.cam_id}&t={clip.t0_ms}', exec_state='live', backend=backend,
                       clip_id=clip.clip_id, workspace='street', evidence_level=level_of(m))
     return card, [caption, boxes]
+
+
+def people_statistics(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int, mode: str):
+    """Measure a full window, never a retrieved top-k subset.
+
+    Count is unique ByteTrack trajectories observed in this camera, not identities or
+    line crossings. Peak is the largest simultaneous person-box count, grouped by
+    second; ties use the earliest observed frame. Missing frames keep the claim unknown.
+    """
+    from app.core import tools
+    dets = detections(store,scene_key,cam,t0_ms,t1_ms)
+    m = street_manifest(store,scene_key)
+    by_time = {t:[] for t in dets.get('frame_times',[])}
+    for t,label,x1,y1,x2,y2,conf in dets['rows']:
+        if label=='person':
+            by_time.setdefault(t,[]).append({'label':label,'bbox':[x1,y1,x2,y2],'confidence':conf})
+    frames = [(t,{'detections':rows}) for t,rows in sorted(by_time.items())]
+    missing = sum(b-a for a,b,_ in dets['gaps'])
+    coverage = max(0,(t1_ms-t0_ms-missing)/(t1_ms-t0_ms)) if t1_ms>t0_ms else 0
+    value = {'t0_s':t0_ms/1000,'t1_s':t1_ms/1000,'source':dets['source'],
+             'frames_read':dets['frames_read'],'coverage':coverage}
+    if mode=='tracked_count':
+        # Restart after missing input; linking tracks over a gap would assert continuity.
+        blocks = []
+        for f in frames:
+            if not blocks or any(blocks[-1][-1][0]<b and a<f[0] for a,b,_ in dets['gaps']):
+                blocks.append([])
+            blocks[-1].append(f)
+        value['count'] = sum(len({r[1] for r in live_measure.track(block,m['fps'],{'person'})}) for block in blocks)
+        value['definition'] = 'ByteTrack trajectories observed in the counting window; not verified line crossings or unique identities.'
+        method = 'bytetrack_people_count'
+    elif mode=='peak_count':
+        per_second = {}
+        for t,f in frames:
+            second = t//1000
+            n = len(f['detections'])
+            if second not in per_second or n>per_second[second]['count']:
+                per_second[second] = {'t_s':t/1000,'count':n}
+        peak = max(per_second.values(),key=lambda row:(row['count'],-row['t_s']),default={'count':0,'t_s':None})
+        value.update(peak)
+        value['per_second'] = [{'second':s,**row} for s,row in sorted(per_second.items())]
+        value['definition'] = 'Maximum simultaneous person detections per second; earliest peak frame.'
+        method = 'yolo_people_peak'
+    else:
+        raise ValueError('Unknown people statistic')
+    ev = tools.evidence(store,scene_key,cam,t0_ms,t1_ms,'measure',method,value,params={'mode':mode})
+    return tools.result(scene_key,t0_ms,t1_ms,value,cam=cam,evidence=[ev],pts_read=dets['frames_read'],
+                        coverage=coverage,gaps=dets['gaps'])

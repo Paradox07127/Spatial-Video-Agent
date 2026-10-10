@@ -265,6 +265,8 @@ class Query(_M):
     abstain_reason: str | None = None
     scope: Scope = "scene"
     sources: list[Tag] | None = None
+    constraints: list[str] = Field(default_factory=list)
+    quantifier: Literal["any", "all", "none"] = "any"
 
 
 class SearchFilters(_M):

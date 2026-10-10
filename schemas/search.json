@@ -233,6 +233,21 @@
             }
           ],
           "description": "source tags to search; set -> corpus retrieval over scenes with these tags (overrides scope)"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Retained question conditions; unmeasured conditions remain unknown predicates."
+        },
+        "quantifier": {
+          "enum": [
+            "any",
+            "all",
+            "none"
+          ],
+          "default": "any"
         }
       },
       "required": [

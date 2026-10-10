@@ -623,7 +623,7 @@ def test_closest_approach_scans_the_tracks_and_measures_the_minimum(setup, monke
     assert [f['data']['name'] for f in frames if f['event']=='tool_call']==['closest_approach','measure']
     assert moments==[tm]
     answer = next(f['data'] for f in frames if f['event']=='answer')
-    found = re.fullmatch(r'The worker and forklift were closest at a distance of ([\d.]+) m \(±([\d.]+) m\), at ([\d.]+) s\.', answer['text'])
+    found = re.fullmatch(r'The minimum observed distance from the worker ground point to the forklift center was ([\d.]+) m \(±([\d.]+) m\), at ([\d.]+) s\.', answer['text'])
     assert found, answer['text']
     assert float(found[1])==pytest.approx(value,abs=5e-4) and float(found[3])==tm/1000
     evidence = {e.eid:e for e in store.get_run(frames[0]['data']['run_id']).evidence}

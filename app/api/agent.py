@@ -15,7 +15,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.search import event_types
-from app.core import cache, geo, llm, policy, tools, trace
+from app.core import cache, geo, llm, policy, street, tools, trace
+from app.core.investigation_context import apply_constraints
 from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
 
 router = APIRouter()
@@ -197,7 +198,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     reserve, cut, levels = 0, False, {}
     corpus, groups, spatial = False, {}, None
     sent_hits, auto_open = False, None
-    quantifier = 'all' if re.search(r'\b(everyone|all (?:people|workers|persons|pedestrians)|(?:every|each) (?:person|worker|pedestrian))\b',body.q,re.I) else 'any'
+    quantifier = 'any'
+    parsed = None
+    statistics_complete = None
 
     def frame(event, **data):
         f = {'event':event,'data':{'run_id':run.run_id,**data}}
@@ -259,6 +262,18 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             return res
 
     def claim_frame(predicates, before=None, explain=None, *, key=None, moment=None, lv=None, text='Spatial and event evidence check'):
+        # A condition retained by parsing must either be measured or remain unknown.
+        conditions = parsed.constraints if parsed else []
+        for condition in conditions:
+            if not any(p.operator == condition for p in predicates):
+                predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[],
+                                            operator=condition,value=None,unit=None,status='unknown',eids=[]))
+        if 'negation' in conditions:
+            for p in predicates:
+                p.status = 'unknown'
+        unknown = [p.operator for p in predicates if p.status=='unknown']
+        if unknown:
+            explain = {**(explain or {}),'not_measured':unknown}
         aggregate = aggregate_of(predicates)
         claim = Claim(run_id=run.run_id,claim_id=claim_id,text=text,predicates=[p.model_copy(deep=True) for p in predicates],
                       aggregate=aggregate,before=before,after=aggregate,examined_eids=list(read),
@@ -270,9 +285,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         """Candidate quantifiers apply to claims; predicates inside a claim remain conjunctive."""
         kept = [c for c in (claims if group is None else group) if not abstained(c)]
         aggregates = [c.aggregate for c in kept]
-        if quantifier=='all':
-            return ('CONTRADICTED' if 'CONTRADICTED' in aggregates else
-                    'SUPPORTED' if aggregates and all(a=='SUPPORTED' for a in aggregates) and not exhausted else 'UNRESOLVED')
+        if quantifier in {'all','none'}:
+            # Retrieval candidates are not a certificate of full entity/time coverage.
+            return 'UNRESOLVED'
         return ('SUPPORTED' if 'SUPPORTED' in aggregates else
                 'CONTRADICTED' if aggregates and all(a=='CONTRADICTED' for a in aggregates) and not exhausted else 'UNRESOLVED')
 
@@ -304,6 +319,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             predicates =[Predicate(predicate_id='p1',subject_refs=[],operator='detected',value=list(groups),unit=None,
                                     status='supported' if res.envelope.output['frames_together'] else 'unknown',eids=[e.eid for e in res.evidence])]
             explain = {}
+            if re.search(r'\b(cross\w*|dodge\w*|yield\w*|brak\w*)\b',body.q,re.I):
+                predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[],operator='crossing' if re.search(r'\bcross',body.q,re.I) else 'event',
+                                            value=None,unit=None,status='unknown',eids=[]))
+                explain['abstain'] = {'reason':'no_geometry','text':'This camera has no geometry; a person detection does not verify the requested action.'}
             if spatial:
                 cap, operator, value, unit = spatial
                 predicates.append(Predicate(predicate_id='p2',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[]))
@@ -338,12 +357,19 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'llm.parse',{'q':body.q,'rule':parsed.model_dump(mode='json')},state='parse',parent_step_id=t.step_id) as child:
                     parsed = llm.parse(body.q,context)
                     child.output(parsed.model_dump(mode='json'))
+            parsed, constraint_reason = apply_constraints(body.q,context,parsed)
+            quantifier = parsed.quantifier
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
             t.output(parsed.model_dump(mode='json'))
         corpus = parsed.scope=='corpus'
         groups, spatial = coco_groups(body.q,parsed.entities), spatial_of(body.q,parsed.template)
-        if parsed.template=='unsupported':
+        if constraint_reason:
+            yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='context_constraint',value=None,
+                                         unit=None,status='unknown',eids=[])],
+                              explain={'note':constraint_reason,'not_measured':['context_constraint']})
+            final, stop_reason = 'UNRESOLVED','abstained'
+        elif parsed.template=='unsupported':
             final, stop_reason = 'UNSUPPORTED','abstained'
         else:
             # corpus: every scene; the special paths below gate on the workspace of the scenes, never on the context's
@@ -351,6 +377,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             scoped = [s for s in scenes if corpus or not parsed.scene_key or s['scene_key']==parsed.scene_key]
             # the special paths scan only the scenes whose tag is in the sources
             tagged = [s for s in scoped if not parsed.sources or tag_of(s) in parsed.sources]
+            street_scenes = [s for s in tagged if s['workspace']=='street']
+            statistic = next((c for c in parsed.constraints if c in {'tracked_count','peak_count'}),None)
             warehouse = [s for s in tagged if s['workspace']=='warehouse']
             fleet = [s for s in tagged if s['workspace']=='fleet']
             blind_cam = None
@@ -360,7 +388,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             blind_scenes = [s for s in warehouse if 'visibility' in s['assets'] and any(c['id']==blind_cam for c in s['cams'])]
             speeding_q = bool(fleet) and any(w in body.q.lower() for w in ['speeding'])
             building_q = bool(fleet) and parsed.place and re.search(r'\bbuilding\b',body.q,re.I)
-            closest_q = (bool(warehouse) and {'person','forklift'}<=set(parsed.entities)
+            requested_kinds = {('person' if re.fullmatch(r'P\d+',e) else 'forklift' if re.fullmatch(r'F\d+',e) else 'vehicle' if re.fullmatch(r'V\d+',e) else e) for e in parsed.entities}
+            selection = [e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)]
+            closest_q = (bool(warehouse) and {'person','forklift'}<=requested_kinds
                          and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
                               or re.search(r'\bhow close\b.*\b(come|came|comes|coming|get|got|gets|getting)\b',body.q,re.I))
                          and re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I))
@@ -371,6 +401,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             elif context.get('t_ms') is not None and not any(
                     store.manifest(s['scene_key'])['t0_ms']<=context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
+            elif (speeding_q or building_q) and (selection or parsed.zone):
+                yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='selected_entity_or_zone',value=None,
+                                             unit=None,status='unknown',eids=[])],
+                                  explain={'note':'This fleet path cannot apply the selected entity or spatial zone.'})
+                final,stop_reason = 'UNRESOLVED','abstained'
             elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
                   and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
                   and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']):
@@ -382,6 +417,29 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                             status='supported' if res.evidence else 'unknown',eids=[e.eid for e in res.evidence])]
                 yield claim_frame(predicates,explain={'note':'Position comes from trip GPS; camera observations were not checked.'},key=key)
                 final = aggregate_of(predicates)
+                stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
+            elif statistic and street_scenes:
+                statistics_complete = False
+                checked = []
+                for scene in street_scenes:
+                    key, cam = scene['scene_key'], scene['cams'][0]['id']
+                    t0,t1 = scene['t0_ms'],scene['t1_ms']
+                    if parsed.t_range:
+                        t0,t1 = max(t0,parsed.t_range[0]),min(t1,parsed.t_range[1])
+                    if t0>=t1:
+                        continue
+                    with trace.traced(run,'assess',{'scene_key':key,'t0_ms':t0,'t1_ms':t1},state='measure') as t:
+                        yield step_frame(t,'measure','Count tracked people across the requested window' if statistic=='tracked_count' else 'Measure the busiest second across the requested window')
+                        stats = yield from call(t,'people_statistics','measure',{'scene_key':key,'cam':cam,'t0_ms':t0,'t1_ms':t1,'mode':statistic},
+                                                lambda:street.people_statistics(store,key,cam,t0,t1,statistic))
+                        predicates = [Predicate(predicate_id='p1',subject_refs=[],operator=statistic,value=stats.envelope.output['count'],unit='people',
+                                                status='supported' if stats.envelope.coverage==1 else 'unknown',eids=[e.eid for e in stats.evidence])]
+                        t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
+                    claim_id = 'c'+str(len(claims)+1)
+                    yield claim_frame(predicates,key=key)
+                    checked.append(key)
+                statistics_complete = True
+                final = counted()
                 stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
             elif blind_scenes:
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
@@ -400,7 +458,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         with trace.traced(run,'assess',{'scene_key':key,'cam':blind_cam,'t0_ms':t0,'t1_ms':t1},state='inspect') as t:
                             yield step_frame(t,'inspect','Check people in the camera blind spot frame by frame')
                             res = yield from call(t,'blind_presence','inspect',{'scene_key':key,'cam':blind_cam,'t0_ms':t0,'t1_ms':t1},
-                                                  lambda:tools.blind_presence(store,key,blind_cam,t0,t1))
+                                                  lambda:tools.blind_presence(store,key,blind_cam,t0,t1,**({'selection':selection} if selection else {}),**({'zone':parsed.zone} if parsed.zone else {})))
                             intervals = res.envelope.output['intervals']
                             persons = list(dict.fromkeys(i['entity_id'] for i in intervals))
                             status = 'supported' if intervals else 'contradicted' if res.envelope.coverage==1 else 'unknown'
@@ -443,7 +501,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
                     yield step_frame(t,'measure','Scan worker and forklift tracks to measure the closest distance')
                     scan = yield from call(t,'closest_approach','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
-                                           lambda:tools.closest_approach(store,warehouse,parsed.t_range,parsed.zone))
+                                           lambda:tools.closest_approach(store,warehouse,parsed.t_range,parsed.zone,**({'selection':selection} if selection else {})))
                     nearest = scan.envelope.output['closest']
                     closest = {'missing':scan.envelope.output['missing'],'scan':scan.evidence[0] if scan.evidence else None}
                     if nearest:
@@ -575,9 +633,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             final='UNRESOLVED' if moments else 'NO_MATCH'
                         else:
                             if parsed.template=='where_is' and context.get('t_ms') is not None:
-                                parsed = parsed.model_copy(update={'t_range':(context['t_ms'],context['t_ms']+1000)})
+                                pass  # apply_constraints already intersected the exact requested timestamp
                             filters = {'workspace':parsed.workspace,'scene_key':parsed.scene_key,'t_range':parsed.t_range,
-                                       'place':parsed.place,'zone':parsed.zone,'sources':parsed.sources,**({'scope':'corpus'} if corpus else {})}
+                                       'place':parsed.place,'zone':parsed.zone,'sources':parsed.sources,'selection':context.get('selection'),'t_ms':context.get('t_ms'),**({'scope':'corpus'} if corpus else {})}
                             res = yield from call(t,'search','retrieve',{'q':body.q,'filters':filters},
                                                   lambda:tools.search(store,body.q,filters,parsed=parsed,vss=vss))
                             moments = [MomentCard.model_validate(m) for m in res.envelope.output['moments']]
@@ -639,12 +697,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 _, operator, value, unit = spatial
                                 if 'near miss' in body.q.lower() and value==2.:
                                     value = next((e.params['threshold_m'] for e in related if 'threshold_m' in e.params),2.)
+                            elif spatial:
+                                _, operator, value, unit = spatial
                             else:
                                 operator, value, unit = 'event', 'observed', None
                             predicates = [Predicate(predicate_id='p1',subject_refs=[] if speeding else subjects,operator=operator,
                                                     value=value,unit=unit,status='unknown',eids=[])]
                             wanted = event_types(body.q)
-                            event_ids = {e.event_id for e in related if wanted and e.type in wanted and
+                            event_ids = {e.event_id for e in related if e.source!='model' and wanted and e.type in wanted and
                                          {s.entity_id for s in subjects if s.kind=='person'}<=set(e.actor_ids)}
                             event_eids = [eid for eid in card.evidence_ids if read[eid].kind=='measure' and
                                           isinstance(read[eid].value,dict) and read[eid].value.get('event_id') in event_ids]
@@ -718,16 +778,31 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 elif parsed.template=='where_is' and not parsed.place and context.get('t_ms') is not None:
                                     observed=vis.envelope.output.get('person',{}).get('observed_in',[]) if vis else []
                                     predicates[0].operator='located'
-                                    predicates[0].status='supported' if cam in observed else 'unknown'
-                                    predicates[0].eids=[e.eid for e in vis.evidence] if vis else []
+                                    predicates[0].status='unknown'
+                                    predicates[0].eids=[]
+                                    explain['note']='Camera visibility does not establish a measured ground position.'
                                 elif not has_distance:
                                     wanted = event_types(body.q)
-                                    predicates[0].status='supported' if wanted and any(e.type in wanted for e in related) else 'unknown'
-                                    predicates[0].eids=[eid for eid in card.evidence_ids if read[eid].kind=='measure']
+                                    predicates[0].status='supported' if event_eids else 'unknown'
+                                    predicates[0].eids=event_eids
                                 if measure_result and measure_result.evidence:
                                     ev = measure_result.evidence[0]
                                     predicates[0].status=distance_status(ev,operator,predicates[0].value)
                                     predicates[0].eids=[ev.eid,*event_eids]
+                                if 'action_modifier' in parsed.constraints and re.search(r'\bmoving\b',body.q,re.I):
+                                    moving_vehicle = vehicle or next((s for s in subjects if s.kind in {'forklift','vehicle'}),None)
+                                    if moving_vehicle:
+                                        movement = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':moving_vehicle.model_dump(),'b':None,'kind':'speed'},
+                                                                   lambda:tools.measure(store,key,tm,moving_vehicle,None,'speed'))
+                                        move_ev = next((e for e in movement.evidence if e.kind=='measure' and e.method=='track_speed'),None)
+                                        predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[moving_vehicle],
+                                                                    operator='action_modifier',value='moving',unit=None,
+                                                                    status='supported' if move_ev and move_ev.value>(move_ev.sigma or 0) else 'unknown',
+                                                                    eids=[move_ev.eid] if move_ev else []))
+                                if has_distance and wanted and re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|near miss)\b',body.q,re.I):
+                                    predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=subjects,
+                                                                operator='event',value=sorted(wanted),unit=None,
+                                                                status='supported' if event_eids else 'unknown',eids=event_eids))
                                 if measure_result and measure_result.envelope.output.get('reason') in ABSTAIN_TEXT:
                                     reason = measure_result.envelope.output['reason']
                                     explain['abstain'] = {'reason':reason,'text':ABSTAIN_TEXT[reason]}
@@ -849,6 +924,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     finally:
         if finished:
             return
+    if statistics_complete is False:
+        final = 'UNRESOLVED'
+    if parsed and parsed.quantifier in {'all','none'} and final not in {'UNSUPPORTED','OUT_OF_RANGE'}:
+        final = 'UNRESOLVED'
+        if not claims:
+            yield claim_frame([],explain={'note':'No exhaustive entity/time coverage certificate is available.'})
+        if stop_reason not in {'error','budget_exhausted'}:
+            stop_reason = 'no_new_info'
     try:
         def compose(final, group, evidence):
             """The sentence for the claims `group`, citing only `evidence` (eid -> Evidence); numbers only through refs."""
@@ -863,8 +946,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             abstain = next((c.explain['abstain']['text'] for c in group if abstained(c)),None)
             if final=='UNRESOLVED' and abstain:
                 text=abstain
+            missing = list(dict.fromkeys(p.operator for c in group for p in c.predicates if p.status=='unknown'))
+            if final=='UNRESOLVED' and missing and not abstain:
+                text='Not measured: '+', '.join(missing).replace('_',' ')+'. The full question remains unresolved.'
             refs, cites, values, names = [], [], [], []
             def ref(e, field, value):
+                if e.kind=='model':
+                    raise ValueError('Model output cannot create measurement references')
                 refs.append({'eid':e.eid,'field':field}); cites.append(e.eid); values.append(value)
                 return '{{m'+str(len(values)-1)+'}}'
             def name(value):
@@ -915,7 +1003,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 elif closest:
                     ev = next(e for e in evidence.values() if e.method=='ground_distance')
                     scan = next(e for e in evidence.values() if e.method=='closest_approach')
-                    text=('The worker and forklift were closest at a distance of '+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m), at '
+                    text=('The minimum observed distance from the worker ground point to the forklift center was '+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m), at '
                           +ref(scan,'value.t_s',scan.value['t_s'])+' s'
                           +('' if predicates[0].operator!='lt' else ', less than the requested distance' if final=='SUPPORTED' else ', not less than the requested distance')+'.')
                 elif speed and limit and limit.value is not None:
@@ -948,8 +1036,35 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 text=text.replace('{{n'+str(i)+'}}',value)
             return dict(text=text,claim_ids=[c.claim_id for c in group],cites=cites,measure_refs=refs)
 
+        def statistics_sentence(cards):
+            evidence = {eid:read[eid] for c in cards for p in c.predicates for eid in p.eids if eid in read}
+            parts, refs = [], []
+            for e in evidence.values():
+                if e.method not in {'bytetrack_people_count','yolo_people_peak'}:
+                    continue
+                v = e.value
+                def number(field):
+                    refs.append({'eid':e.eid,'field':'value.'+field})
+                    return format(v[field],'.4g')
+                prefix = 'Measured' if v['coverage']==1 else 'In the covered portion, measured'
+                if e.method=='bytetrack_people_count':
+                    text = prefix+' '+number('count')+' ByteTrack person trajectories in '+number('t0_s')+'–'+number('t1_s')+' s. This counts observed tracks; line crossings and unique identities were not measured.'
+                else:
+                    text = prefix+' peak of '+number('count')+' simultaneous person detections'
+                    if v['t_s'] is not None:
+                        text += ' at '+number('t_s')+' s'
+                    text += ' across '+number('t0_s')+'–'+number('t1_s')+' s.'
+                if v['coverage']<1:
+                    text += ' Missing frames leave the full window unresolved.'
+                if any(c.aggregate!='SUPPORTED' for c in cards) and v['coverage']==1:
+                    text += ' Other conditions were not measured; the full question remains unresolved.'
+                parts.append(text)
+            return dict(text=' '.join(parts),claim_ids=[c.claim_id for c in cards],cites=list(evidence),measure_refs=refs)
+
         def street_sentence(cards):
             """L1: what the 2D detections show; a spatial question keeps its abstain text and cites no measurement."""
+            if any(p.operator in {'tracked_count','peak_count'} and p.eids for c in cards for p in c.predicates):
+                return statistics_sentence(cards)
             detected = [c.predicates[0] for c in cards]
             found = [p for p in detected if p.status=='supported']
             what = ' and '.join(('an ' if k[0] in 'aeiou' else 'a ')+k for k in detected[0].value)
@@ -960,6 +1075,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             else:
                 text = 'The street camera frames read do not show '+what+' together; a missed 2D detection does not rule this out.'
             abstain = next((c.explain['abstain']['text'] for c in cards if abstained(c)),None)
+            missing = list(dict.fromkeys(p.operator for c in cards for p in c.predicates if p.status=='unknown' and p.operator!='detected'))
+            if missing:
+                text += ' Not measured: '+', '.join(missing).replace('_',' ')+'. The full question remains unresolved.'
             return dict(text=text+(' '+abstain if abstain else ''),claim_ids=[c.claim_id for c in cards],
                         cites=list(dict.fromkeys(e for p in found for e in p.eids)),measure_refs=[])
 

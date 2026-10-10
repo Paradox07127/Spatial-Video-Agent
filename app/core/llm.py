@@ -27,7 +27,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         template = 'find'
     elif re.search(r'\b(where|near|building|junction|intersection)\b', text):
         template = 'where_is'
-    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how many|nearest|close to|next to|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
+    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how many|busiest|peak|most crowded|nearest|close to|next to|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
         template = 'find'
     else:
         template = 'unsupported'
@@ -50,6 +50,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
     elif named:
         place = named.group(1)
     t_range = ctx.get('t_range')
+    point = None
     interval = re.search(r'(?:from)?\s*(\d+(?:\.\d+)?)\s*(?:to|[-–])\s*(\d+(?:\.\d+)?)\s*(?:s\b|seconds)', text)
     if interval:
         t_range = (int(float(interval[1])*1000), int(float(interval[2])*1000))
@@ -58,6 +59,35 @@ def rule_parse(q: str, ctx: dict) -> Query:
         if point:
             t0 = int(float(point[1] or point[2])*1000)
             t_range = (t0,t0+1000)
+    # Keep conditions that the deterministic tools cannot verify as unknown predicates.
+    constraints = []
+    negated = re.search(r"\b(?:not|never|no|none|nobody|no one|without)\b|n['’]t\b", text)
+    if negated and not re.search(r"can['’]?t see|cannot see|blind", text):
+        constraints.append('negation')
+    for attribute in re.findall(r'\b(red|blue|green|yellow|white|black|orange|hardhat|helmet|vest)\b', text):
+        constraints.append('attribute:' + attribute)
+    if re.search(r'\bwearing\b',text):
+        constraints.append('visual_attribute')
+    if re.search(r'\b(?:after|before|until|since|unless)\b',text) and not re.search(r'\b(?:after|before)\s+(?:\d|second\s+\d)',text):
+        constraints.append('temporal_relation')
+    action_families = [bool(re.search(pattern,text)) for pattern in (r'\b(dodge\w*|yield\w*|give way|step back)\b',r'\bcross\w*\b',r'\bbrak\w*\b')]
+    if sum(action_families)>1:
+        constraints.append('multiple_requested_actions')
+    quantifier = ('all' if re.search(r'\b(everyone|all (?:people|workers|persons|pedestrians|vehicles|cars|forklifts|clips)|(?:every|each) (?:person|worker|pedestrian|vehicle|car|forklift|clip))\b', text)
+                  else 'none' if re.search(r'\b(no (?:people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?)|none|nobody|no one)\b', text) else 'any')
+    if quantifier != 'any':
+        constraints.append('exhaustive_coverage')
+    if re.search(r'\b(moving|running|riding|carrying)\b', text):
+        constraints.append('action_modifier')
+    if re.search(r'\bhow many\s+(?:people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?)\b', text):
+        constraints.append('tracked_count')
+    if re.search(r'\b(busiest|peak|most crowded)\b', text):
+        constraints.append('peak_count')
+    if not interval and not point:
+        bound = re.search(r'\b(before|after)\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))', text)
+        if bound:
+            ms = int(float(bound[2] or bound[3]) * 1000)
+            t_range = (0, ms) if bound[1] == 'before' else (ms + 1, 2**53 - 1)
     key = ctx.get('scene_key') or (scene_key_of(ctx['scene_id']) if ctx.get('scene_id') else None)
     sources = ctx.get('sources') or None
     # entity ids, a time and a selection are local to one scene, and then the sources are ignored
@@ -66,7 +96,8 @@ def rule_parse(q: str, ctx: dict) -> Query:
     return Query(template=template, entities=list(dict.fromkeys(entities)), t_range=t_range, place=place,
                  zone=ctx.get('zone'), scene_key=key, workspace=ctx['workspace'],
                  abstain_reason='unsupported_question' if template == 'unsupported' else None,
-                 scope='corpus' if corpus else 'scene', sources=sources if corpus else None)
+                 scope='corpus' if corpus else 'scene', sources=sources if corpus else None,
+                 constraints=list(dict.fromkeys(constraints)), quantifier=quantifier)
 
 
 def complete_json(messages: list[dict], *, role: str, timeout: float = 5) -> dict:
