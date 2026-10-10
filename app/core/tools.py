@@ -25,9 +25,11 @@ def evidence(store, key, cam, t0, t1, kind, method, value, *, observations=(), u
                            value=value,unit=unit,sigma=sigma,params=params)
 
 
-def search(store, q, filters, *, parsed=None, vss=None):
+def search(store, q, filters, *, parsed=None, vss=None, deadline=None):
     from app.api.search import SearchRequest, retrieve
-    return retrieve(store,SearchRequest(q=q,**filters),parsed=parsed,vss=vss)[1]
+    from app.core.deadline import scope
+    with scope(deadline):
+        return retrieve(store,SearchRequest(q=q,**filters),parsed=parsed,vss=vss)[1]
 
 
 def thumbnail(store, scene_key, cam, t_ms):

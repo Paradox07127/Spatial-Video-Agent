@@ -150,7 +150,7 @@ def test_site_thumb_is_decoded_from_the_s3_chunk_once(tmp_path):
     gets = []
     def get_object(Bucket, Key):
         gets.append((Bucket, Key))
-        return {'Body': SimpleNamespace(read=mp4.read_bytes)}
+        return {'Body': __import__('io').BytesIO(mp4.read_bytes())}
     store.s3 = lambda: SimpleNamespace(get_object=get_object)
     path = street.thumb(store, L1_KEY, L1_CAM, 3500)
     image = cv2.imread(str(path))

@@ -18,7 +18,7 @@ import re
 import time
 import tempfile
 from contextlib import nullcontext
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ from jsonschema import Draft202012Validator
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core import trace
+from app.core.deadline import DeadlineExceeded, remaining, scope
 from app.core.models import ENTITY_ID_RE, CosmosRecord, EntityRef, make_record_id
 from app.core.street import _digest as street_digest
 
@@ -74,6 +75,18 @@ class VLMUnavailable(RuntimeError):
     """Endpoint down, circuit open (2 consecutive 502/timeouts), or no cached record in cache-only mode."""
 
 
+def _budgeted(function):
+    @wraps(function)
+    def call(*args,**kwargs):
+        try:
+            with scope(getattr(kwargs.get('run'),'deadline',None)):
+                return function(*args,**kwargs)
+        except DeadlineExceeded as exc:
+            raise VLMUnavailable(str(exc)) from exc
+    return call
+
+
+@_budgeted
 def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, run: Any = None) -> CosmosRecord:
     """C1: label in situation_map labels + one-sentence reason + uncertainty."""
     labels = FL_LABELS if _fleet(scene_key) else WH_LABELS
@@ -89,6 +102,7 @@ def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, run: An
                  lambda o, f: {"label": o["label"], "reason": o["reason"], "uncertainty": o["uncertainty"]}, run)
 
 
+@_budgeted
 def predict_next(scene_key: str, t_ms: int, actor_ref: EntityRef, horizon_s: float = 2, *, run: Any = None) -> CosmosRecord:
     """C2: prefix-only; payload.actions subset of stop|slow|turn|continue, payload.max_frame_ms <= t_ms."""
     who = (f"the camera car (ego vehicle), with {actor_ref.kind} {actor_ref.entity_id} in view" if _fleet(scene_key)
@@ -105,6 +119,7 @@ def predict_next(scene_key: str, t_ms: int, actor_ref: EntityRef, horizon_s: flo
                  payload, run)
 
 
+@_budgeted
 def ground_objects(scene_key: str, cam: str, t_ms: int, vocab: list[str], *, run: Any = None) -> CosmosRecord:
     """C3: 0-1000 boxes for open-vocabulary occluders; ground_poly and depth check filled by geometry, not the model.
     A street camera has no geometry, so its prompt asks for the objects alone."""
@@ -120,6 +135,7 @@ def ground_objects(scene_key: str, cam: str, t_ms: int, vocab: list[str], *, run
                  payload, run)
 
 
+@_budgeted
 def localize(scene_key: str, cam: str, t0_ms: int, t1_ms: int, query: str, *, run: Any = None) -> CosmosRecord:
     """C4: segments [{start_s, end_s, text}] in scene seconds."""
     prompt = (f"Question: {query}? Give each time segment where it happens as start_s and end_s, read from the timestamps "
@@ -130,6 +146,7 @@ def localize(scene_key: str, cam: str, t0_ms: int, t1_ms: int, query: str, *, ru
                  schema, lambda o, f: {"query": query, "segments": o["segments"]}, run)
 
 
+@_budgeted
 def describe_region(scene_key: str, cam: str, t_ms: int, region_ref: str, *, run: Any = None) -> CosmosRecord:
     """C5: description of one tracked region (SoM id) only; verification stays unverified until labels exist."""
     prompt = (f"Describe only the region labelled {region_ref} in the frames: what it is, its appearance and what it does. "
@@ -160,16 +177,26 @@ def _rev(task: str, scene_key: str) -> str:
     return PROMPT_REV["C1-fleet" if task == "C1" and _fleet(scene_key) else task]
 
 
-def _call(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt, schema, make_payload, run, region=None):
+def _call(*args, **kwargs):
+    run = kwargs.get('run',args[10] if len(args)>10 else None)
+    try:
+        with scope(getattr(run,'deadline',None)):
+            return _call_impl(*args,**kwargs)
+    except DeadlineExceeded as exc:
+        raise VLMUnavailable(str(exc)) from exc
+
+
+def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt, schema, make_payload, run, region=None):
     ids = [a.entity_id for a in actor_refs] + ([region] if region and ENTITY_ID_RE.match(region) else [])
     t_ms = int(t_ms)
     def id_at(t):  # key_extra: query/vocab/region/horizon
         return make_record_id(scene_key, task, t, cam, ids + key_extra, _rev(task, scene_key))
     rid = id_at(t_ms)
+    identity = _cache_identity(scene_key)
     with (trace.traced(run, f"vlm.{task}", {"scene_key": scene_key, "t_ms": t_ms, "cam_id": cam, "actor_ids": ids,
                                             "record_id": rid}, state="inspect") if run is not None else nullcontext()) as st:
         # only C1 looks at a window around t_ms; C2 must see nothing after its own t_ms and C3-C5 are keyed by their window
-        rec, state = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None), "cached"
+        rec, state = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None,identity), "cached"
         if rec is None:
             rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
                                region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
@@ -178,7 +205,7 @@ def _call(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt, sch
             with tempfile.NamedTemporaryFile(dir=p.parent, suffix='.tmp', delete=False) as f:
                 tmp = Path(f.name)
                 try:
-                    f.write(rec.model_dump_json().encode())
+                    f.write(json.dumps({"identity":identity,"record":rec.model_dump(mode="json")}).encode())
                     f.close()
                     os.replace(tmp,p)
                 finally:
@@ -193,17 +220,86 @@ def _cache_dir() -> Path:
     return Path(os.environ.get("RUNS_DIR", "runs")) / "vlm_cache"
 
 
-def _cached(scene_key: str, rid: str, t_ms: int, id_at) -> CosmosRecord | None:
-    """Disk cache first, then the scene's pre-run cosmos/<scene_key>.json (cosmos_batch): the same request at its own
-    t_ms or, failing that, at the nearest pre-run moment within NEAR_MS. id_at(t) = the record id of this request at t;
-    None = exact id only."""
+@lru_cache(maxsize=1024)
+def _material_digest(path, size, mtime_ns, ctime_ns):
+    # Metadata invalidates the memoized hash; it is not the material identity.
+    import hashlib
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        while chunk := source.read(1024*1024):
+            remaining(TIMEOUT_S)
+            digest.update(chunk)
+    return 'sha256:'+digest.hexdigest()
+
+
+def _source_identity(scene_key):
+    """Hash actual VLM inputs and release metadata; unversioned remote sources miss."""
+    import hashlib
+    m = json.loads(json.dumps(_manifest(scene_key)))
+    m.get('assets',{}).pop('cosmos',None)
+    m.get('pipeline',{}).get('models',{}).pop('vlm',None)
+    release = os.environ.get('EVIDENCE_REVISION','')
+    root = os.environ.get('ASSET_DIR')
+    artifacts = []
+    if root:
+        directory = Path(root)/scene_key
+        paths = set()
+        for camera in m['cams']:
+            media = [camera['video']] if camera.get('video') else [c['uri'] for c in camera.get('chunks',[])]
+            for rel in media:
+                if rel.startswith(('s3://','https://','http://')):
+                    if not release:
+                        return None
+                else:
+                    paths.add(directory/rel)
+        assets = m.get('assets',{})
+        if assets.get('entities'):
+            paths.add(directory/assets['entities'])
+        for name in ('boxes_dir','ego_dir'):
+            if assets.get(name):
+                paths.update((directory/assets[name]).rglob('*.json'))
+        for path in sorted(paths):
+            remaining(TIMEOUT_S)
+            rel = str(path.relative_to(directory))
+            if path.is_file():
+                stat = path.stat()
+                artifacts.append([rel,_material_digest(str(path),stat.st_size,stat.st_mtime_ns,stat.st_ctime_ns)])
+            else:
+                artifacts.append([rel,'missing'])
+    elif not release:
+        return None
+    raw = json.dumps([m,release,artifacts],sort_keys=True,separators=(',',':'))
+    return 'sha256:'+hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_identity(scene_key):
+    source = _source_identity(scene_key)
+    model = os.environ.get('VLM_MODEL','')
+    return {'model':model,'endpoint':os.environ.get('VLM_URL',''),'source':source} if source and model else None
+
+
+def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None) -> CosmosRecord | None:
+    if identity is None:
+        return None
     p = _cache_dir() / f"{rid}.json"
     if p.is_file():
-        return CosmosRecord.model_validate_json(p.read_text())
-    rel = _manifest(scene_key)["assets"].get("cosmos")
-    near = [r for r in (_json(scene_key, rel)["records"] if rel else [])
-            if r["record_id"] == rid or (id_at and abs(r["t_ms"] - t_ms) <= NEAR_MS and r["record_id"] == id_at(r["t_ms"]))]
-    return CosmosRecord.model_validate(min(near, key=lambda r: abs(r["t_ms"] - t_ms))) if near else None
+        try:
+            cached = json.loads(p.read_text())
+            if cached.get('identity')==identity:
+                rec = CosmosRecord.model_validate(cached['record'])
+                if rec.model_rev==identity['model']:
+                    return rec
+        except (ValueError,KeyError,TypeError):
+            pass  # old, incomplete or corrupt caches are misses
+    rel = _manifest(scene_key)['assets'].get('cosmos')
+    published = _json(scene_key,rel) if rel else None
+    # Published results need a positive source match. Missing legacy provenance
+    # does not authorize replay against a newer scene or a different model.
+    if not published or published.get('input_artifact_hashes',{}).get('scene:source_identity')!=identity['source']:
+        return None
+    near = [r for r in published['records'] if r.get('model_rev')==identity['model'] and
+            (r['record_id']==rid or (id_at and abs(r['t_ms']-t_ms)<=NEAR_MS and r['record_id']==id_at(r['t_ms'])))]
+    return CosmosRecord.model_validate(min(near,key=lambda r:abs(r['t_ms']-t_ms))) if near else None
 
 
 def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid, region, run_id, deadline):
@@ -294,9 +390,11 @@ def _s3():
 
 def _json(scene_key: str, rel: str) -> Any:
     """Parsed JSON asset; None when the file does not exist (a chunk with no rows)."""
+    remaining(30)
     src = _asset(scene_key, rel)
     if src.startswith("http"):
-        r = httpx.get(src, timeout=30)
+        r = httpx.get(src, timeout=remaining(30))
+        remaining(30)
         return None if r.status_code == 404 else r.raise_for_status().json()
     return json.loads(Path(src).read_text()) if Path(src).is_file() else None
 
@@ -367,20 +465,43 @@ def _frames(scene_key: str, m: dict, cam: str, targets: list[int], actors: set[s
     for src, offset in sources:
         if i == len(targets):
             break
+        remaining(TIMEOUT_S)
+        # Download remote media with bounded HTTP I/O. Native VideoCapture URL
+        # reads otherwise bypass httpx and the investigation deadline entirely.
+        temporary = None
+        if src.startswith(('https://','http://')):
+            handle = tempfile.NamedTemporaryFile(suffix='.mp4',delete=False)
+            temporary = Path(handle.name)
+            try:
+                with handle, httpx.stream('GET',src,timeout=remaining(30)) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes():
+                        remaining(30)
+                        handle.write(chunk)
+            except BaseException:
+                temporary.unlink(missing_ok=True)
+                raise
+            src = str(temporary)
         cap = cv2.VideoCapture(src)
         cap.set(cv2.CAP_PROP_POS_MSEC, max(0, targets[i] - offset - 500))
-        while i < len(targets):
-            ok, bgr = cap.read()
-            if not ok:
-                break
-            ms = round(cap.get(cv2.CAP_PROP_POS_MSEC)) + offset
-            if ms < targets[i]:
-                continue
-            while i < len(targets) and targets[i] <= ms:
-                i += 1
-            if ms - targets[i - 1] < STEP_MS:  # a gap in the video skips the target rather than shifting it
-                out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands])))
-        cap.release()
+        try:
+            while i < len(targets):
+                remaining(TIMEOUT_S)
+                ok, bgr = cap.read()
+                remaining(TIMEOUT_S)
+                if not ok:
+                    break
+                ms = round(cap.get(cv2.CAP_PROP_POS_MSEC)) + offset
+                if ms < targets[i]:
+                    continue
+                while i < len(targets) and targets[i] <= ms:
+                    i += 1
+                if ms - targets[i - 1] < STEP_MS:  # a gap in the video skips the target rather than shifting it
+                    out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands])))
+        finally:
+            cap.release()
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
     return out
 
 
@@ -389,7 +510,7 @@ def _chunk(scene_key: str, uri: str) -> str:
     presigned URL of the VSS object."""
     if not uri.startswith("s3://"):
         return _asset(scene_key, uri)
-    cached = Path(os.environ.get("RUNS_DIR", "runs")) / "street" / "chunks" / (street_digest(uri) + ".mp4")
+    cached = Path(os.environ.get("RUNS_DIR", "runs")) / "street" / "chunks" / (street_digest(uri+('|' + os.environ['EVIDENCE_REVISION'] if os.environ.get('EVIDENCE_REVISION') else '')) + ".mp4")
     if cached.is_file():
         return str(cached)
     bucket, key = uri[5:].split("/", 1)

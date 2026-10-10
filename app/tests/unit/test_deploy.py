@@ -247,3 +247,22 @@ def test_split_configmaps_roundtrip_without_network(tmp_path, monkeypatch):
         assert (work / "sva" / rel).read_text() == f"# {rel}\n"
     assert not (work / "sva/pipeline/fleet/pie.py").exists()
     assert calls[-1][0] == "uvicorn"
+
+
+def test_bootstrap_supports_public_repository_root_layout(tmp_path,monkeypatch):
+    bootstrap=load_script('bootstrap')
+    archive=source_tar(tmp_path,{'Spatial-Video-Agent-sha/app/requirements.txt':b'fastapi\n',
+                               'Spatial-Video-Agent-sha/app/scripts/vendor.py':b'# vendor\n',
+                               'Spatial-Video-Agent-sha/app/main.py':b'# app\n',
+                               'Spatial-Video-Agent-sha/schemas/cosmos.json':b'{}'})
+    original=urllib.request.urlopen
+    monkeypatch.setattr(urllib.request,'urlopen',lambda url,**kw:original(archive.as_uri(),**kw))
+    monkeypatch.setenv('SVA_REPO','Paradox07127/Spatial-Video-Agent')
+    monkeypatch.setenv('SVA_COMMIT','a'*40)
+    monkeypatch.setenv('SVA_TARBALL_SHA256',hashlib.sha256(archive.read_bytes()).hexdigest())
+    work=tmp_path/'state'
+    work.mkdir()
+    intercept_exec(monkeypatch,bootstrap,work)
+    bootstrap.main()
+    assert (work/'sva/app/main.py').is_file()
+    assert (work/'sva/schemas/cosmos.json').is_file()

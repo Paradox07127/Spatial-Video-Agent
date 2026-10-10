@@ -558,6 +558,12 @@ def stage_records(key: str, recs: list, inputs: dict[str, str]) -> Path:
     d = publish.tmp_dir(CARD, key, out_root=OUT)
     (d / "cosmos").mkdir(exist_ok=True)
     rev = rev_tag({r.task: r.prompt_rev for r in recs})
+    try:
+        identity = vlm._source_identity(key) if os.environ.get('ASSET_DIR') else None
+    except (vlm.VLMUnavailable,FileNotFoundError):
+        identity = None  # a synthetic/staged record without its source cannot claim source provenance
+    if identity:
+        inputs = {**inputs,'scene:source_identity':identity}
     doc = {"schema_version": "1", "analysis_rev": rev, "producer_commit": commit(), "input_artifact_hashes": inputs,
            "scene_key": key, "records": [r.model_dump() for r in sorted(recs, key=lambda r: (r.t_ms, r.task))]}
     (d / "cosmos" / f"{key}.json").write_text(json.dumps(doc, ensure_ascii=False))

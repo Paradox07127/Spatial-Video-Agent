@@ -1,4 +1,5 @@
 import os
+import io
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -167,7 +168,7 @@ def test_b2_concurrent_street_cache_publication(tmp_path, monkeypatch, artifact)
         monkeypatch.setattr(live_measure,'fetch_sidecar',lambda *a: sidecar(50))
         fn=lambda: street._sidecar(s,source)
     elif artifact=='chunk':
-        s.s3=lambda: SimpleNamespace(get_object=lambda **k: {'Body':SimpleNamespace(read=lambda: b'video')})
+        s.s3=lambda: SimpleNamespace(get_object=lambda **k: {'Body':io.BytesIO(b'video')})
         fn=lambda: street.local_chunk(s,L1_KEY,{'uri':source})
     else:
         monkeypatch.setattr(street,'local_chunk',lambda *a: Path('video'))
@@ -188,6 +189,7 @@ def test_b2_vlm_cache_publishes_atomically(tmp_path, monkeypatch):
     monkeypatch.setattr(vlm,'_cache_dir',lambda:tmp_path/'cache')
     monkeypatch.setattr(vlm,'_cached',lambda *a:None)
     monkeypatch.setattr(vlm,'_live',lambda *a:record)
+    monkeypatch.setattr(vlm,'_cache_identity',lambda key:{'model':record.model_rev,'endpoint':'fixture','source':'fixture'})
     monkeypatch.setattr(vlm,'_rev',lambda *a:'test')
     writes=[]
     original=Path.write_text

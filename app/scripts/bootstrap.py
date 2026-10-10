@@ -41,12 +41,25 @@ def main():
                 raise ValueError("source tarball sha256 mismatch")
     with tarfile.open(archive, "r:gz") as tar:
         members = []
+        prefix = None
+        if not split:
+            names = [PurePosixPath(m.name) for m in tar.getmembers()]
+            roots = {p.parts[0] for p in names if p.parts}
+            if len(roots)!=1:
+                raise ValueError('source tarball must have one repository root')
+            top = next(iter(roots))
+            for candidate in (PurePosixPath(top),PurePosixPath(top)/'sva'):
+                if candidate/'app/requirements.txt' in names and candidate/'app/main.py' in names:
+                    prefix = candidate
+                    break
+            if prefix is None:
+                raise ValueError('source tarball does not contain the SVA application')
         for member in tar.getmembers():
             if not split:
                 path = PurePosixPath(member.name)
-                if len(path.parts) < 3 or path.parts[1] != "sva":
+                if not path.is_relative_to(prefix) or path==prefix:
                     continue
-                member.name = str(PurePosixPath(*path.parts[2:]))
+                member.name = str(path.relative_to(prefix))
             members.append(member)
         tar.extractall(source, members=members, filter="data")
     os.chdir(source)

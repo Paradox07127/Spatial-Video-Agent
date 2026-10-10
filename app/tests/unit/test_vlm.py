@@ -124,11 +124,15 @@ def test_situation_finds_the_batch_moment_at_the_agents_detection_time(calls, st
     assert times == [2000, 3300, 5800]
     records = [_published_c1(t) for t in times]
     scene_json = vlm._json
-    monkeypatch.setattr(vlm, "_json", lambda key, rel: {"records": records} if rel.startswith("cosmos/") else scene_json(key, rel))
+    monkeypatch.setattr(vlm, "_json", lambda key, rel: _published_doc(records) if rel.startswith("cosmos/") else scene_json(key, rel))
     calls["queue"].append(REC["C1"])
     rec = vlm.situation(K, tm, [EntityRef.model_validate(a) for a in card["actor_refs"]], run=_Run("r1"))
     assert rec == CosmosRecord.model_validate(records[1])
     assert calls["bodies"] == [] and steps[-1]["exec_state"] == "cached"
+
+
+def _published_doc(records):
+    return {'records':records,'input_artifact_hashes':{'scene:source_identity':vlm._source_identity(K)}}
 
 
 def _published_c1(t, *, key=K, cam="ceiling_00", ids=None, task="C1", rev=None):
@@ -136,7 +140,7 @@ def _published_c1(t, *, key=K, cam="ceiling_00", ids=None, task="C1", rev=None):
     rev = rev or vlm._rev(task, key)
     return {"record_id": make_record_id(key, task, t, None, [a.entity_id for a in refs], rev),
             "task": task, "t_ms": t, "cam_id": cam, "actor_refs": [a.model_dump() for a in refs],
-            "input_frame_refs": [{"cam_id": cam, "t_ms": t}], "prefix_only": False, "model_rev": "m",
+            "input_frame_refs": [{"cam_id": cam, "t_ms": t}], "prefix_only": False, "model_rev": "nvidia/cosmos3-nano-reasoner",
             "prompt_rev": rev, "payload": {"label": "yielding", "reason": "makes way", "uncertainty": 0},
             "verification": {"status": "verified", "method": "fixture", "ref": None}}
 
@@ -145,7 +149,7 @@ def _published_c1(t, *, key=K, cam="ceiling_00", ids=None, task="C1", rev=None):
 def test_situation_published_time_bound(calls, monkeypatch, offset):
     published = _published_c1(3300)
     scene_json = vlm._json
-    monkeypatch.setattr(vlm, "_json", lambda key, rel: {"records": [published]} if rel.startswith("cosmos/") else scene_json(key, rel))
+    monkeypatch.setattr(vlm, "_json", lambda key, rel: _published_doc([published]) if rel.startswith("cosmos/") else scene_json(key, rel))
     calls["queue"].append(REC["C1"])
     rec = vlm.situation(K, 3300 + offset, [F1, P1])
     assert (rec.record_id == published["record_id"]) == (abs(offset) <= 250)
@@ -157,7 +161,7 @@ def test_situation_published_time_bound(calls, monkeypatch, offset):
 def test_situation_nearby_record_must_match_the_request(calls, monkeypatch, change):
     published = _published_c1(3300, **change)
     scene_json = vlm._json
-    monkeypatch.setattr(vlm, "_json", lambda key, rel: {"records": [published]} if rel.startswith("cosmos/") else scene_json(key, rel))
+    monkeypatch.setattr(vlm, "_json", lambda key, rel: _published_doc([published]) if rel.startswith("cosmos/") else scene_json(key, rel))
     calls["queue"].append(REC["C1"])
     rec = vlm.situation(K, 3267, [P1, F1])
     assert rec.t_ms == 3267 and len(calls["bodies"]) == 1
@@ -277,7 +281,7 @@ def test_prediction_never_takes_a_nearby_record(calls, monkeypatch):
     published = {**_published_c1(3300, ids=[F1], task="C2"), "prefix_only": True, "payload": {"actions": ["continue"]},
                  "record_id": make_record_id(K, "C2", 3300, None, ["F1", "h2"], vlm._rev("C2", K))}
     scene_json = vlm._json
-    monkeypatch.setattr(vlm, "_json", lambda key, rel: {"records": [published]} if rel.startswith("cosmos/") else scene_json(key, rel))
+    monkeypatch.setattr(vlm, "_json", lambda key, rel: _published_doc([published]) if rel.startswith("cosmos/") else scene_json(key, rel))
     calls["queue"].append(REC["C2"])
     rec = vlm.predict_next(K, 3333, F1)
     assert rec.t_ms == 3333 and len(calls["bodies"]) == 1
@@ -347,3 +351,86 @@ def test_site_mode_reads_local_assets_when_asset_dir_is_set(monkeypatch, tmp_pat
     monkeypatch.setenv("ASSET_DIR", str(tmp_path))
     monkeypatch.setattr(vlm, "_s3", lambda: pytest.fail("site mode with ASSET_DIR must not call S3"))
     assert vlm._asset("wh-x", "manifest.json") == str(tmp_path / "wh-x" / "manifest.json")
+
+
+@pytest.mark.parametrize('change',['model','endpoint','release','source'])
+def test_runtime_cache_invalidates_model_release_and_source(calls,monkeypatch,tmp_path,change):
+    import shutil
+    root=tmp_path/'assets'
+    shutil.copytree(ASSETS/K,root/K)
+    monkeypatch.setenv('ASSET_DIR',str(root))
+    calls['queue'] += [REC['C4'],REC['C4']]
+    a=vlm.localize(K,'ceiling_04',1500,7500,'test source identity')
+    if change=='model':
+        monkeypatch.setenv('VLM_MODEL','a-different-model')
+    elif change=='endpoint':
+        monkeypatch.setenv('VLM_URL','http://other-model/v1')
+    elif change=='release':
+        monkeypatch.setenv('EVIDENCE_REVISION','new-release')
+    else:
+        path=root/K/'video/ceiling_04.mp4'
+        # Update bytes while preserving size and mtime: content, not metadata, is the identity.
+        old=path.stat()
+        raw=path.read_bytes()
+        path.write_bytes(raw[:-1]+bytes([raw[-1]^1]))
+        __import__('os').utime(path,ns=(old.st_atime_ns,old.st_mtime_ns))
+    b=vlm.localize(K,'ceiling_04',1500,7500,'test source identity')
+    assert len(calls['bodies'])==2
+    cached=json.loads((tmp_path/'vlm_cache'/f'{b.record_id}.json').read_text())
+    assert cached['identity']['source']==vlm._source_identity(K)
+    assert cached['record']['model_rev']==b.model_rev
+
+
+@pytest.mark.parametrize('mismatch',['model','source','missing_source'])
+def test_published_cache_requires_positive_model_and_source_match(calls,monkeypatch,mismatch):
+    published=_published_c1(3300)
+    doc=_published_doc([published])
+    if mismatch=='model':
+        published['model_rev']='old-model'
+    elif mismatch=='source':
+        doc['input_artifact_hashes']['scene:source_identity']='sha256:'+'0'*64
+    else:
+        doc['input_artifact_hashes']={}
+    original=vlm._json
+    monkeypatch.setattr(vlm,'_json',lambda key,rel:doc if rel.startswith('cosmos/') else original(key,rel))
+    calls['queue'].append(REC['C1'])
+    record=vlm.situation(K,3300,[P1,F1])
+    assert len(calls['bodies'])==1 and record.verification.status=='unverified'
+
+
+def test_frame_decode_stops_at_deadline_and_releases_capture(calls,steps,monkeypatch):
+    import numpy as np
+    from app.core import deadline
+    clock=[0.]
+    released=[]
+    class Capture:
+        def set(self,*args): pass
+        def read(self):
+            clock[0]+=.3
+            return True,np.zeros((360,640,3),dtype=np.uint8)
+        def get(self,*args): return clock[0]*1000
+        def release(self): released.append(True)
+    monkeypatch.setattr(deadline.time,'monotonic',lambda:clock[0])
+    monkeypatch.setattr(vlm.cv2,'VideoCapture',lambda src:Capture())
+    run=_Run('r-deadline')
+    run.deadline=.5
+    with pytest.raises(vlm.VLMUnavailable,match='budget exhausted'):
+        vlm.situation(K,4600,[P1,F1],run=run)
+    assert released==[True] and calls['bodies']==[]
+
+
+def test_remote_material_requires_release_and_chunks_do_not_reuse_old_release(monkeypatch,tmp_path):
+    uri='s3://bucket/clip.mp4'
+    manifest={'workspace':'street','cams':[{'id':'cam','video':None,'chunks':[{'uri':uri}]}],'assets':{}}
+    monkeypatch.setattr(vlm,'_manifest',lambda key:manifest)
+    monkeypatch.delenv('ASSET_DIR',raising=False)
+    monkeypatch.delenv('EVIDENCE_REVISION',raising=False)
+    assert vlm._source_identity(ST) is None
+    monkeypatch.setenv('RUNS_DIR',str(tmp_path))
+    monkeypatch.setattr(vlm,'_s3',lambda:type('S3',(),{'generate_presigned_url':lambda *a,**kw:'https://asset/clip.mp4'})())
+    old=tmp_path/'street/chunks'/(vlm.street_digest(uri)+'.mp4')
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b'old media')
+    monkeypatch.setenv('EVIDENCE_REVISION','r2')
+    assert vlm._source_identity(ST).startswith('sha256:')
+    assert vlm._chunk(ST,uri)=='https://asset/clip.mp4'

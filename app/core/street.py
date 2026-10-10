@@ -10,7 +10,8 @@ import json
 import os
 import tempfile
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from contextlib import closing
 
 import cv2
 from botocore.exceptions import BotoCoreError, ClientError
@@ -178,15 +179,30 @@ def segments(store, scene_key: str) -> list[dict]:
              'counts': counts_of(store, c), 'source': c.vss_source} for c in clips]
 
 
+def _download_object(store,bucket,key,path):
+    try:
+        body = store.s3().get_object(Bucket=bucket,Key=key)['Body']
+    except ClientError as exc:
+        if exc.response['Error']['Code'] in ('404','NoSuchKey','NotFound'):
+            raise FileNotFoundError('Media asset not found') from exc
+        raise
+    with closing(body):
+        _publish(path,body.read())
+
+
 def local_chunk(store, scene_key: str, chunk: dict) -> Path:
     """The chunk file: the fixture asset, or the S3 object downloaded once into RUNS_DIR."""
     uri = chunk['uri']
     if not uri.startswith('s3://'):
-        return store.local_asset(f'{scene_key}/{uri}')
-    path = _cache(store, 'chunks', _digest(uri) + '.mp4')
+        if store.asset_dir is not None:
+            return store.local_asset(f'{scene_key}/{uri}')
+        if PurePosixPath(uri).is_absolute() or '..' in PurePosixPath(uri).parts:
+            raise FileNotFoundError('Chunk not found')
+        uri = f's3://{store.settings.asset_bucket}/sva/{scene_key}/{uri}'
+    path = _cache(store, 'chunks', _digest(uri+('|' + os.environ['EVIDENCE_REVISION'] if os.environ.get('EVIDENCE_REVISION') else '')) + '.mp4')
     if not path.is_file():
         bucket, key = uri[5:].split('/', 1)
-        _publish(path,store.s3().get_object(Bucket=bucket, Key=key)['Body'].read())
+        _download_object(store,bucket,key,path)
     return path
 
 
@@ -196,7 +212,13 @@ def thumb(store, scene_key: str, cam: str, t_ms: int) -> Path:
     c = camera(street_manifest(store, scene_key), cam)
     s = t_ms // 1000
     if c['thumbs']:
-        return store.local_asset(f"{scene_key}/{c['thumbs']}/{s:05d}.jpg")
+        rel = f"{scene_key}/{c['thumbs']}/{s:05d}.jpg"
+        if store.asset_dir is not None:
+            return store.local_asset(rel)
+        path = _cache(store,'thumbs',_digest(rel+'|'+os.environ.get('EVIDENCE_REVISION',''))+'.jpg')
+        if not path.is_file():
+            _download_object(store,store.settings.asset_bucket,'sva/'+rel,path)
+        return path
     path = _cache(store, 'thumbs', scene_key, cam, f'{s:05d}.jpg')
     if not path.is_file():
         chunk = chunk_at(store, scene_key, cam, s * 1000)

@@ -5,6 +5,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from app.core.deadline import remaining
+
 
 def validate_vector(vector):
     if len(vector) != 256 or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in vector):
@@ -12,7 +14,7 @@ def validate_vector(vector):
     return [float(x) for x in vector]
 
 
-def embed_text(q: str, *, client=None) -> list[float]:
+def embed_text(q: str, *, client=None, deadline=None) -> list[float]:
     url = os.environ['EMBED_URL'].rstrip('/')
     ws = urlsplit(url).port == 8103
     body = {'texts': [q]} if ws else {'input': q,
@@ -26,11 +28,12 @@ def embed_text(q: str, *, client=None) -> list[float]:
         url += '/embeddings'
     headers = {'Authorization': 'Bearer '+os.environ['GPU_BEARER_TOKEN']} if os.environ.get('GPU_BEARER_TOKEN') else {}
     def request(c):
-        response = c.post(url, json=body, headers=headers)
+        response = c.post(url, json=body, headers=headers, timeout=remaining(5,deadline))
+        remaining(5,deadline)
         response.raise_for_status()
         data = response.json()
         return validate_vector(data['embeddings'][0] if ws else data['data'][0]['embedding'])
     if client is not None:
         return request(client)
-    with httpx.Client(timeout=5) as c:
+    with httpx.Client(timeout=remaining(5,deadline)) as c:
         return request(c)
