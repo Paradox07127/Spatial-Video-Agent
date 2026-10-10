@@ -9,7 +9,7 @@ const PICK_ANY = 'Leave empty and the agent picks the scene';
 
 let el = null, ctx = null, sources = null;
 // at: the open @ list {start, end, rows, i}; i === rows.length is the "agent picks" row. src: the picked row or null.
-let at = null, src = null;
+let at = null, src = null, pickerGeneration = 0;
 
 const wsIcon = (ws) => icon({ fleet: 'truck', street: 'camera' }[ws] ?? 'warehouse');
 const chip = (q, ws) => `<button type="button" class="preset" data-ws="${ws}">${wsIcon(ws)}${esc(q)}</button>`;
@@ -26,7 +26,7 @@ function lastRoute() {
 // opts: {ws, hash} of a picked source, or {ws, preset: true} for a chip.
 function ask(q, opts) {
   el.querySelector('#home-input').value = q;
-  el.querySelector('.home-out').replaceChildren();
+  el.querySelector('.home-refusal')?.remove();
   ctx.ask(q, opts);
 }
 
@@ -90,6 +90,7 @@ export function mount(root, c) {
     );
   }
   return () => {
+    closeAt();
     gone = true;
     stage?.dispose();
     css.remove();
@@ -134,8 +135,10 @@ function token(input) {
 }
 
 async function onInput(e) {
-  const input = e.target, rows = await sources;
-  const t = el && token(input);
+  const input = e.target, generation = ++pickerGeneration, t = token(input), rows = await sources;
+  if (generation !== pickerGeneration || !el || document.activeElement !== input) return;
+  const now = token(input);
+  if (t?.start !== now?.start || t?.end !== now?.end || t?.q !== now?.q) return;
   if (!t) return closeAt();
   at = { ...t, rows: rows.filter((r) => `${r.id} ${r.meta}`.toLowerCase().includes(t.q)), i: 0 };
   renderAt();
@@ -143,6 +146,7 @@ async function onInput(e) {
 
 function onKey(e) {
   if (!at) return;
+  pickerGeneration++;
   const n = at.rows.length + 1;
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     at.i = (at.i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
@@ -165,9 +169,11 @@ function renderAt() {
     ...at.rows.map((r, i) => row(i, `${wsIcon(r.ws)}<span class="home-at-id mono">${esc(r.id)}</span><span class="home-at-meta">${esc(r.meta)}</span>`, '', r.ws)),
     row(at.rows.length, PICK_ANY, ' home-at-any'),
   ].join('');
+  list.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
 }
 
 function closeAt() {
+  pickerGeneration++;
   if (!at || !el) return;
   at = null;
   renderAt();
@@ -191,10 +197,11 @@ function setSource(r) {
 
 // A refusal card under the box: why, and two questions that can be answered instead ([{q, ws}]).
 export function showAbstain(final, reason, suggestions) {
-  el.querySelector('.home-out').innerHTML = `
+  el.querySelector('.home-refusal')?.remove();
+  el.querySelector('.home-out').insertAdjacentHTML('beforeend', `
     <div class="home-refusal" data-final="${esc(final)}">
       <p class="hr-title">${icon('ban')}Not answerable from footage</p>
       <p class="hr-body">${esc(reason)}</p>
       <div class="hr-chips">${suggestions.map(({ q, ws }) => `<button type="button" class="preset" data-ws="${ws}">${esc(q)}</button>`).join('')}</div>
-    </div>`;
+    </div>`);
 }

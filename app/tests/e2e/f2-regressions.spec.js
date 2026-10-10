@@ -178,6 +178,7 @@ test('fleet late earlier chunk cannot overwrite cached later actors and GPS', as
 test('street boxes do not cross sampled empty frames before or after a car', async ({ page }) => {
   await page.route(new RegExp(`/api/street/${ST}/detections\\?`), (r) => r.fulfill({ json: { rows: [[2000, 'car', 10, 10, 100, 100, 0.9]], gaps: [] } }));
   await page.goto(`#/street/${ST}`);
+  await expect(page.locator('.st-root')).toBeVisible();
   await expect.poll(() => mod(page, 'street/page.js', 'm.probe().scene_key')).toBe(ST);
   await seek(page, 2000);
   await expect.poll(() => mod(page, 'street/page.js', 'm.probe().boxes')).toBe(1);

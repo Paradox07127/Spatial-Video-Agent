@@ -78,7 +78,8 @@ test('missing page module: stage says Page not loaded', async ({ page }) => {
   await page.route(/\/warehouse\/page\.js$/, (r) => r.fulfill({ status: 404, body: '' }));
   await page.goto('#/warehouse/wh-sdg-fixture-01');
   await expect(page.locator('#source-tag')).toHaveText('wh-sdg-fixture-01');
-  await expect(page.locator('#stage')).toHaveText('Page not loaded');
+  await expect(page.locator('#stage')).toContainText('Page not loaded:');
+  await expect(page.locator('#stage .page-retry')).toBeVisible();
   await expect(page.locator('#timeline .lane-coverage')).toHaveCount(3);
   await expect(page.locator('#timeline .ev-mark')).toHaveCount(2);
 });

@@ -169,7 +169,7 @@ body[data-run="done"] #moments .moment:first-child, body[data-run="done"] .p-mom
 .p-moments.open .p-more .i { transform: rotate(90deg); }
 
 /* ---- answer: reserved slot while running, pinned header when done */
-.answer { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 12px; }
+.answer { display: flex; flex: none; flex-direction: column; gap: 10px; padding: 16px 20px 12px; max-height: 40vh; overflow-y: auto; }
 .answer:empty { display: none; }
 body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; border-bottom: 1px solid var(--rule); }
 .ans-slot { display: flex; flex-direction: column; gap: 8px; }
@@ -336,7 +336,11 @@ body:not([data-run="done"]) .followup { display: none; }
 
 /* ---- home (#/): no ask bar, panel or timeline */
 body[data-view="home"] .ask { visibility: hidden; }
-body[data-view="home"] :is(.panel, #timeline, .narration, .takeover) { display: none; }
+body[data-view="home"] :where(.panel, #timeline, .narration, .takeover) { display: none; }
+body[data-view="home"][data-candidates="true"] .panel { display: flex; }
+body[data-view="home"]:is([data-run="running"], [data-run="failed"]) .home-out .narration { display: flex; position: static; transform: none; width: 100%; }
+body[data-view="home"] .home-out #ask-status { position: static; display: block; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; }
+.home-out:has(> #ask-status:empty):not(:has(.home-refusal)) { display: none; }
 .home {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 22vh 16px 32px; overflow-y: auto;
   background: radial-gradient(ellipse 58% 52% at 50% 47%, rgb(14 18 24 / 0.6) 0%, rgb(14 18 24 / 0.95) 78%);

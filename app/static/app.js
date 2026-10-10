@@ -48,10 +48,20 @@ const LAST_ROUTE = 'sva.lastRoute';
 const AGENT_LANE = { label: 'Agent looked', kind: 'agent' };
 const timeline = createTimeline($('#timeline'), clock.range);
 timeline.addLane('agent', AGENT_LANE);
-const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESETS, workspaces: () => workspaces, ask: async (q, { ws, hash, preset } = {}) => ask(q, { home: hash ?? (preset ? PRESET_ROUTE.get(q) : null) ?? await defaultRoute(ws) }) };
+const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESETS, workspaces: () => workspaces, ask: async (q, { ws, hash, preset } = {}) => {
+  const corpus = !hash && !preset && !ws;
+  ask(q, { home: corpus ? null : hash ?? (preset ? PRESET_ROUTE.get(q) : null) ?? await defaultRoute(ws), corpus });
+} };
 // Only workspaces that have a page template.
-const workspaces = api.get('api/workspaces').then((ws) => ws.filter((w) => PAGES[w.id]));
+const sceneWorkspaces = new Map();
+const workspaces = api.get('api/workspaces').then((ws) => {
+  for (const w of ws) for (const s of w.scenes) sceneWorkspaces.set(s.scene_key, w.id);
+  return ws.filter((w) => PAGES[w.id]);
+});
 let page = null, pageKind = null, dispose = null, stream = null, run = null;
+let navigation = 0, runGeneration = 0, evidenceGeneration = 0, pageQueue = Promise.resolve(), mountQueue = Promise.resolve(), applying = Promise.resolve(), pageContext = null;
+const narration = $('#narration'), feedback = $('#ask-status');
+const STALE = new Error('Superseded page command');
 let wsHash = null; // the route the run page opens over
 // Agent frames for the page wait, in arrival order, until the page they are for has mounted (null if it failed to load).
 // hold() makes later frames wait for the next mount; a hold still pending follows the newer one.
@@ -64,12 +74,40 @@ function hold() {
   return done;
 }
 const toPage = (fn) => {
-  const r = run;
-  mounted.then((p) => p && p === page && r === run && fn(p));
+  const r = run, generation = runGeneration, ready = mounted;
+  const owns = () => r === run && generation === runGeneration;
+  pageQueue = pageQueue.then(async () => {
+    const p = await ready;
+    if (!p || p !== page || pageContext?.generation !== navigation || !owns()) return;
+    const generation = navigation;
+    const valid = () => owns() && generation === navigation && p === page;
+    const c = pageContext;
+    c.owner = valid;
+    try {
+      applying = Promise.resolve(fn(p, valid));
+      await applying;
+    } finally {
+      c.owner = null;
+    }
+  }).catch((e) => {
+    if (e !== STALE && owns()) statusLine(`Evidence could not load: ${e.message}. Please retry.`);
+  });
+  return pageQueue;
 };
-// Inside toPage: whether a frame, moment or evidence of scene `key` is for the mounted page. A route without a scene
-// (all trips, #/test) takes every scene; frames without a scene_key are from fixtures recorded before it existed.
-const here = (key) => !key || !ctx.route.scene_key || key === ctx.route.scene_key;
+// A fleet overview accepts trips; a scene route owns exactly its scene. Legacy frames stay with the ask's source.
+const here = (key) => ctx.route.page === 'test' || (ctx.route.page === 'fleet' && !ctx.route.scene_key
+  ? !key || sceneWorkspaces.get(key) === 'fleet' : key ? key === ctx.route.scene_key : !ctx.route.scene_key);
+
+// Page reads started by a command retain its ownership even when the page does not await the read itself.
+function mountContext(route, generation) {
+  const c = { ...ctx, route, generation, owner: null };
+  c.api = { ...api, get(path) {
+    const owner = c.owner;
+    if (!owner) return api.get(path);
+    return api.get(path).then((value) => owner() ? value : Promise.reject(STALE));
+  } };
+  return c;
+}
 // e2e hook: the current run.
 export const currentRun = () => run;
 
@@ -93,6 +131,7 @@ const mmss = (ms) => tc(ms).slice(0, 5);
 // ---- routing: #/ home; #/warehouse/<scene_key>, #/fleet, #/fleet/<trip_id>@<t_ms>, #/street/<scene_key>[@<t_ms>], #/test;
 // #/run/<run_id> and #/runs open over them
 function parseRoute(hash) {
+  if (hash == null) return null;
   let m;
   if (hash === '' || hash === '#/') return { workspace: null, page: 'home', scene_key: null };
   if ((m = hash.match(/^#\/warehouse\/([a-z0-9_-]+)$/))) return { workspace: 'warehouse', page: 'warehouse', scene_key: m[1] };
@@ -121,13 +160,14 @@ async function defaultRoute(ws) {
   return ws === 'fleet' ? '#/fleet' : ws === 'street' ? firstStreet() : firstWarehouse();
 }
 
-async function resetTimeline(sceneKey, ws) {
+async function resetTimeline(sceneKey, ws, generation) {
   const street = ws === 'street';
   const [mf, tl] = sceneKey ? await Promise.all([api.get(`api/scene/${sceneKey}/manifest`), street ? null : api.get(`api/scene/${sceneKey}/timeline`)]) : [];
   // A street scene has no timeline asset: one coverage lane per camera from its video chunks, and no events.
   const lanes = street
     ? Object.fromEntries(await Promise.all(mf.cams.map(async (c) => [c.id, (await api.get(`api/street/${sceneKey}/chunks?cam=${encodeURIComponent(c.id)}`)).map((k) => [k.t0_ms, k.t1_ms, 'ok'])])))
     : tl?.lanes;
+  if (generation !== navigation) return;
   timeline.clear();
   if (sceneKey) {
     clock.bind({ kind: 'scene' });
@@ -156,20 +196,25 @@ async function onRoute() {
 }
 
 // Opens a route without waiting for hashchange, so the frames handled right after it already wait for the new page.
-function go(hash) {
+function go(hash, evidence = false) {
   history.pushState(null, '', hash);
-  onRoute();
+  runpage.close();
+  return mountWorkspace(hash, evidence);
 }
 
-async function mountWorkspace(hash) {
-  const route = parseRoute(hash);
+async function mountWorkspace(hash, evidence = false) {
+  const route = parseRoute(hash), generation = ++navigation;
   wsHash = hash;
-  // A question asked from home keeps running when its route opens.
-  if (ctx.route?.workspace !== route.workspace && !(run && run.home === hash)) {
+  const changed = ctx.route?.page !== route.page || ctx.route?.scene_key !== route.scene_key;
+  if (changed && !evidence) {
     toDefault();
     selection.clear();
   }
   ctx.route = route;
+  if (evidence && run) {
+    run.activeScene = route.scene_key;
+    renderModels();
+  }
   document.body.dataset.ws = route.workspace ?? '';
   if (route.page === 'home') setState('home');
   else {
@@ -180,25 +225,126 @@ async function mountWorkspace(hash) {
     $('#presets').innerHTML = PRESETS[route.workspace].map((q) => `<button class="preset">${esc(q)}</button>`).join('');
   }
   bus.emit('route', route);
-  const same = route.page === pageKind;
-  const done = same ? null : hold();
-  pageKind = route.page;
-  // Lanes are reset before the page mounts so that lanes a page adds survive.
-  await resetTimeline(route.page === 'warehouse' || route.page === 'street' ? route.scene_key : null, route.workspace);
-  if (same) return (route.scene_key || route.page === 'fleet') && page?.loadScene(route.scene_key);
+  const done = hold();
+  restoreFeedback();
+  $('#stage').style.visibility = 'hidden';
+  // Page modules keep module-local state, so mounts and commands must finish before another mount starts.
+  mountQueue = mountQueue.then(async () => {
+    await applying.catch(() => {});
+    if (generation !== navigation) return;
+    restoreFeedback();
+    dispose?.();
+    page = dispose = pageKind = pageContext = null;
+    const stage = $('#stage');
+    const host = document.createElement('div');
+    host.style.display = 'contents';
+    stage.replaceChildren(host);
+    stage.style.visibility = '';
+    let off = null;
+    try {
+      await resetTimeline(route.page === 'warehouse' || route.page === 'street' ? route.scene_key : null, route.workspace, generation);
+      if (generation !== navigation) return;
+      const p = await import(PAGES[route.page]);
+      if (generation !== navigation) return;
+      const c = mountContext(route, generation);
+      off = await p.mount(host, c);
+      if (generation !== navigation) {
+        off?.();
+        off = null;
+        return;
+      }
+      page = p;
+      pageKind = route.page;
+      pageContext = c;
+      dispose = off;
+      done(p);
+      if (route.page === 'home') homeFeedback();
+      else if (run) {
+        timeline.setEvidence(evMarks());
+        renderModels();
+      }
+    } catch (e) {
+      off?.();
+      host.replaceChildren();
+      if (generation !== navigation) return;
+      page = dispose = pageKind = pageContext = null;
+      done(null);
+      stage.innerHTML = `<p class="stage-msg"><span>Page not loaded: ${esc(e.message)}. <button type="button" class="preset page-retry">Retry</button></span></p>`;
+      stage.querySelector('.page-retry').onclick = () => mountWorkspace(hash, true);
+      statusLine(`Page not loaded: ${e.message}. Please retry.`);
+    }
+  });
+  await mountQueue;
+  return generation === navigation ? page : null;
+}
 
-  dispose?.();
-  page = dispose = null;
-  const stage = $('#stage');
-  stage.replaceChildren();
-  try {
-    page = await import(PAGES[route.page]);
-  } catch {
-    stage.innerHTML = '<p class="stage-msg">Page not loaded</p>';
-    return done(null);
+function restoreFeedback() {
+  $('.stage-wrap').append(narration);
+  $('#panel').append(feedback);
+}
+
+function homeFeedback() {
+  const out = $('.home-out');
+  if (out) out.append(feedback, narration);
+}
+
+function completion(d) {
+  const label = d.stop_reason === 'error' ? `Investigation failed${d.error ? `: ${typeof d.error === 'string' ? d.error : d.error.message ?? 'Backend error'}` : ''}. Please retry.`
+    : d.stop_reason === 'budget_exhausted' ? 'Budget exhausted; investigation incomplete. Ask a narrower question or a follow-up to continue.'
+    : d.stop_reason === 'abstained' || ABSTAIN[d.final] ? 'Done · Abstained. Try another question or source.' : 'Done';
+  return `${label} · ${count(run.steps.length, 'step')} · ${sec(took())}${d.cached ? ' · cached replay' : ''}`;
+}
+
+function renderModels() {
+  const records = ctx.route.page === 'test' ? [...(run?.models.values() ?? [])].flatMap((rs) => [...rs.values()])
+    : [...(run?.models.get(run?.activeScene ?? ctx.route.scene_key ?? run?.source)?.values() ?? [])];
+  if (records.length) modelpanel.render(records, 'summary');
+  else $('#modelpanel').replaceChildren();
+}
+
+function queueEvidence(key, fn) {
+  const item = { key, fn, applied: null };
+  run.queue.push(item);
+  return replayEvidence([item]);
+}
+
+function replayEvidence(items = run.queue) {
+  for (const item of items) toPage(async (p, owns) => {
+    if (!here(item.key) || item.applied === navigation) return;
+    await item.fn(p, owns);
+    if (owns()) item.applied = navigation;
+  });
+  return pageQueue;
+}
+
+async function activateEvidence(e, after = null, automatic = false) {
+  const r = run, generation = runGeneration, activation = ++evidenceGeneration;
+  const ws = (await workspaces).find((w) => w.scenes.some((s) => s.scene_key === e.scene_key));
+  if (r !== run || generation !== runGeneration || activation !== evidenceGeneration || !ws) return;
+  const hash = ws.id === 'fleet' ? `#/fleet/${e.scene_key}@${e.t0_ms}` : `#/${ws.id}/${e.scene_key}`;
+  const changed = ctx.route.page !== 'test' && (ctx.route.workspace !== ws.id || ctx.route.scene_key !== e.scene_key);
+  if (changed) {
+    selection.clear();
+    setStage('explore', null);
+    r.home = hash;
+    const p = await go(hash, true);
+    if (!p || r !== run || generation !== runGeneration || activation !== evidenceGeneration) return;
   }
-  dispose = await page.mount(stage, ctx);
-  done(page);
+  if (!page) return;
+  r.activeScene = e.scene_key;
+  setState('hit');
+  document.body.dataset.candidates = '';
+  renderModels();
+  if (document.body.dataset.run === 'done') { renderTabs(); renderFollowup(); }
+  if (automatic) return replayEvidence();
+  const m = run.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms);
+  await toPage((p, owns) => m && p.applyHits([m], owns));
+  await replayEvidence();
+  await toPage(() => {
+    if (activation !== evidenceGeneration) return;
+    clock.seek(clock.toWall(e.scene_key, e.t0_ms));
+    after?.();
+  });
 }
 
 function renderSourceTag() {
@@ -242,10 +388,13 @@ function hover(eid) {
 
 // ---- ask
 function toDefault() {
+  runGeneration++;
+  run?.held?.(null);
   stream?.abort();
   stream = run = null;
   if (state.view !== 'home') setState('default');
   document.body.dataset.run = '';
+  document.body.dataset.candidates = '';
   setStage('explore', null);
   setTab('answer');
   for (const s of ['#answer', '#tabs', '#keyframe', '#claims', '#modelpanel', '#moments', '#tab-evidence', '#tab-steps', '#narration', '.p-moments-head']) $(s).replaceChildren();
@@ -268,38 +417,44 @@ function statusLine(text) {
 const took = () => run.steps.at(-1)?.elapsed_ms ?? 0;
 
 // home: the route a question asked from the home page runs against; it opens on the first hits (or an answer that is not a refusal).
-function ask(q, { home = null, t_ms = null } = {}) {
+function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
   q = q.trim();
   if (!q) return;
   toDefault();
   const route = home ? parseRoute(home) : ctx.route;
   $('#ask-input').value = q;
   run = {
-    id: null, q, home, held: home ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
-    evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: [], lane: [], answers: [], calls: new Map(), moments: [], native: null, final: null,
-    skippedUi: 0,
+    id: null, q, home, source: route.scene_key, held: ctx.route.page === 'home' ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
+    evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], calls: new Map(), moments: [], native: null, final: null,
+    skippedUi: 0, corpus,
   };
   document.body.dataset.run = 'running';
   setAgentCamera(true);
-  if (!home) setState('searching');
+  if (ctx.route.page !== 'home') setState('searching');
+  else homeFeedback();
   statusLine('Sent, waiting for the agent…');
   renderSlot();
   renderNarration();
-  const context = { workspace: route.workspace, scene_key: route.scene_key };
-  if (selection.ids.size) context.selection = [...selection.ids];
+  const context = corpus ? { scope: 'corpus' } : { workspace: route.workspace, scene_key: route.scene_key };
+  if (!corpus && selection.ids.size) context.selection = [...selection.ids];
   if (t_ms != null) context.t_ms = t_ms;
-  stream = askSSE({ q, context }, handlers);
+  const r = run, generation = runGeneration;
+  stream = askSSE({ q, context }, Object.fromEntries(Object.entries(handlers).map(([event, fn]) => [event, (data) => {
+    if (r === run && generation === runGeneration) fn(data);
+  }])));
 }
 
 const sceneT = () => clock.map(clock.t)?.t_ms ?? clock.t;
-const followUp = (q) => ask(q, { t_ms: sceneT() });
+const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT() });
 
 function stop() {
+  runGeneration++;
   stream?.abort();
   stream = null;
   if (ctx.route.page === 'home') {
-    run.held(null);
+    run.held?.(null);
     document.body.dataset.run = '';
+    statusLine('Stopped. Ask again to continue.');
     return;
   }
   finish();
@@ -330,7 +485,7 @@ const handlers = {
     for (const e of d.evidence.filter((x) => x.method === 'ground_distance')) {
       const { a, b } = run.calls.get(d.call_id);
       const moment = run.moments.find((m) => m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms);
-      toPage((p) => here(e.scene_key) && p.showMeasure?.(e, [a.entity_id, b.entity_id], moment));
+      queueEvidence(e.scene_key, (p) => p.showMeasure?.(e, [a.entity_id, b.entity_id], moment));
     }
     run.items.find((it) => it.call?.call_id === d.call_id).result = d;
     const r = d.envelope.input_range;
@@ -339,27 +494,32 @@ const handlers = {
   },
   hits(d) {
     if (!d.moments.length) return;
-    if (ctx.route.page === 'home') go(run.home);
     run.moments = d.moments;
+    run.activeScene = d.moments.find((m) => here(m.scene_key))?.scene_key ?? run.activeScene;
     renderMoments(d.moments);
-    setState('hit');
-    // Moments of other scenes stay in the panel's list only.
-    toPage((p) => {
-      const ms = d.moments.filter((m) => here(m.scene_key));
-      if (ms.length) p.applyHits(ms);
-    });
+    run.candidates = d.auto_open === null;
+    if (ctx.route.page === 'home' && run.candidates) document.body.dataset.candidates = 'true';
+    if (ctx.route.page !== 'home') setState('hit');
+    const key = d.auto_open ?? (d.auto_open === undefined && ctx.route.page === 'home' ? parseRoute(run.home)?.scene_key ?? (run.home ? null : d.moments[0].scene_key) : null);
+    if (key) run.opening = activateEvidence({ scene_key: key, t0_ms: d.moments.find((m) => m.scene_key === key)?.t0_ms ?? 0 }, null, true);
+    else if (ctx.route.page === 'home' && d.auto_open === undefined && run.home) go(run.home, true);
+    for (const key of new Set(d.moments.map((m) => m.scene_key))) {
+      queueEvidence(key, (p, owns) => p.applyHits(d.moments.filter((m) => m.scene_key === key), owns));
+    }
   },
   model_result(d) {
-    run.models = d.results;
-    modelpanel.render(d.results, 'summary');
-    toPage((p) => {
-      const rs = d.results.filter((r) => here(r.scene_key));
-      if (rs.length || !d.results.length) p.applyModelResults(rs);
-    });
+    const key = d.scene_key ?? run.source;
+    if (!run.models.has(key)) run.models.set(key, new Map());
+    for (const r of d.results) run.models.get(key).set(r.record_id, r);
+    renderModels();
+    const records = [...run.models.get(key).values()];
+    queueEvidence(key, (p, owns) => p.applyModelResults(records, owns));
   },
   ui(d) {
     if (!state.agentCamera && CAMERA_CMDS.has(d.cmd)) return;
-    toPage((p) => (here(d.scene_key) ? p.applyUI(d) : run.skippedUi++));
+    const key = d.scene_key ?? d.args.scene_key ?? run.source;
+    if (!here(key)) run.skippedUi++;
+    queueEvidence(key, (p, owns) => p.applyUI(d, owns));
   },
   claim(d) {
     run.claims.set(d.claim_id, d);
@@ -379,21 +539,53 @@ const handlers = {
   },
   status(d) {
     run.final = d.final;
+    run.stopReason = d.stop_reason;
+    run.failure = d.error;
     trace.linkWeave(d.weave_url);
     if (ctx.route.page === 'home') {
       if (d.final === 'UNSUPPORTED') return refuseAtHome(d);
-      go(run.home);
+      if (run.opening) {
+        finish();
+        statusLine(completion(d));
+        return;
+      }
+      if (d.stop_reason === 'error' || d.stop_reason === 'budget_exhausted') {
+        run.held?.(null);
+        document.body.dataset.run = 'failed';
+        statusLine(completion(d));
+        return;
+      }
+      if (run.candidates) {
+        finish();
+        statusLine(completion(d));
+        return;
+      }
+      if (run.home && !run.corpus) go(run.home, true);
+      else {
+        run.held?.(null);
+        document.body.dataset.run = 'done';
+        statusLine(completion(d));
+        page.showAbstain(d.final, ABSTAIN[d.final]?.[0] ?? 'The investigation finished without a resolved answer. Try another question or source.', []);
+        return;
+      }
     }
     finish();
     timeline.setEvidence(evMarks());
-    statusLine(`Done · ${count(run.steps.length, 'step')} · ${sec(took())}${d.cached ? ' · cached replay' : ''}`);
+    statusLine(completion(d));
     if (ABSTAIN[d.final]) setState('abstained');
     else if (state.view === 'searching') setState('default');
   },
   done() {
     stream = null;
   },
+  comparison_error(e) {
+    stream = null;
+    statusLine(`Answer complete. Comparison connection failed: ${e.message}`);
+    $('#tab-steps').insertAdjacentHTML('beforeend', `<p class="muted">Comparison connection failed: ${esc(e.message)}</p>`);
+  },
   error(e) {
+    runGeneration++;
+    run.held?.(null);
     stream = null;
     document.body.dataset.run = 'failed';
     if (state.view !== 'home') setState('default');
@@ -404,9 +596,10 @@ const handlers = {
 
 // A refusal asked from home stays on the home page; frames held for a workspace page are dropped.
 function refuseAtHome(d) {
-  run.held(null);
+  run.held?.(null);
   document.body.dataset.run = '';
-  const ws = parseRoute(run.home).workspace;
+  statusLine(completion(d));
+  const ws = parseRoute(run.home)?.workspace ?? 'warehouse';
   page.showAbstain(d.final, ABSTAIN.UNSUPPORTED[0], PRESETS[ws].slice(0, 2).filter((q) => q !== run.q).map((q) => ({ q, ws })));
 }
 
@@ -468,14 +661,15 @@ function numbered(d) {
 function renderAnswer() {
   const abstain = ABSTAIN[run.final];
   const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))];
-  const text = run.answers.join('') || (abstain ? `${abstain[0]}<span class="muted"> (${esc(run.lastStep.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
+  const text = run.answers.join('') || (abstain ? `${abstain[0]}<span class="muted"> (${esc(run.lastStep?.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
   // The first two presets of each workspace are answerable ones.
-  const instead = PRESETS[ctx.route.workspace].slice(0, 2).filter((q) => q !== run.q);
+  const instead = (PRESETS[ctx.route.workspace] ?? PRESETS.warehouse).slice(0, 2).filter((q) => q !== run.q);
   $('#answer').innerHTML = `
     <div class="ans-head">${run.final ? say(run.final) : '<span class="verdict say v-stopped">Stopped</span>'}
       <span class="mono muted ans-meta">${count(run.steps.length, 'step')} · ${sec(took())}</span>
       ${run.id ? `<a class="ans-run" href="#/run/${esc(run.id)}">${icon('workflow')}Reasoning</a>` : ''}</div>
     <p class="ans-text">${text}</p>
+    ${run.stopReason === 'error' || run.stopReason === 'budget_exhausted' ? `<p class="ans-instead">${esc(completion({ stop_reason: run.stopReason, error: run.failure }))}</p>` : ''}
     ${kinds.length ? `<div class="ans-src">${kinds.map(source).join('')}</div>` : ''}
     ${abstain ? `<p class="ans-instead">${abstain[1]}${instead.map((q) => `<button class="preset">${esc(q)}</button>`).join('')}</p>` : ''}`;
 }
@@ -509,7 +703,7 @@ function renderKeyframe() {
       <figcaption class="mono"><span class="kf-at">${esc(m.primary_cam)} · ${tc(m.t0_ms)}</span>
         <button type="button" class="kf-play">${icon('play')}Play ${mmss(Math.max(0, m.t0_ms - 2500))}–${mmss(m.t0_ms + 2500)}</button></figcaption>
     </figure>`;
-  $('#keyframe .kf-play').onclick = () => { clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500))); clock.play(); };
+  $('#keyframe .kf-play').onclick = () => activateEvidence(m, () => { clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500))); clock.play(); });
 }
 
 const predText = (p) => `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator)} ${esc(p.value)} ${esc(p.unit ?? '')}`;
@@ -558,8 +752,7 @@ function renderMoments(moments) {
     if (!b) return;
     const m = moments[+b.dataset.i];
     document.querySelectorAll('.moment').forEach((x) => x.classList.toggle('on', x === b));
-    clock.seek(clock.toWall(m.scene_key, m.t0_ms));
-    selection.set(m.actor_refs.map((a) => a.entity_id), { source: 'user' });
+    activateEvidence(m, () => selection.set(m.actor_refs.map((a) => a.entity_id), { source: 'user' }));
   };
 }
 
@@ -573,7 +766,7 @@ function renderMomentsHead() {
 
 function renderFollowup() {
   const ws = ctx.route.workspace;
-  $('#followup .fu-chips').innerHTML = PRESETS[ws].filter((q) => q !== run.q).slice(0, 2).map((q) => `<button type="button" class="preset">${esc(q)}</button>`).join('');
+  $('#followup .fu-chips').innerHTML = (PRESETS[ws] ?? []).filter((q) => q !== run.q).slice(0, 2).map((q) => `<button type="button" class="preset">${esc(q)}</button>`).join('');
   $('#followup-input').value = '';
   renderContext();
 }
@@ -680,9 +873,12 @@ function nativeBlock(d) {
 }
 
 // Citation click: seek to the evidence, enter evidence mode and flash every row that shows it (1.4 s × 2).
-function flash(eid) {
+async function flash(eid) {
   const e = run.evidence.get(eid);
-  clock.seek(clock.toWall(e.scene_key, e.t0_ms));
+  await activateEvidence(e, () => focusEvidence(eid, e));
+}
+
+function focusEvidence(eid, e) {
   bus.emit('evidence:focus', e);
   setStage('evidence', eid);
   document.querySelectorAll(`.ev[data-eid="${CSS.escape(eid)}"]`).forEach((row) => {
@@ -749,7 +945,7 @@ $('#narration').addEventListener('click', (e) => {
 });
 $('#takeover button').addEventListener('click', () => setAgentCamera(false));
 $('#stage').addEventListener('pointerdown', () => document.body.dataset.run === 'running' && setAgentCamera(false));
-document.addEventListener('click', (e) => {
+$('#panel').addEventListener('click', (e) => {
   const c = e.target.closest('.cite, .ans-num, .ans-time, .ev');
   if (c && !e.target.closest('.ev-raw-btn, .ev-raw') && run?.evidence.has(c.dataset.eid)) flash(c.dataset.eid);
 });

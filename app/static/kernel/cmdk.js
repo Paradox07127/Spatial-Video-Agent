@@ -3,16 +3,18 @@ import { icon } from './badges.js';
 import { esc } from './format.js';
 
 const el = () => document.getElementById('cmdk');
-let items = [], shown = [], active = 0, ask = null;
+let items = [], shown = [], active = 0, ask = null, invoking = null;
 
 function render() {
   const q = input.value.trim();
-  shown = items.filter((it) => !q || it.label.includes(q) || it.hint.includes(q));
+  const match = q.toLowerCase();
+  shown = items.filter((it) => !match || it.label.toLowerCase().includes(match) || it.hint.toLowerCase().includes(match));
   if (q) shown.push({ icon: 'search', label: `Ask the agent: ${q}`, hint: '↵', run: () => ask(q) });
   active = Math.min(active, Math.max(shown.length - 1, 0));
   el().querySelector('ul').innerHTML = shown
     .map((it, i) => `<li class="${i === active ? 'on' : ''}" data-i="${i}">${icon(it.icon)}<span class="cmdk-label">${esc(it.label)}</span><span class="mono hint">${esc(it.hint)}</span></li>`)
     .join('') || '<li class="empty">Type to search scenes, or ask the agent</li>';
+  el().querySelector('li.on')?.scrollIntoView({ block: 'nearest' });
 }
 
 function pick(i) {
@@ -25,6 +27,7 @@ export const cmdk = {
   isOpen: () => !el().hidden,
   // list: [{icon, label, hint, run()}]; onAsk(q) runs the "ask agent" entry.
   open(list, onAsk) {
+    if (!cmdk.isOpen()) invoking = document.activeElement;
     items = list;
     ask = onAsk;
     active = 0;
@@ -35,6 +38,8 @@ export const cmdk = {
   },
   close() {
     el().hidden = true;
+    if (invoking?.isConnected) invoking.focus();
+    invoking = null;
   },
 };
 

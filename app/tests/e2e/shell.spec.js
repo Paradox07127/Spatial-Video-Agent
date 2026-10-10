@@ -126,7 +126,7 @@ test('an answerable question from home opens its source route on the first hits 
   expect(calls).toEqual(expect.arrayContaining(['mount', 'applyHits', 'applyModelResults', 'applyUI']));
 });
 
-test('a fleet place chip on home runs against all trips; a typed question keeps the last route', async ({ page }) => {
+test('a fleet place chip on home runs against all trips; a typed question searches the corpus', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('sva.lastRoute', '#/fleet/fl-pie-fixture-01@0'));
   await page.route(/\/api\/agent\/ask$/, () => {});
   const sent = [];
@@ -137,7 +137,7 @@ test('a fleet place chip on home runs against all trips; a typed question keeps 
   await page.locator('#home-input').fill('Near the ROM, did a pedestrian cross in front of the car?');
   await page.keyboard.press('Enter');
   await expect.poll(() => sent.length).toBe(2);
-  expect(sent.map((c) => [c.workspace, c.scene_key ?? null])).toEqual([['fleet', null], ['fleet', 'fl-pie-fixture-01']]);
+  expect(sent).toEqual([{ workspace: 'fleet', scene_key: null }, { scope: 'corpus' }]);
 });
 
 test('while running: the narration card names the step, Stop ends the run as stopped', async ({ page }) => {

@@ -156,6 +156,16 @@ function moment(key, t) {
   return { t_ms: t, persons, forklift, floor_visibility_ref: m.assets.visibility ? `api/assets/${key}/${m.assets.visibility}` : null, cams };
 }
 
+function fixtureWorkspaces() {
+  const ws = Object.fromEntries(WORKSPACES.map(([id]) => [id, []]));
+  for (const k of scenes()) {
+    const mf = read(`${k}/manifest.json`);
+    ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null,
+      n_events: mf.assets.events ? read(`${k}/${mf.assets.events}`).events.length : 0, tag: mf.workspace === 'street' ? 'fixed' : mf.workspace, evidence_level: levelOf(mf), caps: capabilities(mf) });
+  }
+  return WORKSPACES.map(([id, title]) => ({ id, title, scenes: ws[id] }));
+}
+
 async function mockApi(page) {
   if (LIVE) return;
   await page.route(/\/api\//, async (route) => {
@@ -164,13 +174,7 @@ async function mockApi(page) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     let m;
     if (p === 'workspaces') {
-      const ws = Object.fromEntries(WORKSPACES.map(([id]) => [id, []]));
-      for (const k of scenes()) {
-        const mf = read(`${k}/manifest.json`);
-        ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null,
-          n_events: mf.assets.events ? read(`${k}/${mf.assets.events}`).events.length : 0, evidence_level: levelOf(mf), caps: capabilities(mf) });
-      }
-      return json(WORKSPACES.map(([id, title]) => ({ id, title, scenes: ws[id] })));
+      return json(fixtureWorkspaces());
     }
     if ((m = p.match(/^street\/([a-z0-9_-]+)\/(segments|detections|chunks|thumb)$/))) {
       const [, key, what] = m, cam = url.searchParams.get('cam');
@@ -262,4 +266,22 @@ async function mockAskHeld(page, askId, held) {
   }, [sseBody(askId, 0, k), sseBody(askId, k)]);
 }
 
-module.exports = { ASKS, sseBody, mockApi, mockAsk, mockAskHeld, hazardZone };
+async function mockAskFrames(page, frames) {
+  const body = frames.map((f) => `event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`).join('');
+  await page.route(/\/api\/agent\/ask$/, (r) => r.fulfill({ contentType: 'text/event-stream', body }));
+}
+
+// More than one scene of a kind, with the same small assets, for route and queue races.
+async function mockSceneAlias(page, key, original) {
+  const mf = { ...read(`${original}/manifest.json`), scene_key: key, title: `Scene ${key}` };
+  await page.route(new RegExp(`/api/(scene|assets|street)/${key}(/|\\?)`), (r) => {
+    if (r.request().url().endsWith(`/scene/${key}/manifest`)) return r.fulfill({ json: mf });
+    return r.fallback({ url: r.request().url().replace(`/${key}/`, `/${original}/`) });
+  });
+  await page.route(new RegExp(`/api/model-results\\?scene_key=${key}(&|$)`), (r) =>
+    r.fallback({ url: r.request().url().replace(`scene_key=${key}`, `scene_key=${original}`) }));
+  return { scene_id: mf.scene_id, scene_key: key, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null, n_events: 0,
+    tag: mf.workspace === 'street' ? 'fixed' : mf.workspace, evidence_level: levelOf(mf), caps: capabilities(mf) };
+}
+
+module.exports = { ASKS, sseBody, mockApi, mockAsk, mockAskHeld, mockAskFrames, mockSceneAlias, fixtureWorkspaces, hazardZone };

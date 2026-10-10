@@ -37,7 +37,7 @@ def test_site_mode_builds_vss_without_login(index_db, tmp_path, monkeypatch):
 def test_scene_routes_and_json_contract(client):
     h = client.get('/health').json()
     assert h['ok'] and h['assets_ok'] and h['index_rows']['clips'] == 8
-    assert [w['id'] for w in client.get('/api/workspaces').json()] == ['warehouse', 'fleet']
+    assert [w['id'] for w in client.get('/api/workspaces').json()] == ['warehouse', 'fleet', 'street']
     for kind in ('manifest', 'entities'):
         r = client.get(f'/api/scene/{WH}/{kind}')
         assert r.status_code == 200 and schema_errors(r.json(), kind + '.json') == []
@@ -149,12 +149,15 @@ def street_app(tmp_path, monkeypatch, *, site):
     return TestClient(create_app())
 
 
-def test_workspaces_have_levels_and_caps_and_hide_street(tmp_path, monkeypatch):
+def test_workspaces_have_tags_levels_and_caps_including_street(tmp_path, monkeypatch):
+    from app.tests.unit.a5_fakes import L1_KEY
     with street_app(tmp_path, monkeypatch, site=False) as c:
         groups = {w['id']: w['scenes'] for w in c.get('/api/workspaces').json()}
-        assert 'street' not in groups
+        assert len(groups['street']) == 1
+        assert groups['street'][0]['tag'] == 'fixed'
+        assert groups['street'][0]['caps']['distance']['reason'] == 'no_geometry'
         levels = {s['scene_key']: s['evidence_level'] for g in groups.values() for s in g}
-        assert levels == {WH: 'L3', FL: 'L2', 'fl-pie-fixture-02': 'L2'}
+        assert levels == {WH: 'L3', FL: 'L2', 'fl-pie-fixture-02': 'L2', L1_KEY: 'L1'}
         for scene in (s for g in groups.values() for s in g):
             assert {'distance', 'ground_position', 'map', 'blind_spot', 'tracks', 'speed', 'boxes_2d', 'caption', 'cosmos'} == set(scene['caps'])
 

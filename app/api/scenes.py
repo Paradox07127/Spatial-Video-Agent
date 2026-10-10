@@ -9,7 +9,7 @@ from shapely.geometry import Point, Polygon
 from starlette.concurrency import run_in_threadpool
 
 from app.core import street
-from app.core.models import CosmosRecord, Moment, capabilities, level_of
+from app.core.models import CosmosRecord, Moment, capabilities, level_of, tag_of
 from app.core.store import nearest
 
 router = APIRouter()
@@ -27,8 +27,7 @@ class ZoneRequest(BaseModel):
 def workspaces(request: Request):
     store = request.app.state.store
     grouped = []
-    # street is left out until the new shell has a street page: the current command palette routes every non-warehouse group to fleet
-    for workspace, title in [('warehouse', 'Warehouse'), ('fleet', 'Fleet')]:
+    for workspace, title in [('warehouse', 'Warehouse'), ('fleet', 'Fleet'), ('street', 'Street')]:
         scenes = []
         for m in store.list_scenes(workspace):
             key = m['scene_key']
@@ -42,7 +41,7 @@ def workspaces(request: Request):
                 elif cam.get('chunks'):
                     thumb = f"/api/street/{key}/thumb?cam={cam['id']}&t={m['t0_ms']}"
             scenes.append({k: m[k] for k in ('scene_id', 'scene_key', 'title', 't0_ms', 't1_ms')} | {'thumb': thumb, 'n_events': len(store.events_in(key, m['t0_ms'], m['t1_ms'])),
-                                                                                                  'evidence_level': level_of(m), 'caps': capabilities(m)})
+                                                                                                  'tag': tag_of(m), 'evidence_level': level_of(m), 'caps': capabilities(m)})
         grouped.append({'id': workspace, 'title': title, 'scenes': scenes})
     return grouped
 

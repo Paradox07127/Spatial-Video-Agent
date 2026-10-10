@@ -107,8 +107,8 @@ async function ixTick(wall) {
   let frames, rows;
   try {
     [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
-  } catch {
-    if (ix !== cur || current !== cur.tick) return;
+  } catch (err) {
+    if (ix !== cur || current !== cur.tick || err?.message === 'Superseded page command') return;
     cur.frame = null;
     cur.video.clear();
     cur.el.querySelector('.fl-3d').style.visibility = 'hidden';
@@ -164,8 +164,8 @@ async function renderTrip() {
   try {
     frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
       .filter((f) => f.t_ms >= m.t0_ms && f.t_ms < m.t1_ms);
-  } catch {
-    if (ix === cur) el.textContent = 'Detections unavailable';
+  } catch (err) {
+    if (ix === cur && err?.message !== 'Superseded page command') el.textContent = 'Detections unavailable';
     return;
   }
   if (ix !== cur) return;
@@ -218,12 +218,15 @@ function enterIx(trip, m) {
       src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
     }),
   };
+  const owns = ctx.owner ?? (() => true);
   const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
   ctx.api.get(`api/model-results?${q}`).then((rs) => {
     if (ix !== cur) return;
     cur.c5 = rs.filter((r) => r.task === 'C5');
     cur.frame = null;
     ixTick(ctx.clock.t);
+  }).catch((e) => {
+    if (owns() || e?.message !== 'Superseded page command') throw e;
   });
   ixTick(ctx.clock.t);
   if (!document.getElementById('tab-trip').hidden) renderTrip();
@@ -318,9 +321,13 @@ export async function mount(el, c) {
     onCar(id) {
       const trip = byId(id), t = tripT(trip.replay, ctx.clock.t);
       if (trip.cam && t != null) openTrip(trip, t);
-      else ov.select(id);
+      else {
+        leaveIx();
+        ov.select(id);
+      }
     },
     onEvent(trip, e) {
+      if (!trip.cam) leaveIx();
       ov.select(trip.id);
       ctx.timeline.highlight(`${trip.id}:${e.id}`);
       ctx.clock.seek(wallOf(trip.replay, e.t0_ms));

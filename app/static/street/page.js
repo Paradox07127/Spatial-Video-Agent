@@ -76,8 +76,8 @@ async function tick(t) {
     if (s !== S || t !== ctx.clock.t || presented !== s.presented) return;
     draw(rowsAt(d, presented));
     root.querySelector('.st-chip').textContent = 'L1 · 2D video';
-  } catch {
-    if (s === S && t === ctx.clock.t) root.querySelector('.st-chip').textContent = 'L1 · 2D video · Detections unavailable';
+  } catch (err) {
+    if (s === S && t === ctx.clock.t && err?.message !== 'Superseded page command') root.querySelector('.st-chip').textContent = 'L1 · 2D video · Detections unavailable';
   }
 }
 
@@ -116,8 +116,7 @@ export async function mount(el, c) {
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
   offs = [ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
-  await loadScene(ctx.route.scene_key);
-  return () => {
+  const dispose = () => {
     alive = false;
     offs.forEach((off) => off());
     video.pause();
@@ -125,6 +124,13 @@ export async function mount(el, c) {
     video.load();
     S = null;
   };
+  try {
+    await loadScene(ctx.route.scene_key);
+  } catch (e) {
+    dispose();
+    throw e;
+  }
+  return dispose;
 }
 
 // #/street/<scene_key>[@<t_ms>]; the shell has set the clock range and the coverage lanes before.

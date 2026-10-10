@@ -98,9 +98,7 @@ export async function mount(root, ctx) {
   ];
   host.addEventListener('click', onClick);
   host.addEventListener('change', (e) => e.target.matches('input[data-layer]') && setLayer(e.target.dataset.layer, e.target.checked));
-  const key = ctx.route.scene_key ?? (await ctx.api.get('api/workspaces')).find((w) => w.id === 'warehouse').scenes[0].scene_key;
-  await loadScene(key);
-  return () => {
+  const dispose = () => {
     offs.forEach((off) => off());
     clearTimeout(P.toastTimer);
     players().forEach((v) => v.dispose());
@@ -109,6 +107,14 @@ export async function mount(root, ctx) {
     css.remove();
     P = null;
   };
+  try {
+    const key = ctx.route.scene_key ?? (await ctx.api.get('api/workspaces')).find((w) => w.id === 'warehouse').scenes[0].scene_key;
+    await loadScene(key);
+  } catch (e) {
+    dispose();
+    throw e;
+  }
+  return dispose;
 }
 
 export function loadScene(key) {
@@ -524,7 +530,7 @@ function onClick(e) {
   }
 }
 
-export async function applyHits(moments) {
+export async function applyHits(moments, owns = () => true) {
   await P.ready;
   const { api, clock } = P.ctx, m = moments[0];
   P.hitCams = [m.primary_cam, ...m.cams.filter((c) => c !== m.primary_cam)].map((id) => P.mf.cams.find((c) => c.id === id));
@@ -535,7 +541,9 @@ export async function applyHits(moments) {
   if (!P.inEvidence) setDock();
   updateRail();
   renderVideos();
-  api.get(`api/model-results?scene_key=${P.key}&t_ms=${m.t0_ms}&window_ms=3000`).then((rs) => state.view === 'hit' && addModels(rs));
+  api.get(`api/model-results?scene_key=${P.key}&t_ms=${m.t0_ms}&window_ms=3000`).then((rs) => state.view === 'hit' && addModels(rs)).catch((e) => {
+    if (owns() || e?.message !== 'Superseded page command') throw e;
+  });
   const ps = m.actor_refs.map((a) => P.stage.position(a.entity_id, m.t0_ms)).filter(Boolean);
   if (ps.length && state.agentCamera) P.stage.fit((P.hitPts = ps));
 }

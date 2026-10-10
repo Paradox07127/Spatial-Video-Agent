@@ -904,8 +904,8 @@ test('while the scene loads the stage says Loading scene…; a scene that cannot
   await mockApi(page);
   await page.route(new RegExp(`/api/scene/${KEY}/entities$`), (r) => r.fulfill({ status: 500, body: '' }));
   await page.reload();
-  await expect(msg).toHaveText('Scene failed to load');
-  await expect(msg).toBeVisible();
+  await expect(page.locator('#stage .stage-msg')).toContainText('Page not loaded: 500');
+  await expect(page.locator('#stage .page-retry')).toBeVisible();
   errors = errors.filter((e) => !/500|entities/.test(e));
 });
 

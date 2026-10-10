@@ -44,7 +44,8 @@ export function askSSE(body, handlers) {
   })().catch((e) => {
     if (ctl.signal.aborted) return;
     console.error(e); // a throwing frame handler lands here too; the stack is the only trace of it
-    handlers.error?.(e);
+    if (finalStatus) handlers.comparison_error?.(e);
+    else handlers.error?.(e);
   });
   return { abort: () => ctl.abort() };
 }
