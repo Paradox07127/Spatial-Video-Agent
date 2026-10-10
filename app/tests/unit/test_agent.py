@@ -561,7 +561,9 @@ def test_unverified_situation_is_explained_not_a_predicate(setup, monkeypatch):
     monkeypatch.setattr(vlm, 'situation', unverified)
     frames = wh_main(store)
     claim = [f['data'] for f in frames if f['event']=='claim'][-1]
-    assert [p['predicate_id'] for p in claim['predicates']]==['p1'] and claim['explain']['c1']
+    assert [p['operator'] for p in claim['predicates']]==['measured', 'event']
+    assert claim['explain']['c1']
+    assert all(claim['explain']['c1'] not in p['eids'] for p in claim['predicates'])
     assert frames[-2]['data']['final']=='SUPPORTED'
 
 
@@ -983,7 +985,7 @@ def test_sources_limit_the_corpus_hits(corpus):
 
 def test_one_scene_of_hits_opens_and_is_navigated(corpus):
     frames = ask(corpus, ANCHOR['q'], {**CORPUS,'sources':['warehouse']})
-    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='UNRESOLVED'
     hits, = of(frames, 'hits')
     assert hits['auto_open']=='wh-sdg-fixture-01'=={m['scene_key'] for m in hits['moments']}.pop()
     ui = of(frames, 'ui')
@@ -992,7 +994,7 @@ def test_one_scene_of_hits_opens_and_is_navigated(corpus):
 
 def test_hits_across_scenes_send_no_navigation(corpus):
     frames = ask(corpus, ANCHOR['q'], {**CORPUS,'sources':['warehouse','fleet','fixed']}, {'tools':16,'seconds':45})
-    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='UNRESOLVED'
     hits, = of(frames, 'hits')
     assert hits['auto_open'] is None and len({m['scene_key'] for m in hits['moments']})==3
     assert [u['cmd'] for u in of(frames, 'ui') if u['cmd']!='annotate']==[]
