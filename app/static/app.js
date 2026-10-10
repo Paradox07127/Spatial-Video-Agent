@@ -8,7 +8,7 @@
 //   agent:camera (bool)         false once the user takes over during a run; agent focus / setView commands are then dropped
 //   panel:tab (name)            answer | evidence | steps | videos | trip
 import { api } from './kernel/api.js';
-import { exec, icon, say, source, srcIcon, srcLabel, transition, verdict } from './kernel/badges.js';
+import { exec, icon, level, say, source, srcIcon, srcLabel, transition, verdict } from './kernel/badges.js';
 import { bus } from './kernel/bus.js';
 import { clock } from './kernel/clock.js';
 import { cmdk } from './kernel/cmdk.js';
@@ -125,6 +125,59 @@ const store = (k, v) => {
     // not remembered across reloads; the session still has state.sourceTag
   }
 };
+const PANEL_W_KEY = 'sva.panelWidth';
+const clampPanelWidth = (w) => Math.min(Math.round(window.innerWidth * (2 / 3)), Math.max(Math.round(window.innerWidth / 3), w));
+
+function initPanelResizer() {
+  const handle = $('#panel-resizer');
+  if (!handle) return;
+  const saved = stored(PANEL_W_KEY);
+  if (saved) {
+    const num = parseFloat(saved);
+    if (!Number.isNaN(num)) {
+      const w = clampPanelWidth(num);
+      document.documentElement.style.setProperty('--panel-w', `${w}px`);
+    }
+  }
+
+  let dragging = false;
+  handle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = clampPanelWidth(window.innerWidth - e.clientX);
+    document.documentElement.style.setProperty('--panel-w', `${w}px`);
+    store(PANEL_W_KEY, String(w));
+  });
+  const stopDrag = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try { handle.releasePointerCapture(e.pointerId); } catch {}
+  };
+  handle.addEventListener('pointerup', stopDrag);
+  handle.addEventListener('pointercancel', stopDrag);
+
+  handle.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const cur = $('#panel').getBoundingClientRect().width;
+      const delta = e.key === 'ArrowLeft' ? 16 : -16;
+      const w = clampPanelWidth(cur + delta);
+      document.documentElement.style.setProperty('--panel-w', `${w}px`);
+      store(PANEL_W_KEY, String(w));
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    const cur = $('#panel')?.getBoundingClientRect().width;
+    if (cur) {
+      const w = clampPanelWidth(cur);
+      document.documentElement.style.setProperty('--panel-w', `${w}px`);
+    }
+  });
+}
 const shortKey = (key) => key.replace(/^fl-pie-(set\d+)_video_(\d+)$/, '$1·$2');
 const mmss = (ms) => tc(ms).slice(0, 5);
 
@@ -207,6 +260,7 @@ async function mountWorkspace(hash, evidence = false) {
   wsHash = hash;
   const changed = ctx.route?.page !== route.page || ctx.route?.scene_key !== route.scene_key;
   if (changed && !evidence) {
+    $('#ask-input').value = '';
     toDefault();
     selection.clear();
   }
@@ -425,7 +479,7 @@ function ask(q, { home = null, t_ms = null, corpus = false } = {}) {
   $('#ask-input').value = q;
   run = {
     id: null, q, home, source: route.scene_key, held: ctx.route.page === 'home' ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
-    evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], calls: new Map(), moments: [], native: null, final: null,
+    evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], rawAnswers: [], calls: new Map(), moments: [], native: null, final: null,
     skippedUi: 0, corpus,
   };
   document.body.dataset.run = 'running';
@@ -472,6 +526,7 @@ const handlers = {
     run.reached = Math.max(run.reached, segOf(d.state));
     statusLine(`${d.state} ${d.summary} ${sec(d.elapsed_ms)}`);
     renderNarration();
+    if (!run.answers.length) renderSlot();
   },
   tool_call(d) {
     run.calls.set(d.call_id, d.args);
@@ -526,9 +581,11 @@ const handlers = {
     // A new claim starts unresolved; any other state change is pinned to the step it happened in.
     if (d.after !== (d.before ?? 'UNRESOLVED') && run.lastStep) run.changes.push({ claim_id: d.claim_id, step: run.lastStep, before: d.before, after: d.after });
     renderClaims();
+    if (!run.answers.length) renderSlot();
   },
   answer(d) {
     run.cites.push(...d.cites);
+    run.rawAnswers.push(d);
     run.answers.push(numbered(d));
     renderSlot();
     timeline.setEvidence(evMarks());
@@ -632,11 +689,48 @@ function renderNarration() {
     <div class="nr-labels">${SEGMENTS.map(([label], i) => `<span${i === cur ? ' class="on"' : ''}>${label}</span>`).join('')}</div>`;
 }
 
+function slotPlaceholder(r) {
+  const preds = [...(r?.claims?.values() ?? [])].flatMap((c) => c.predicates ?? []);
+  const units = preds.map((p) => p.unit).filter(Boolean);
+  const ops = preds.map((p) => (p.operator ?? '').toLowerCase());
+  const parseSummary = (r?.steps?.find((s) => s.state === 'parse')?.summary ?? r?.steps?.[0]?.summary ?? '').toLowerCase();
+  const q = (r?.q ?? '').toLowerCase();
+
+  // Decide from predicate unit first: "m" means distance; "km/h" or "m/s" means speed
+  if (units.some((u) => u === 'km/h' || u === 'm/s')) {
+    return 'Appears here once the speed is measured.';
+  }
+  if (units.some((u) => u === 'm')) {
+    return 'Appears here once the distance is measured.';
+  }
+
+  // A measured quantity named in the question wins over count and timing words ("when … and how far").
+  if (/\b(speed|speeding)\b/.test(parseSummary) || /\b(speed|speeding)\b/.test(q)) {
+    return 'Appears here once the speed is measured.';
+  }
+  if (/\b(distance|how far|how close|close to)\b/.test(parseSummary) || /\b(how far|how close|distance)\b/.test(q)) {
+    return 'Appears here once the distance is measured.';
+  }
+
+  // Use operator only for count and timing
+  const isCount = ops.some((op) => ['count', 'counts', 'num'].includes(op))
+    || /\b(count|how many)\b/.test(parseSummary)
+    || /\b(how many|count)\b/.test(q);
+  if (isCount) return 'Appears here once objects are counted.';
+
+  const isTiming = ops.some((op) => ['time', 'timing', 'when', 'localize'].includes(op))
+    || /\b(timing|when|time)\b/.test(parseSummary)
+    || /\b(when|what time)\b/.test(q);
+  if (isTiming) return 'Appears here once the timing is located.';
+
+  return 'Appears here once evidence is verified.';
+}
+
 function renderSlot() {
   $('#answer').innerHTML = `
     <div class="ans-slot">
       <span class="p-label">ANSWER</span>
-      ${run.answers.length ? `<p class="ans-text">${run.answers.join('')}</p>` : '<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">Appears here once the distance is measured.</span>'}
+      ${run.answers.length ? `<p class="ans-text">${run.answers.join('')}</p>` : `<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">${esc(slotPlaceholder(run))}</span>`}
     </div>`;
 }
 
@@ -658,17 +752,67 @@ function numbered(d) {
   return html + esc(rest);
 }
 
+const OP_WORDS = {
+  located: 'position',
+  detected: 'presence',
+  same_entity: 'same person',
+  closest_approach: 'closest distance',
+};
+const ABSTAIN_QTY = {
+  no_geometry: 'distance',
+  no_gps: 'speed',
+  no_visibility: 'blind spot',
+  no_track_ids: 'same person',
+};
+
+function notMeasuredLine() {
+  const claims = [...run.claims.values()];
+  const items = [];
+  const pushItem = (quantity, reason) => {
+    if (!items.some((it) => it.quantity === quantity)) {
+      items.push({ quantity, reason });
+    }
+  };
+
+  for (const c of claims) {
+    if (c.explain?.abstain) {
+      const q = ABSTAIN_QTY[c.explain.abstain.reason] ?? 'measurement';
+      pushItem(q, c.explain.abstain.text);
+    }
+    for (const p of c.predicates ?? []) {
+      if (p.status === 'unknown') {
+        const q = p.unit === 'm' ? 'distance'
+          : p.unit === 'm/s' || p.unit === 'km/h' ? 'speed'
+          : OP_WORDS[p.operator] ?? 'measurement';
+        const reason = p.eids && p.eids.length > 0 ? 'checked but unresolved' : 'not checked';
+        pushItem(q, reason);
+      }
+    }
+  }
+
+  if (!items.length) return '';
+  return `<p class="ans-not-measured">Not measured: ${items.map((it) => `${esc(it.quantity)} — ${esc(it.reason)}`).join('; ')}</p>`;
+}
+
 function renderAnswer() {
   const abstain = ABSTAIN[run.final];
-  const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))];
+  const hasMeasureRef = run.rawAnswers.some((a) => a.measure_refs?.length > 0);
+  const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))]
+    .filter((k) => k !== 'measure' || hasMeasureRef);
   const text = run.answers.join('') || (abstain ? `${abstain[0]}<span class="muted"> (${esc(run.lastStep?.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
   // The first two presets of each workspace are answerable ones.
   const instead = (PRESETS[ctx.route.workspace] ?? PRESETS.warehouse).slice(0, 2).filter((q) => q !== run.q);
+  const knownLevel = run.rawAnswers.find((a) => a.evidence_level)?.evidence_level
+    ?? [...run.claims.values()].find((c) => c.evidence_level)?.evidence_level
+    ?? run.moments.find((m) => m.evidence_level)?.evidence_level
+    ?? null;
+  const reasoningLine = `<a class="ans-run" href="${run.id ? `#/run/${esc(run.id)}` : '#/runs'}"><span class="ans-meta mono muted">${count(run.steps.length, 'step')} · ${sec(took())}</span> · Reasoning <span class="mono">›</span></a>`;
   $('#answer').innerHTML = `
     <div class="ans-head">${run.final ? say(run.final) : '<span class="verdict say v-stopped">Stopped</span>'}
-      <span class="mono muted ans-meta">${count(run.steps.length, 'step')} · ${sec(took())}</span>
-      ${run.id ? `<a class="ans-run" href="#/run/${esc(run.id)}">${icon('workflow')}Reasoning</a>` : ''}</div>
+      ${knownLevel ? level(knownLevel) : ''}
+      ${reasoningLine}</div>
     <p class="ans-text">${text}</p>
+    ${notMeasuredLine()}
     ${run.stopReason === 'error' || run.stopReason === 'budget_exhausted' ? `<p class="ans-instead">${esc(completion({ stop_reason: run.stopReason, error: run.failure }))}</p>` : ''}
     ${kinds.length ? `<div class="ans-src">${kinds.map(source).join('')}</div>` : ''}
     ${abstain ? `<p class="ans-instead">${abstain[1]}${instead.map((q) => `<button class="preset">${esc(q)}</button>`).join('')}</p>` : ''}`;
@@ -722,16 +866,68 @@ function renderClaims() {
   if (document.body.dataset.run === 'running') {
     $('#claims').innerHTML = `<h2 class="p-label">CLAIMS SO FAR</h2>${claims.map((c) => {
       const open = c.predicates.filter((p) => p.status !== 'supported' && p.status !== 'contradicted');
-      return `<div class="claim-card" data-claim="${esc(c.claim_id)}">${verdict(c.after)}<p class="claim-text">${esc(c.text)}</p>
+      return `<div class="claim-card claim v-${c.after.toLowerCase()}" data-claim="${esc(c.claim_id)}">${verdict(c.after)}<p class="claim-text">${esc(c.text)}</p>
         ${open.length ? `<p class="claim-needs">Needs a measure of ${open.map(predText).join('; ')}</p>` : ''}</div>`;
     }).join('')}`;
     return;
   }
-  $('#claims').innerHTML = claims.map((c) => {
-    const at = run.changes.findLast((x) => x.claim_id === c.claim_id)?.step;
-    return `<div class="claim" data-claim="${esc(c.claim_id)}">
-      <div class="claim-row"><span class="claim-head">${change(c.before, c.after)}</span>${at ? `<span class="claim-once">at ${esc(at.summary)}</span>` : ''}</div>
-      <div class="preds">${c.predicates.map((p) => `<span class="pt">${predText(p)}</span>${predValue(p)}<span class="pst pst-${p.status}">${p.status}</span>`).join('')}</div>
+
+  const byMoment = new Map();
+  for (const c of claims) {
+    const key = c.moment_id || c.claim_id;
+    if (!byMoment.has(key)) byMoment.set(key, []);
+    byMoment.get(key).push(c);
+  }
+
+  const allMeasureEids = new Set(run.rawAnswers.flatMap((a) => a.measure_refs?.map((mr) => mr.eid) ?? []));
+
+  $('#claims').innerHTML = [...byMoment.entries()].map(([key, groupClaims]) => {
+    const firstClaim = groupClaims[0];
+    const cardVerdict = groupClaims.some((c) => c.after === 'CONTRADICTED')
+      ? 'CONTRADICTED'
+      : groupClaims.every((c) => c.after === 'SUPPORTED')
+      ? 'SUPPORTED'
+      : 'UNRESOLVED';
+    const cardLevel = groupClaims.find((c) => c.evidence_level)?.evidence_level
+      ?? run.moments.find((m) => m.moment_id === key)?.evidence_level
+      ?? null;
+    const allPreds = groupClaims.flatMap((c) => c.predicates);
+    const hasMeasure = allPreds.some((p) => p.eids.some((eid) => allMeasureEids.has(eid)))
+      || groupClaims.some((c) => run.rawAnswers.some((a) => a.claim_ids?.includes(c.claim_id) && a.measure_refs?.length > 0));
+
+    const counts = new Map();
+    const order = [];
+    for (const p of allPreds) {
+      const sym = p.status === 'supported' ? '✓' : p.status === 'contradicted' ? '✗' : (p.eids && p.eids.length > 0 ? '?' : '—');
+      const statusKey = p.status === 'supported' ? 'supported' : p.status === 'contradicted' ? 'contradicted' : (p.eids && p.eids.length > 0 ? 'unresolved' : 'not-checked');
+      const desc = predText(p);
+      const val = predValue(p);
+      const k = `${sym}|${desc}|${val}|${statusKey}`;
+      if (!counts.has(k)) {
+        counts.set(k, { sym, desc, val, statusKey, count: 1 });
+        order.push(k);
+      } else {
+        counts.get(k).count++;
+      }
+    }
+
+    const chips = order.map((k) => {
+      const it = counts.get(k);
+      const countLabel = it.count > 1 ? `<span class="chip-count mono">×${it.count}</span>` : '';
+      const valHtml = it.val && it.val !== '<span class="mono pv muted">–</span>' ? ` ${it.val}` : '';
+      return `<span class="pred-chip chip-${it.statusKey}"><span class="chip-sym">${it.sym}</span> <span class="pt">${it.desc}</span>${valHtml}${countLabel ? ` ${countLabel}` : ''}</span>`;
+    }).join('');
+
+    const at = run.changes.findLast((x) => groupClaims.some((c) => c.claim_id === x.claim_id))?.step;
+
+    return `<div class="claim verdict-card v-${cardVerdict.toLowerCase()}" data-claim="${esc(firstClaim.claim_id)}">
+      <div class="claim-row">
+        <span class="claim-head">${change(firstClaim.before, cardVerdict)}</span>
+        ${cardLevel ? level(cardLevel) : ''}
+        ${hasMeasure ? source('measure') : ''}
+        ${at ? `<span class="claim-once">at ${esc(at.summary)}</span>` : ''}
+      </div>
+      <div class="preds">${chips}</div>
     </div>`;
   }).join('');
 }
@@ -809,7 +1005,7 @@ function value(e) {
 }
 
 // JSON with its numbers marked; numbers inside strings are left alone.
-const json = (v) => JSON.stringify(v).replace(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[^"\d-]+|./g, (t) => (/^-?\d/.test(t) ? `<span class="num">${t}</span>` : esc(t)));
+const json = (v) => JSON.stringify(v ?? null).replace(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[^"\d-]+|./g, (t) => (/^-?\d/.test(t) ? `<span class="num">${t}</span>` : esc(t)));
 function raw(e) {
   const rows = [['eid', e.eid], ['method', e.method], ['value', e.value], ['unit', e.unit], ['sigma', e.sigma], ['cams', camsOf(e).join(', ') || null]];
   return rows.map(([k, v]) => `${k.padEnd(8)}${typeof v === 'string' ? esc(v) : json(v)}`).join('\n');
@@ -981,4 +1177,6 @@ api.get('health').then(
   () => ($('#data-badge').innerHTML = `${icon('database')}Data · backend unreachable`),
 );
 
+initPanelResizer();
 onRoute();
+

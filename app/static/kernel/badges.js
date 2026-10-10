@@ -13,6 +13,8 @@ export const exec = (s) => `<span class="exec exec-${s}" title="exec_state=${s}"
 export const verdict = (v) => `<span class="verdict v-${v.toLowerCase()}">${esc(v)}</span>`;
 // The final verdict in words for a non-engineer; the code stays in the title.
 export const say = (v) => `<span class="verdict say v-${v.toLowerCase()}" title="${esc(v)}">${v === 'UNSUPPORTED' ? icon('ban') : ''}${SAY[v]}</span>`;
+// Evidence level badge (L1 / L2 / L3)
+export const level = (lvl) => (lvl ? `<span class="level level-${esc(lvl).toLowerCase()} mono" title="Evidence level ${esc(lvl)}">${esc(lvl)}</span>` : '');
 // Claim before -> after; before is null on the first assessment.
 export const transition = (before, after) =>
   before ? `${verdict(before)}<span class="arrow">→</span>${verdict(after)}` : verdict(after);

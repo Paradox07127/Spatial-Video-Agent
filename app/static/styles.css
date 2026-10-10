@@ -37,7 +37,7 @@
   --radius: 4px;
   --radius-2: 6px;
   --radius-3: 8px;
-  --panel-w: 420px;
+  --panel-w: 40vw;
   --tl-label: 104px;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
@@ -150,7 +150,9 @@ body[data-run="done"] .ask-hint { display: inline; }
 body:not([data-run="running"]) :is(.narration, .takeover), .takeover[hidden] { display: none; }
 
 /* ---- right panel: empty (presets) | running (answer slot, moments, claims) | done (pinned header, tabs, follow-up) */
-.panel { flex: none; display: flex; flex-direction: column; width: var(--panel-w); min-height: 0; background: var(--card); border-left: 1px solid var(--rule); }
+.panel { position: relative; flex: none; display: flex; flex-direction: column; width: var(--panel-w); min-height: 0; background: var(--card); border-left: 1px solid var(--rule); }
+.panel-resizer { position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; cursor: ew-resize; z-index: 4; user-select: none; touch-action: none; }
+.panel-resizer:hover, .panel-resizer:focus-visible { background: var(--thread); }
 .p-empty { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; color: var(--ink-2); }
 .p-empty p { margin: 0; }
 body:not([data-run=""]) .p-empty { display: none; }
@@ -187,6 +189,7 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .ans-time { padding: 0 2px; font: 500 var(--fs-16)/1 var(--font-mono); color: var(--ink); border-bottom: 1px solid var(--thread); }
 .ans-time:hover, .ans-time.hover { background: var(--thread); border-radius: 2px; }
 .ans-src { display: flex; align-items: center; gap: 12px; }
+.ans-not-measured { margin: 0; font-size: var(--fs-2); color: var(--ink-2); line-height: 1.5; }
 .ans-instead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
 .tabs { display: flex; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--rule); font-size: var(--fs-3); }
 .tabs:empty, body:not([data-run="done"]) .tabs { display: none; }
@@ -204,14 +207,27 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .kf-play:hover { color: var(--ink); }
 .kf-play .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
 #claims { display: flex; flex-direction: column; gap: 8px; }
-.claim-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius); }
+.verdict-card, .claim-card, .claim { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); }
+.verdict-card.v-supported, .claim-card.v-supported, .claim.v-supported { border-color: var(--ink); }
+.verdict-card.v-contradicted, .claim-card.v-contradicted, .claim.v-contradicted { border-color: var(--danger); }
+.verdict-card.v-unresolved, .claim-card.v-unresolved, .claim.v-unresolved { border-color: var(--neutral); border-style: dashed; }
+.verdict-card.v-unsupported, .claim-card.v-unsupported, .claim.v-unsupported,
+.verdict-card.v-no_match, .claim-card.v-no_match, .claim.v-no_match,
+.verdict-card.v-out_of_range, .claim-card.v-out_of_range, .claim.v-out_of_range,
+.verdict-card.v-stopped, .claim-card.v-stopped, .claim.v-stopped { border-color: var(--ink-2); border-style: dotted; }
 .claim-text { margin: 0; font-size: var(--fs-3); line-height: 1.5; }
 .claim-needs { margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
-.claim { display: flex; flex-direction: column; gap: 8px; }
 .claim-row, .claim-head { display: flex; align-items: center; }
-.claim-row { flex-wrap: wrap; gap: 6px; }
+.claim-row { flex-wrap: wrap; gap: 8px; }
 .claim-once { margin-left: 4px; font-size: var(--fs-2); color: var(--ink-2); }
-.preds { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px; font-size: var(--fs-2); }
+.preds { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pred-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-2); font-size: var(--fs-2); color: var(--ink); }
+.chip-sym { font-weight: 500; font-family: var(--font-mono); }
+.chip-supported .chip-sym { color: var(--ink); }
+.chip-contradicted .chip-sym { color: var(--danger); }
+.chip-unresolved .chip-sym { color: var(--neutral); }
+.chip-not-checked .chip-sym { color: var(--ink-2); }
+.chip-count { font-size: var(--fs-1); color: var(--ink-2); }
 .pt { color: var(--ink-3); }
 .pv { font-weight: 500; }
 .pv-measure { color: var(--src-measure); }
@@ -221,6 +237,9 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .pst-contradicted { color: var(--danger); }
 
 /* ---- model line (Answer tab) */
+.mp-box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--thread); border-radius: var(--radius); background: var(--paper); }
+.mp-header { font: 500 var(--fs-1) var(--font-mono); letter-spacing: 0.08em; color: var(--ink-2); }
+.mp-box .mp-summary { border: 0; padding: 0; background: none; }
 .mp-summary { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px; text-align: left; border: 1px dashed var(--thread); border-radius: var(--radius); font-size: var(--fs-2); }
 .mp-summary:hover { border-color: var(--ink-2); }
 .mp-summary > .i:first-child { margin-top: 2px; color: var(--src-model); }
@@ -318,6 +337,7 @@ body:not([data-run="done"]) .followup { display: none; }
 .exec-failed { color: var(--danger); }
 .exec-failed::before { border-radius: 1px; background: currentColor; }
 .verdict { display: inline-block; padding: 0 6px; font: 500 var(--fs-1)/18px var(--font-mono); letter-spacing: 0.04em; border: 1px solid var(--ink-2); border-radius: 3px; color: var(--ink); }
+.level { display: inline-flex; align-items: center; padding: 0 5px; font: 500 var(--fs-1)/18px var(--font-mono); border: 1px solid var(--rule); border-radius: 3px; color: var(--ink-3); background: var(--paper); }
 .v-supported { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .v-unresolved { border-style: dashed; color: var(--neutral); border-color: var(--neutral); }
 .v-contradicted { border-color: var(--danger); color: var(--danger); }

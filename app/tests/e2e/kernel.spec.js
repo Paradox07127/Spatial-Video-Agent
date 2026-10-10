@@ -53,7 +53,7 @@ test('default state: top-bar Ask with its source tag, presets in the 420 px pane
   await expect(page.locator('#timeline .tl-ruler')).toBeVisible();
   await expect(page.locator('#narration')).toBeHidden();
   expect(await page.locator('video').count()).toBe(0);
-  expect(await width(page, '#panel')).toBe(420);
+  expect(await width(page, '#panel')).toBe(576);
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
 });
 
@@ -306,7 +306,7 @@ test('model line: situation and prediction with the measurement check by default
   const mp = page.locator('#modelpanel');
   await expect(mp.locator('.mp-summary')).toContainText('Situation yielding');
   await expect(mp.locator('.mp-summary')).toContainText('predicts continue');
-  await expect(mp.locator('.mp-summary')).toContainText('located 4.75–5.60 s');
+  await expect(mp.locator('.mp-summary')).toContainText('model says ≈00:04');
   await expect(mp.locator('.mp-sub')).toHaveText('Checked by measure: yes · describes only, no numbers');
   await expect(mp.locator('.mp-row')).toHaveCount(0);
   await mp.locator('.mp-summary').click();
@@ -383,8 +383,8 @@ test('a final answer without hits shows the full answer header in the same 420 p
   await expect(page.locator('#moments').locator('xpath=..')).toBeHidden();
   await expect(page.locator('#answer .ans-meta')).toHaveText(/^\d+ steps · 0\.1 s$/);
   await expect(page.locator('#ask-status')).toHaveText(/^Done · \d+ steps · 0\.1 s$/);
-  expect(await width(page, '#panel')).toBe(420);
-  expect(await width(page, '#stage')).toBe(1440 - 420);
+  expect(await width(page, '#panel')).toBe(576);
+  expect(await width(page, '#stage')).toBe(1440 - 576);
 });
 
 test('a new Ask aborts the old stream; frames of another run_id are dropped', async ({ page }) => {
