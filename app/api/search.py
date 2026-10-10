@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core import embed, geo, llm, street
+from app.core.investigation_context import apply_constraints
 from app.core.models import EntityRef, Evidence, MomentCard, ObservationRef, Scope, SearchFilters, Tag, Workspace, level_of, tag_of
 
 router = APIRouter()
@@ -23,6 +24,8 @@ class SearchRequest(BaseModel):
     scene_id: str | None = Field(default=None, pattern=r'^(wh|fl|st)/[a-z0-9_]+/[a-z0-9_-]+$')
     scene_key: str | None = Field(default=None, pattern=r'^[a-z0-9_-]+$')
     t_range: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] | None = None
+    t_ms: Annotated[int, Field(ge=0)] | None = None
+    selection: list[str] | None = None
     place: str | None = None
     zone: list[tuple[float, float]] | None = Field(default=None, min_length=3)
     k: int = Field(default=10, ge=1, le=50)
@@ -74,13 +77,16 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         # the parser needs a workspace; corpus retrieval does not read it
         context.setdefault('workspace','warehouse')
     parsed = parsed or llm.parse(request.q, context)
-    corpus = corpus or parsed.scope=='corpus'
+    parsed, constraint_reason = apply_constraints(request.q,context,parsed)
+    corpus = parsed.scope=='corpus'
     if corpus:
         parsed = parsed.model_copy(update={'scope':'corpus'})
     key = None if corpus else parsed.scene_key
     evidence, grouped, expanded, chunks, gaps = [], {}, [], {}, []
     backend = getattr(store, 'backend', 'duckdb')
     empty = {'moments':[], 'expanded_ranges':[], 'backend':backend}
+    if constraint_reason:
+        return parsed, result(key or 'all',0,0,{**empty,'abstain':'UNRESOLVED','reason':constraint_reason},started=started)
     if parsed.template == 'unsupported':
         return parsed, result(key or 'all',0,0,empty,started=started)
     scenes = store.list_scenes(None if corpus else parsed.workspace)
@@ -156,6 +162,9 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             return min(starts) if starts else None
         events = [(first_inside(e),e) for e in store.events_in(clip.scene_key,t0,t1)]
         events = [(t,e) for t, e in events if t is not None]
+        if parsed.t_range and re.search(r'\b(when|start(?:ed)?|after|before)\b',request.q,re.I):
+            # A continuing event is not an event that began in the requested window.
+            events = [(t,e) for t,e in events if parsed.t_range[0]<=e.t0_ms<parsed.t_range[1]]
         wanted = event_types(request.q)
         if wanted:
             events = [(t,e) for t, e in events if e.type in wanted]
@@ -202,19 +211,22 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             evidence.append(stamp_ev); eids.append(stamp_ev.eid)
             if event is not None:
                 event_ev = Evidence.create(scene_key=clip.scene_key,cam_id=None,t0_ms=event.t0_ms,t1_ms=event.t1_ms,
-                                           observation_ids=[],analysis_rev=manifest['analysis_rev'],kind='measure',
+                                           observation_ids=[],analysis_rev=manifest['analysis_rev'],kind='model' if event.source=='model' else 'measure',
                                            method='event_'+event.source,params={'event_id':event.event_id},
                                            value={'event_id':event.event_id,'type':event.type,'t0_ms':event.t0_ms,
-                                                  't_s':event.t0_ms/1000,'params':event.params})
+                                                  't_s':event.t0_ms/1000,'source':event.source,'actor_ids':event.actor_ids,'params':event.params,
+                                                  **({'distance_to':'forklift_footprint','distance_from':'person_root'} if event.type=='near_miss' else {})})
                 evidence.append(event_ev); eids.append(event_ev.eid)
                 for related in store.events_in(clip.scene_key,t_ms,t_ms+1):
-                    if related.event_id==event.event_id or not set(related.actor_ids)&set(event.actor_ids):
+                    if (related.event_id==event.event_id or not set(related.actor_ids)&set(event.actor_ids)
+                            or explicit and not set(explicit)<=set(related.actor_ids)):
                         continue
                     related_ev = Evidence.create(scene_key=clip.scene_key,cam_id=None,t0_ms=related.t0_ms,t1_ms=related.t1_ms,
-                                                 observation_ids=[],analysis_rev=manifest['analysis_rev'],kind='measure',
+                                                 observation_ids=[],analysis_rev=manifest['analysis_rev'],kind='model' if related.source=='model' else 'measure',
                                                  method='event_'+related.source,params={'event_id':related.event_id},
                                                  value={'event_id':related.event_id,'type':related.type,'t0_ms':related.t0_ms,
-                                                        't_s':related.t0_ms/1000,'params':related.params})
+                                                        't_s':related.t0_ms/1000,'source':related.source,'actor_ids':related.actor_ids,'params':related.params,
+                                                        **({'distance_to':'forklift_footprint','distance_from':'person_root'} if related.type=='near_miss' else {})})
                     evidence.append(related_ev); eids.append(related_ev.eid)
             group_key = (clip.scene_key,t_ms)
             if group_key in grouped:

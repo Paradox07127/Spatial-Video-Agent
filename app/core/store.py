@@ -283,9 +283,10 @@ class Store:
                 observed[cam['id']] = {r[1] for r in boxes if r[0] == times[idx] and abs(r[0] - t_ms) <= 1000 / m['fps'] / 2}
         entities = {e.entity_id: e for e in self.entities(scene_key)} if 'entities' in assets else {}
         if 'skeleton' in assets:
-            for eid, p in self.asset_json(scene_key, assets['skeleton'])['persons'].items():
+            skeleton = self.asset_json(scene_key, assets['skeleton'])
+            for eid, p in skeleton['persons'].items():
                 i = nearest(p['t_ms'], t_ms)
-                if i is None or t_ms < p['t_ms'][0] or t_ms > p['t_ms'][-1] + 100:
+                if i is None or abs(p['t_ms'][i]-t_ms)>1000/skeleton['fps']/2+1:
                     continue
                 root, seen = p['root_world'][i], []
                 if visibility:
@@ -302,7 +303,7 @@ class Store:
         if 'forklift' in assets:
             for f in self.asset_json(scene_key, assets['forklift'])['forklifts']:
                 i = nearest([r['t_ms'] for r in f['track']], t_ms)
-                if i is not None:
+                if i is not None and abs(f['track'][i]['t_ms']-t_ms)<=1000/m['fps']/2+1:
                     forklifts.append({'entity_id': f['entity_id'], **{k: v for k, v in f['track'][i].items() if k != 't_ms'}})
         cams = []
         for c in m['cams']:

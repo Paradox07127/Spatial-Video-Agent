@@ -103,7 +103,7 @@ def visibility(store, scene_key, t_ms, target, *, cam=None):
     return result(scene_key,t0,t0+1000,output,cam=cam,evidence=[ev],pts_read=1,coverage=1)
 
 
-def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
+def blind_presence(store, scene_key, cam, t0_ms, t1_ms, *, selection=None, zone=None):
     started = time.monotonic()
     manifest = store.manifest(scene_key)
     if not capabilities(manifest)['blind_spot']['ok']:
@@ -112,21 +112,31 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
     data = store.asset_json(scene_key,assets['visibility'])
     skeleton = store.asset_json(scene_key,assets['skeleton'])
     frame = round(1000/skeleton['fps'])
-    seconds = range(t0_ms//1000,-(-t1_ms//1000))
-    missing = {s for s in seconds if not 0<=s-data['t0_s']<len(data['per_sec'])}
-    sampled = {t//1000 for p in skeleton['persons'].values() for t in p['t_ms'] if t0_ms<=t<t1_ms}
-    # a second without skeleton samples was not checked: the pose layer may have lost a person who is still there
-    unseen = {(s,'unknown') for s in seconds if s not in missing and s not in sampled}
-    samples = sorted(((t,eid,root) for eid,p in skeleton['persons'].items() for t,root in zip(p['t_ms'],p['root_world'])
-                      if t0_ms<=t<t1_ms and t//1000 not in missing),key=lambda x:(x[0],x[1]))
-    spans, interrupted = {}, set()
+    persons = skeleton['persons']
+    selected = set(selection or [])
+    targets = {eid:p for eid,p in persons.items() if not selected or eid in selected}
+    if selected-set(persons):
+        return result(scene_key,t0_ms,t1_ms,{'cam':cam,'intervals':[],'seconds_checked':0,
+                      'reason':'selection_not_available'},coverage=0,gaps=[(t0_ms,t1_ms,'unknown')])
+    area = Polygon(zone) if zone else None
+    samples = sorted(((t,eid,root) for eid,p in targets.items() for t,root in zip(p['t_ms'],p['root_world'])
+                      if t0_ms<=t<t1_ms),key=lambda x:(x[0],x[1]))
+    spans, interrupted, known, reasons = {}, set(), {eid:[] for eid in targets}, {}
     for t, eid, root in samples:
-        states = geometry.floor_visibility(data,t,root)
-        if states[cam] in {'unknown','no_video'}:
+        sec = t//1000
+        if not root or not 0<=sec-data['t0_s']<len(data['per_sec']):
             interrupted.add(eid)
-            unseen.add((t//1000,states[cam]))
+            reasons[sec] = 'missing_visibility' if root else 'unknown'
             continue
-        if states[cam]=='visible':
+        states = geometry.floor_visibility(data,t,root)
+        state = states.get(cam,'unknown')
+        if state in {'unknown','no_video'}:
+            interrupted.add(eid)
+            reasons[sec] = state
+            continue
+        end = min(t+frame,t1_ms,(sec+1)*1000)
+        known[eid].append((t,end))
+        if state=='visible' or (area is not None and not area.covers(Point(root[0],root[1]))):
             interrupted.add(eid)
             continue
         seen = [c for c,state in states.items() if state=='visible']
@@ -135,19 +145,45 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
             runs[-1]['seen_by'] = [c for c in data['cam_bit_order'] if c in seen or c in runs[-1]['seen_by']]
         else:
             runs.append({'entity_id':eid,'t0_ms':t,'seen_by':seen})
-        runs[-1]['t1_ms'] = min(t+frame,t1_ms)
+        runs[-1]['t1_ms'] = end
         interrupted.discard(eid)
-    gaps = sorted([(s,'missing_visibility') for s in missing]+list(unseen))
-    gaps = [(max(s*1000,t0_ms),min(s*1000+1000,t1_ms),reason) for s,reason in gaps]
-    checked = len(set(seconds)-missing-{s for s,_ in unseen})
+    # Coverage is the duration observed for every selected/known person, not the
+    # count of seconds containing at least one sample of any person.
+    def merge(intervals):
+        merged = []
+        for a,b in sorted(intervals):
+            if merged and a<=merged[-1][1]:
+                merged[-1] = (merged[-1][0],max(b,merged[-1][1]))
+            else:
+                merged.append((a,b))
+        return merged
+    covered = [(t0_ms,t1_ms)] if targets else []
+    for intervals in known.values():
+        covered = merge((max(a,c),min(b,d)) for a,b in covered for c,d in merge(intervals) if max(a,c)<min(b,d))
+    checked_ms = sum(b-a for a,b in covered)
+    gaps = []
+    for sec in range(t0_ms//1000,-(-t1_ms//1000)):
+        lo,hi = max(t0_ms,sec*1000),min(t1_ms,(sec+1)*1000)
+        cursor = lo
+        reason = reasons.get(sec,'missing_visibility' if not 0<=sec-data['t0_s']<len(data['per_sec']) else 'unknown')
+        for a,b in covered:
+            a,b = max(a,lo),min(b,hi)
+            if a>=b:
+                continue
+            if cursor<a:
+                gaps.append((cursor,a,reason))
+            cursor = max(cursor,b)
+        if cursor<hi:
+            gaps.append((cursor,hi,reason))
     intervals = sorted((r for runs in spans.values() for r in runs),key=lambda r:(r['t0_ms'],r['entity_id']))
     gaps.extend((r['t0_ms'],r['t1_ms'],'missing_thumbnail') for r in intervals
                 if thumbnail(store,scene_key,(r['seen_by'] or [cam])[0],r['t0_ms']) is None)
     evs = [evidence(store,scene_key,cam,r['t0_ms'],r['t1_ms'],'measure','blind_presence',
                     {'entity_id':r['entity_id'],'cam':cam,'t0_s':r['t0_ms']/1000,'t1_s':r['t1_ms']/1000,'seen_by':r['seen_by']},
-                    params={'cam':cam,'target':r['entity_id']}) for r in intervals]
-    return result(scene_key,t0_ms,t1_ms,{'cam':cam,'intervals':intervals,'seconds_checked':checked},cam=cam,evidence=evs,
-                  pts_read=len(samples),gaps=gaps,coverage=checked/len(seconds) if seconds else 0,started=started)
+                    params={'cam':cam,'target':r['entity_id'],'zone':zone}) for r in intervals]
+    return result(scene_key,t0_ms,t1_ms,{'cam':cam,'intervals':intervals,'seconds_checked':checked_ms/1000,
+                  'checked_ms':checked_ms,'coverage_basis':'all selected/known persons; sampled floor visibility'},cam=cam,evidence=evs,
+                  pts_read=len(samples),gaps=gaps,coverage=checked_ms/(t1_ms-t0_ms) if t1_ms>t0_ms else 0,started=started)
 
 
 def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
@@ -190,21 +226,37 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     else:
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_speed'})
     observations = []
+    from app.api.search import box_rows
+    tolerance = round(1000/m['fps']/2)+1
     for entity in store.entities(scene_key):
         if entity.entity_id not in [a.entity_id, getattr(b,'entity_id',None)]:
             continue
-        observations.extend(ObservationRef(scene_key=scene_key,cam_id=o['cam_id'],local_track_id=o['local_track_id'],t_ms=t_ms)
-                            for o in entity.observations if o['t0_ms']<=t_ms<o['t1_ms'])
+        for observation in entity.observations:
+            if not observation['t0_ms']<=t_ms<observation['t1_ms']:
+                continue
+            # Association intervals alone do not establish an observed frame.
+            rows = box_rows(store,scene_key,observation['cam_id'],max(m['t0_ms'],t_ms-tolerance),
+                            min(m['t1_ms'],t_ms+tolerance+1))
+            matches = [r for r in rows if r[1]==observation['local_track_id'] and abs(r[0]-t_ms)<=tolerance]
+            if matches:
+                row = min(matches,key=lambda r:abs(r[0]-t_ms))
+                observations.append(ObservationRef(scene_key=scene_key,cam_id=observation['cam_id'],
+                                    local_track_id=observation['local_track_id'],t_ms=row[0]))
     ev = evidence(store,scene_key,cam,t_ms,t_ms+1,'measure',method,value,observations=observations,
-                  unit=unit,sigma=sigma,params={'a':a.entity_id,'b':getattr(b,'entity_id',b),'kind':kind})
-    return result(scene_key,t_ms,t_ms+1,{'value':value,'sigma':sigma,'method':method},cam=cam,evidence=[ev],pts_read=1,coverage=1)
+                  unit=unit,sigma=sigma,params={'a':a.entity_id,'b':getattr(b,'entity_id',b),'kind':kind,'observation_role':'aligned_detection_not_position_inputs',
+                  **({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point',
+                      'distance_from':'entity_ground_point'} if kind=='distance' else {})})
+    return result(scene_key,t_ms,t_ms+1,{'value':value,'sigma':sigma,'method':method,'observation_role':'aligned_detection_not_position_inputs',**({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point'} if kind=='distance' else {})},cam=cam,evidence=[ev],pts_read=1,coverage=1)
 
 
-def closest_approach(store, scenes, t_range=None, zone=None):
+def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
     """The smallest person-forklift ground distance at the skeleton sample times, reading each track asset once;
     with a zone, only people standing inside it count."""
     started = time.monotonic()
     area = Polygon(zone) if zone else None
+    selected = set(selection or [])
+    if any(not e.startswith(('P','F')) for e in selected):
+        return result('all',0,0,{'closest':None,'missing':sorted(selected),'scene_coverage':{},'reason':'selection_not_available'},coverage=0)
     best, seen, pts, scene_coverage, gaps = None, set(), 0, {}, []
     for m in scenes:
         key, assets = m['scene_key'], m['assets']
@@ -215,12 +267,15 @@ def closest_approach(store, scenes, t_range=None, zone=None):
             if t0<t1:
                 gaps.append((t0,t1,cap['reason']))
             continue
-        persons = store.asset_json(key,assets['skeleton'])['persons'] if 'skeleton' in assets else {}
+        skeleton = store.asset_json(key,assets['skeleton']) if 'skeleton' in assets else {}
+        persons = skeleton.get('persons',{})
+        frame_ms = round(1000/skeleton.get('fps',m['fps']))
+        valid_spans = []
         tracks = store.asset_json(key,assets['forklift'])['forklifts'] if 'forklift' in assets else []
         samples = [(t,eid,root,s) for eid,p in persons.items() for t,root,s in zip(p['t_ms'],p['root_world'],p['root_sigma_m'])
-                   if t0<=t<t1 and root and (area is None or area.covers(Point(root[0],root[1])))]
+                   if t0<=t<t1 and root and (not {x for x in selected if x.startswith('P')} or eid in selected) and (area is None or area.covers(Point(root[0],root[1])))]
         tracks = [(f['entity_id'],f['track'],[r['t_ms'] for r in f['track']]) for f in tracks
-                  if any(t0<=r['t_ms']<t1 for r in f['track'])]
+                  if (not {x for x in selected if x.startswith('F')} or f['entity_id'] in selected) and f['track'] and f['track'][0]['t_ms']<t1 and f['track'][-1]['t_ms']>=t0]
         scene_coverage[key] = {'coverage':1 if samples and tracks else 0,'reason':None if samples and tracks else 'missing_tracks'}
         if samples:
             seen.add('person')
@@ -233,15 +288,28 @@ def closest_approach(store, scenes, t_range=None, zone=None):
                 # the sample store.moment picks: nearest in time, the earlier one on a tie
                 i = bisect.bisect_left(times,t)
                 i = i-1 if i>0 and t-times[i-1]<=times[i]-t else i
+                if abs(times[i]-t)>1000/m['fps']/2+1:
+                    gaps.append((t,t+1,'stale_forklift_sample'))
+                    continue
                 value, _ = geometry.distance({'x':root[0],'y':root[1],'sigma_m':s},track[i])
+                valid_spans.append((t,min(t+frame_ms,t1)))
                 pts += 1
                 if best is None or (value,t)<(best['value'],best['t_ms']):
                     best = {'scene_key':key,'t_ms':t,'a':eid,'b':fid,'value':value}
+        merged = []
+        for lo,hi in sorted(valid_spans):
+            if merged and lo<=merged[-1][1]:
+                merged[-1] = (merged[-1][0],max(hi,merged[-1][1]))
+            else:
+                merged.append((lo,hi))
+        coverage = sum(hi-lo for lo,hi in merged)/(t1-t0) if t1>t0 else 0
+        scene_coverage[key] = {'coverage':coverage,'reason':None if coverage==1 else 'incomplete_sample_coverage',
+                               'basis':'times with a valid person/forklift sampled pair'}
     missing = [k for k in ('person','forklift') if k not in seen]
     key = best['scene_key'] if best else scenes[0]['scene_key'] if scenes else 'all'
     t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
-    evs = [evidence(store,key,None,best['t_ms'],best['t_ms']+1,'measure','closest_approach',{**best,'t_s':best['t_ms']/1000},
-                    params={'t_range':t_range,'zone':zone})] if best else []
+    evs = [evidence(store,key,None,best['t_ms'],best['t_ms']+1,'measure','closest_approach',{**best,'t_s':best['t_ms']/1000,'distance_to':'forklift_center','distance_from':'person_root','minimum_basis':'valid sampled pairs'},
+                    params={'t_range':t_range,'zone':zone,'selection':selection,'distance_to':'forklift_center','distance_from':'person_root'})] if best else []
     if best:
         cams = store.manifest(key)['cams']
         if not cams or thumbnail(store,key,cams[0]['id'],best['t_ms']) is None:
@@ -371,11 +439,15 @@ def speeding_candidates(store, scenes, t_range=None, k=3, passes=None):
                   evidence=evs,pts_read=pts,gaps=gaps,coverage=checked/total if total else 0,started=started)
 
 
-def events(store, scene_key, t0_ms, t1_ms, zone=None):
+def events(store, scene_key, t0_ms, t1_ms, zone=None, *, selection=None):
     found = store.events_in(scene_key,t0_ms,t1_ms)
     output = []
     for e in found:
+        if selection and not set(selection)<=set(e.actor_ids):
+            continue
         value = e.model_dump()
+        if e.type=='near_miss':
+            value.update(distance_to='forklift_footprint',distance_from='person_root')
         if zone:
             from app.api.scenes import event_zone_time
             t = event_zone_time(store,scene_key,e,t0_ms,t1_ms,Polygon(zone))
@@ -383,7 +455,7 @@ def events(store, scene_key, t0_ms, t1_ms, zone=None):
                 continue
             value['params'] = {**value['params'],'zone_t_ms':t}
         output.append(value)
-    evs = [evidence(store,scene_key,None,max(t0_ms,e['t0_ms']),min(t1_ms,e['t1_ms']),'measure','event_'+e['source'],e,
+    evs = [evidence(store,scene_key,None,max(t0_ms,e['t0_ms']),min(t1_ms,e['t1_ms']),'model' if e['source']=='model' else 'measure','event_'+e['source'],e,
                     params={'event_id':e['event_id']}) for e in output]
     return result(scene_key,t0_ms,t1_ms,output,evidence=evs,pts_read=len(found))
 
