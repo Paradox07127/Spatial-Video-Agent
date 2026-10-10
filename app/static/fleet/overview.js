@@ -59,6 +59,7 @@ const hasVideo = (trip, s) => (trip.timeline?.lanes[trip.cam.id] ?? []).some(([a
 const PAD = { top: 56, right: 200, bottom: 64, left: 72 };
 function fitPitched(map, el, lngLats) {
   const W = el.clientWidth - PAD.left - PAD.right, H = el.clientHeight - PAD.top - PAD.bottom;
+  if (W <= 0 || H <= 0) return;
   for (let i = 0; i < 4; i++) {
     const px = lngLats.map((ll) => map.project(ll)), xs = px.map((p) => p.x), ys = px.map((p) => p.y);
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
@@ -70,17 +71,18 @@ function fitPitched(map, el, lngLats) {
 
 export async function createOverview(el, { trips, api, onCar, onEvent, onBuilding }) {
   const gps = trips.flatMap((t) => t.pts.map((p) => [p.lon, p.lat]));
+  const bounds = gps.length ? [Math.min(...gps.map((c) => c[0])), Math.min(...gps.map((c) => c[1])), Math.max(...gps.map((c) => c[0])), Math.max(...gps.map((c) => c[1]))] : [-79.41, 43.64, -79.38, 43.66];
   const map = new maplibregl.Map({
     container: el,
     style: await baseStyle(api),
-    bounds: [Math.min(...gps.map((c) => c[0])), Math.min(...gps.map((c) => c[1])), Math.max(...gps.map((c) => c[0])), Math.max(...gps.map((c) => c[1]))],
+    bounds,
     fitBoundsOptions: { padding: 120 },
     pitch: 50,
     bearing: -16,
     attributionControl: { compact: true },
   });
   await map.once('load');
-  fitPitched(map, el, gps);
+  if (gps.length) fitPitched(map, el, gps);
 
   // Above every road and area layer (a line drawn after an extrusion paints over it), below the place labels.
   const layers = map.getStyle().layers, beforeLabels = layers[layers.findLastIndex((l) => l.type !== 'symbol') + 1]?.id;
@@ -110,20 +112,20 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
   map.on('mouseenter', 'fl-bld', () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', 'fl-bld', () => (map.getCanvas().style.cursor = ''));
 
-  const cars = trips.map((trip) => {
+  const cars = trips.filter((trip) => trip.pts.length).map((trip) => {
     const div = document.createElement('div');
     div.className = 'fl-car';
     div.dataset.trip = trip.id;
     div.style.setProperty('--trip', trip.color);
     div.innerHTML = `${ARROW}<span class="fl-tag"><span class="mono">${esc(trip.id)}</span><span class="fl-age mono"></span></span>${trip.cam ? '<span class="fl-chip"><img alt=""></span>' : ''}`;
     div.addEventListener('click', () => onCar(trip.id));
-    return { trip, div, s: null, marker: new maplibregl.Marker({ element: div }).setLngLat(trip.line[0]).addTo(map) };
+    return { trip, div, s: null, marker: new maplibregl.Marker({ element: div }).setLngLat([trip.pts[0].lon, trip.pts[0].lat]).addTo(map) };
   });
   // Event pins are clustered by the fl-ev source; the DOM markers of whatever it renders (pins or counted clusters) are
   // swapped in on every render.
-  const events = new Map(trips.flatMap((trip) => trip.events.map((e) => {
+  const events = new Map(trips.flatMap((trip) => trip.events.flatMap((e) => {
     const p = posAt(trip.pts, e.t0_ms);
-    return [`${trip.id}:${e.id}`, { trip, e, lngLat: [p.lon, p.lat], marker: null }];
+    return p ? [[`${trip.id}:${e.id}`, { trip, e, lngLat: [p.lon, p.lat], marker: null }]] : [];
   })));
   map.addSource('fl-ev', {
     type: 'geojson', cluster: true, clusterRadius: 40, clusterProperties: { sev: ['max', ['get', 'severity']] },

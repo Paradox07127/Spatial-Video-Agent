@@ -24,7 +24,7 @@ const eventId = (e) => `${P.key}:${e.id}`;
 function eventPoint(e) {
   const t = e.params?.t_min_ms ?? e.t0_ms;
   const ps = e.actor_ids.map((id) => P.stage.position(id, t)).filter(Boolean);
-  return [ps.reduce((s, p) => s + p[0], 0) / ps.length, ps.reduce((s, p) => s + p[1], 0) / ps.length];
+  return ps.length ? [ps.reduce((s, p) => s + p[0], 0) / ps.length, ps.reduce((s, p) => s + p[1], 0) / ps.length] : null;
 }
 
 // state.layers is shared with other pages; 'wh' marks that the warehouse layers were chosen, so turning all off survives a reload.
@@ -78,7 +78,7 @@ export async function mount(root, ctx) {
   const host = root.querySelector('.wh');
   const stage = createStage(host.querySelector('.wh-canvas'));
   P = {
-    ctx, host, stage, key: null, ready: null, events: [], triggered: new Set(), pins: [], videos: null, dock: null, dockCam: null, dockOnly: null, hitCams: null, hitIds: null, hitPts: null,
+    ctx, host, stage, key: null, ready: null, events: [], triggered: new Set(), pending: new Set(), pins: [], videos: null, dock: null, dockCam: null, dockOnly: null, hitCams: null, hitIds: null, hitPts: null,
     used: new Set(), focus: null, inEvidence: false, measure: null, toastTimer: 0, models: new Map(), lastT: ctx.clock.t, second: -1, modelLanes: false,
   };
   const sub = (type, fn) => (ctx.bus.on(type, fn), () => ctx.bus.off(type, fn));
@@ -122,7 +122,7 @@ export function loadScene(key) {
     const asset = (k) => mf.assets[k] && api.get(`api/assets/${key}/${mf.assets[k]}`);
     const [skeleton, forklift, visibility, tracks] = await Promise.all([asset('skeleton'), asset('forklift'), asset('visibility'), asset('tracks')]);
     Object.assign(P, {
-      key, mf, entities, owner: owners(entities), lanes: tl.lanes, events: tl.events, triggered: new Set(acts.actions.map((a) => a.event_id)), pins: [], models: new Map(),
+      key, mf, entities, owner: owners(entities), lanes: tl.lanes, events: tl.events, triggered: new Set(acts.actions.map((a) => a.event_id)), pending: new Set(), pins: [], models: new Map(),
       second: -1, modelLanes: false, used: new Set(), focus: null, measure: null, hitCams: null, hitIds: null, hitPts: null,
     });
     const { stage } = P;
@@ -156,6 +156,12 @@ export function loadScene(key) {
     onSelection(P.ctx.selection);
     P.host.dataset.scene = key;
     msg.hidden = true;
+    const url = new URL(location.href), t = url.searchParams.get('t_ms');
+    if (t != null && url.hash === `#/warehouse/${key}`) {
+      clock.seek(+t);
+      url.searchParams.delete('t_ms');
+      history.replaceState(null, '', url);
+    }
     // the point cloud (several MB) comes in after the scene shows; a scene loaded meanwhile drops it
     if (mf.assets.points) {
       fetch(api.asset(`${key}/${mf.assets.points}`)).then((r) => r.arrayBuffer()).then((buf) => P?.mf === mf && stage.setPoints(buf));
@@ -225,7 +231,7 @@ function setLayer(id, on) {
 function renderPins() {
   const events = P.events.filter((e) => e.severity >= 2).map((e) => ({
     id: e.id, kind: 'event', xy: eventPoint(e), t_ms: e.t0_ms, text: ` · ${e.id} ${e.type}`, on: P.triggered.has(eventId(e)),
-  }));
+  })).filter((e) => e.xy);
   P.stage.setPins([...events, ...P.pins]);
 }
 
@@ -255,21 +261,34 @@ function onTick(t) {
   players().forEach((v) => v.sync(t));
   // Watch mode: playback crossing an untriggered severity ≥ 2 event while nobody is asking triggers it once.
   const crossed = clock.playing && state.view === 'default'
-    ? P.events.filter((e) => e.severity >= 2 && !P.triggered.has(eventId(e)) && P.lastT < e.t0_ms && t >= e.t0_ms) : [];
+    ? P.events.filter((e) => e.severity >= 2 && !P.triggered.has(eventId(e)) && !P.pending.has(eventId(e)) && P.lastT < e.t0_ms && t >= e.t0_ms) : [];
   P.lastT = t;
   crossed.forEach(trigger);
 }
 
 async function trigger(e) {
-  const { api, clock, timeline } = P.ctx, key = P.key;
-  P.triggered.add(eventId(e));
-  renderPins();
+  const page = P, { api, clock, timeline } = page.ctx, key = page.key, id = eventId(e);
+  page.pending.add(id);
   timeline.highlight(e.id);
   clock.seek(e.t0_ms);
-  const r = await api.post('api/actions/trigger', { scene_key: key, event_id: eventId(e), auto: true, actions: AUTO_ACTIONS });
-  if (P?.key !== key) return;
-  showToast(e, r);
-  setHazards((await api.get(`api/actions?scene_key=${key}`)).zones, r.zone_id);
+  try {
+    const r = await api.post('api/actions/trigger', { scene_key: key, event_id: id, auto: true, actions: AUTO_ACTIONS });
+    if (P !== page || P.key !== key) return;
+    P.triggered.add(id);
+    renderPins();
+    showToast(e, r);
+    const acts = await api.get(`api/actions?scene_key=${key}`);
+    if (P === page && P.key === key) setHazards(acts.zones, r.zone_id);
+  } catch (err) {
+    if (P !== page || P.key !== key) return;
+    const box = P.host.querySelector('.wh-toast');
+    clearTimeout(P.toastTimer);
+    box.textContent = `Action unavailable for ${e.id}: ${err.message}`;
+    box.hidden = false;
+    P.toastTimer = setTimeout(hideToast, TOAST_MS);
+  } finally {
+    page.pending.delete(id);
+  }
 }
 
 // Auto-action toast; no Undo: the backend cannot delete a review task or zone yet.
@@ -510,6 +529,8 @@ export async function applyHits(moments) {
   const { api, clock } = P.ctx, m = moments[0];
   P.hitCams = [m.primary_cam, ...m.cams.filter((c) => c !== m.primary_cam)].map((id) => P.mf.cams.find((c) => c.id === id));
   P.hitIds = m.actor_refs.map((a) => a.entity_id);
+  const measure = P.measure, match = measure && moments.find((x) => x.t0_ms <= measure.e.t0_ms && measure.e.t0_ms < x.t1_ms);
+  if (match) showMeasure(measure.e, measure.ids, match);
   for (const x of moments) x.cams.forEach((c) => P.used.add(c));
   if (!P.inEvidence) setDock();
   updateRail();
@@ -579,10 +600,10 @@ export function applyModelResults(results) {
 export async function showMeasure(e, ids, moment) {
   await P.ready;
   if (e.scene_key !== P.key) return;
-  P.measure = { eid: e.eid, ids };
+  P.measure = { eid: e.eid, e, ids };
   if (evCam(e)) P.used.add(evCam(e));
   updateRail();
-  P.stage.setMeasure({ ids, t0: moment.t0_ms, t1: moment.t1_ms, text: `${+e.value.toPrecision(4)} m ±${+e.sigma.toPrecision(4)}`, sub: `ground distance · ${tc(e.t0_ms)}` }, P.ctx.clock.t);
+  P.stage.setMeasure({ ids, t0: moment?.t0_ms ?? e.t0_ms, t1: moment?.t1_ms ?? e.t1_ms, text: `${+e.value.toPrecision(4)} m ±${+e.sigma.toPrecision(4)}`, sub: `ground distance · ${tc(e.t0_ms)}` }, P.ctx.clock.t);
 }
 
 // e2e hooks: client pixels of world points under the active view, and what the stage currently shows.

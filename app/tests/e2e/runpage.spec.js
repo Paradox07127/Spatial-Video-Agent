@@ -68,7 +68,7 @@ test('the verdict-changing step is expanded inline, the others collapsed; the ca
   await expect(detail.locator('.td-kv')).toContainText('ceiling_04');
   await expect(detail.locator('.td-kv')).toContainText('P1, F1');
   await expect(detail.locator('.td-links > details > summary')).toHaveText(['Request', 'Response']);
-  await expect(detail.locator('a.td-3d')).toHaveAttribute('href', '#/warehouse/wh-sdg-fixture-01');
+  await expect(detail.locator('a.td-3d')).toHaveAttribute('href', '?t_ms=4600#/warehouse/wh-sdg-fixture-01');
   await rp.locator('.trace-step[data-i="4"] .trace-row').click();
   await expect(rp.locator('.trace-step[data-i="4"] .trace-detail')).toHaveCount(1);
 });

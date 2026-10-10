@@ -32,9 +32,9 @@ async function loadTrips() {
     const trip = { id: tr.trip_id, title: tr.title, mf, cam: mf.cams[0] ?? null, chunks: new Map(), names: new Map() };
     const a = mf.assets;
     const [ev, bl, ents, tl, pl] = await Promise.all([a.events && asset(trip, a.events), a.buildings && asset(trip, a.buildings), a.entities && asset(trip, a.entities), a.timeline && asset(trip, a.timeline), a.places && asset(trip, a.places)]);
-    for (const e of ents?.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam.id) trip.names.set(o.local_track_id, e.entity_id);
+    for (const e of ents?.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam?.id) trip.names.set(o.local_track_id, e.entity_id);
     return Object.assign(trip, {
-      replay: gj.features[0].properties.replay, line: gj.features[0].geometry.coordinates, pts: gj.features.slice(1).map((f) => f.properties),
+      replay: gj.features[0].properties.replay, line: gj.features[0].geometry.coordinates, pts: gj.features.slice(1).map((f) => f.properties).filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat)),
       events: ev?.events ?? [], buildings: bl?.buildings ?? {}, timeline: tl, places: pl?.places ?? [],
     });
   }));
@@ -67,7 +67,14 @@ function chunk(trip, kind, t) {
     trip.chunks.set(key, kind === 'ego'
       ? asset(trip, `${trip.mf.assets.ego_dir}/${n}.json`).then((j) => j.frames)
       // A 10 s chunk with no detections may have no boxes file.
-      : asset(trip, `${trip.mf.assets.boxes_dir}/${trip.cam.id}/${n}.json`).then((j) => j.rows, () => []));
+      : asset(trip, `${trip.mf.assets.boxes_dir}/${trip.cam.id}/${n}.json`).then((j) => j.rows, (err) => {
+        if (err.message.startsWith('404 ')) return [];
+        throw err;
+      }));
+    trip.chunks.set(key, trip.chunks.get(key).catch((err) => {
+      trip.chunks.delete(key);
+      throw err;
+    }));
   }
   return trip.chunks.get(key);
 }
@@ -92,18 +99,45 @@ function placeHtml(p, t, c5) {
 }
 
 async function ixTick(wall) {
-  const cur = ix, t = tripT(cur.trip.replay, wall);
+  const cur = ix, current = ++cur.tick, t = tripT(cur.trip.replay, wall);
   cur.el.querySelector('.fl-vid').classList.toggle('novid', t == null);
   if (t == null) return;
   cur.video.sync(t, ctx.clock.playing);
-  const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
+  if (cur.frame && Math.floor(cur.frame.t_ms / 10000) !== Math.floor(t / 10000)) cur.video.clear();
+  let frames, rows;
+  try {
+    [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
+  } catch {
+    if (ix !== cur || current !== cur.tick) return;
+    cur.frame = null;
+    cur.video.clear();
+    cur.el.querySelector('.fl-3d').style.visibility = 'hidden';
+    cur.place.replaceChildren();
+    cur.placeHtml = null;
+    cur.placeId = undefined;
+    cur.facts.textContent = 'Detections unavailable';
+    ov.gps(null);
+    ov.place(null);
+    return;
+  }
   const f = frames.findLast((x) => x.t_ms <= t) ?? frames[0];
-  if (ix !== cur || f === cur.frame) return;
+  if (ix !== cur || current !== cur.tick || wall !== ctx.clock.t || !f || f === cur.frame) return;
   cur.frame = f;
-  const p = posAt(cur.trip.pts, t), pl = places.get(p.place_id), stale = p.state === 'last_known';
+  cur.el.querySelector('.fl-3d').style.visibility = '';
   cur.scene.setFrame(f, ctx.selection.ids);
   if (cur.frames !== frames) cur.scene.setPath((cur.frames = frames));
   cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - f.t_ms) < 50));
+  const p = posAt(cur.trip.pts, t);
+  if (!p) {
+    ov.gps(null);
+    ov.place(null);
+    cur.place.replaceChildren();
+    cur.placeHtml = null;
+    cur.placeId = undefined;
+    cur.facts.textContent = 'GPS unavailable';
+    return;
+  }
+  const pl = places.get(p.place_id), stale = p.state === 'last_known';
   ov.gps([p.lon, p.lat], f.ego.sigma_m);
   if (cur.placeId !== p.place_id) ov.place(places.get((cur.placeId = p.place_id))?.geom);
   cur.facts.innerHTML = `<span class="fl-ft">${tc(t)}</span>
@@ -125,11 +159,17 @@ async function renderTrip() {
   const el = document.getElementById('tab-trip'), cur = ix;
   if (!cur) return el.replaceChildren();
   const { trip, moment: m } = cur;
-  const n = [Math.floor(m.t0_ms / 10000), Math.floor(m.t1_ms / 10000)];
-  const frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
-    .filter((f) => f.t_ms >= m.t0_ms && f.t_ms <= m.t1_ms);
+  const n = [Math.floor(m.t0_ms / 10000), Math.floor((m.t1_ms - 1) / 10000)];
+  let frames;
+  try {
+    frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
+      .filter((f) => f.t_ms >= m.t0_ms && f.t_ms < m.t1_ms);
+  } catch {
+    if (ix === cur) el.textContent = 'Detections unavailable';
+    return;
+  }
   if (ix !== cur) return;
-  const stale = trip.pts.some((q) => q.t_ms >= m.t0_ms && q.t_ms <= m.t1_ms && q.state === 'last_known');
+  const stale = trip.pts.some((q) => q.t_ms >= m.t0_ms && q.t_ms < m.t1_ms && q.state === 'last_known');
   const sigma = frames.length ? Math.max(...frames.map((f) => f.ego.sigma_m)) : null;
   const placeId = trip.events.find((e) => e.place_id && e.t0_ms < m.t1_ms && e.t1_ms > m.t0_ms)?.place_id ?? posAt(trip.pts, m.t0_ms)?.place_id;
   const pl = places.get(placeId);
@@ -148,6 +188,12 @@ async function renderTrip() {
 function enterIx(trip, m) {
   if (ix?.moment === m) return;
   leaveIx();
+  const p = posAt(trip.pts, m.t0_ms);
+  if (!p) {
+    root.querySelector('.fl-cap').textContent = 'GPS unavailable';
+    return;
+  }
+  root.querySelector('.fl-cap').textContent = 'Dashed ring = GPS uncertainty';
   saved ??= ov.camera();
   root.classList.add('ix');
   const el = document.createElement('div');
@@ -158,7 +204,6 @@ function enterIx(trip, m) {
   view.big = 'video';
   const slots = { video: 'big', map: 'inset', '3d': 'side' };
   setSlots(slots);
-  const p = posAt(trip.pts, m.t0_ms);
   ov.frame([p.lon, p.lat]);
   ov.result(trip.id);
   const pick = (bid) => card.focus(bid);
@@ -166,7 +211,7 @@ function enterIx(trip, m) {
   const scene = createIntersection(el.querySelector('.fl-3d'), { cam: trip.cam, origin: trip.line[0], buildings: trip.buildings, onPick: pick, cite });
   el.querySelector('.fl-3d').insertAdjacentHTML('beforeend', GROW('3d'));
   const cur = view.ix = ix = {
-    trip, moment: m, el, scene, slots, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
+    trip, moment: m, el, scene, slots, tick: 0, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
     facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
     video: createVideo(el.querySelector('.fl-vwrap'), {
       cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
@@ -220,7 +265,7 @@ function openDefault() {
   const trip = trips.filter((t) => t.cam).sort((a, b) => b.events.length - a.events.length)[0];
   if (!trip) return tick(ctx.clock.t);
   const t0 = Math.min(...trip.events.map((e) => e.t0_ms), Infinity);
-  const t = t0 === Infinity ? trip.replay.coverage_intervals[0][0] : t0;
+  const t = t0 === Infinity ? trip.replay.coverage_intervals[0]?.[0] ?? trip.mf.t0_ms : t0;
   ctx.clock.seek(wallOf(trip.replay, t));
   openTrip(trip, t);
 }
@@ -254,16 +299,19 @@ export async function mount(el, c) {
       <div class="fl-card" hidden></div>
     </div>`;
   root = root.firstElementChild;
-  [trips] = await Promise.all([loadTrips(), new Promise((r) => (links[1].onload = r))]);
+  [trips] = await Promise.all([loadTrips(), new Promise((r) => {
+    const done = () => { clearTimeout(timer); r(); };
+    const timer = setTimeout(done, 3000);
+    links[1].onload = links[1].onerror = done;
+    if (links[1].sheet) done();
+  })]);
   places = new Map(trips.flatMap((t) => t.places.map((p) => [p.place_id, p])).reverse());
   // fleet.css's --route-1…8 by order in the trip list; MapLibre paint cannot read CSS variables.
   const css = getComputedStyle(root);
-  trips.forEach((t, i) => (t.color = css.getPropertyValue(`--route-${(i % 8) + 1}`).trim()));
+  trips.forEach((t, i) => (t.color = css.getPropertyValue(`--route-${(i % 8) + 1}`).trim() || css.getPropertyValue('--ink-2').trim()));
   ctx.clock.bind({ kind: 'fleet', replay: trips.map((t) => t.replay) });
-  ctx.clock.setRange(
-    Math.min(...trips.map((t) => wallOf(t.replay, t.replay.coverage_intervals[0][0]))),
-    Math.max(...trips.map((t) => wallOf(t.replay, t.replay.coverage_intervals.at(-1)[1]))),
-  );
+  const ranges = trips.flatMap((t) => t.replay.coverage_intervals.map(([a, b]) => [wallOf(t.replay, a), wallOf(t.replay, b)]));
+  ctx.clock.setRange(ranges.length ? Math.min(...ranges.map(([a]) => a)) : 0, ranges.length ? Math.max(...ranges.map(([, b]) => b)) : 1);
   addLanes();
   view.overview = ov = await createOverview(root.querySelector('.fl-map'), {
     trips, api: ctx.api,
@@ -280,7 +328,7 @@ export async function mount(el, c) {
     onBuilding: (bid) => card.focus(bid),
   });
   // Added after the map is created: MapLibre wants an empty container.
-  root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: 'Dashed ring = GPS uncertainty' }));
+  root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: trips.some((t) => t.pts.length) ? 'Dashed ring = GPS uncertainty' : 'GPS unavailable' }));
   root.querySelector('.fl-map').insertAdjacentHTML('beforeend', GROW('map'));
   root.addEventListener('click', (e) => {
     const g = e.target.closest('.fl-grow');
@@ -338,7 +386,8 @@ export async function applyHits(moments) {
   ov.select(trip.id);
   ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
   if (trip.cam) enterIx(trip, m);
-  else flyTo([p.lon, p.lat]);
+  else if (p) flyTo([p.lon, p.lat]);
+  else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
 }
 
 export async function applyUI({ cmd, args }) {
@@ -347,8 +396,11 @@ export async function applyUI({ cmd, args }) {
     const trip = byId(args.trip_id ?? args.scene_key) ?? ix?.trip;
     ctx.clock.seek(trip ? wallOf(trip.replay, args.t_ms) : args.t_ms);
   } else if (cmd === 'focus' && args.latlon) flyTo([args.latlon[1], args.latlon[0]]);
-  else if (cmd === 'highlight') ctx.selection.set(args.ids, { source: 'agent' });
-  else if (cmd === 'setView') ix?.scene.setView(args.view);
+  else if (cmd === 'highlight') {
+    const buildings = args.ids.filter((id) => trips.some((t) => id in t.buildings));
+    ctx.selection.set(args.ids.filter((id) => !buildings.includes(id)), { source: 'agent' });
+    if (buildings.length) await card.focus(buildings[0]);
+  } else if (cmd === 'setView') ix?.scene.setView(args.view);
   else if (cmd === 'loadScene') loadScene(args.scene_key);
 }
 
@@ -363,8 +415,9 @@ export function loadScene(id) {
   if (!trip) return;
   ov.select(id);
   if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
-  const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0].t_ms;
+  const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0]?.t_ms ?? trip.mf.t0_ms;
   if (trip.cam) return openTrip(trip, t);
   const p = posAt(trip.pts, t);
-  ov.fly([p.lon, p.lat], FLY_MS);
+  if (p) ov.fly([p.lon, p.lat], FLY_MS);
+  else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
 }

@@ -53,7 +53,8 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
   const out = remapEl.getContext('2d');
-  let undist = false, lut = null, last = null, alive = true;
+  let undist = false, lut = null, last = null, alive = true, time = 0, playing = false;
+  video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing));
 
   // lut[i] = source pixel index for pinhole pixel i, −1 outside the fisheye frame.
   function buildLut() {
@@ -146,14 +147,25 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
     if (c) onPick(c.dataset.bid);
   });
 
-  return {
+  const player = {
     draw,
+    clear() {
+      last = null;
+      ovl.clearRect(0, 0, w, h);
+      cols.replaceChildren();
+      legend.textContent = 'Detections unavailable';
+    },
     // t: trip t_ms. Re-seek when the video drifts more than a frame (paused) or 0.25 s (playing).
-    sync(t, playing) {
+    sync(t, on) {
+      time = t;
+      playing = on;
       const target = Math.max(0, (t - cam.offset_ms) / 1000);
       if (Math.abs(video.currentTime - target) > (playing ? 0.25 : 1 / fps)) video.currentTime = target;
+      if (playing && video.paused) video.play().catch(() => {});
+      else if (!playing && !video.paused) video.pause();
     },
     play(on) {
+      playing = on;
       // play() rejects when a pause() interrupts it; that is expected here.
       on ? video.play().catch(() => {}) : video.pause();
     },
@@ -164,4 +176,5 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite }) {
       video.load();
     },
   };
+  return player;
 }

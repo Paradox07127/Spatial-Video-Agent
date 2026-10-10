@@ -4,8 +4,6 @@
 import { esc, span } from '../kernel/format.js';
 
 const WINDOW_MS = 10000;
-// Boxes of the detection frame nearest the clock are drawn up to this far from it.
-const HOLD_MS = 500;
 const MEASURE = '#56B4E9';
 // Commands on objects or the 3D camera; an L1 scene has neither track ids nor geometry.
 const IGNORED = new Set(['highlight', 'annotate', 'focus', 'setView', 'showTrack']);
@@ -18,9 +16,14 @@ function dets(s, t) {
   if (!s.dets.has(w)) {
     const q = `cam=${encodeURIComponent(s.cam.id)}&t0=${w * WINDOW_MS}&t1=${(w + 1) * WINDOW_MS}`;
     s.dets.set(w, ctx.api.get(`api/street/${s.key}/detections?${q}`).then(({ rows }) => {
-      const at = new Map();
+      // The API omits rows for empty frames; retain the manifest's sampled frame times too.
+      const at = new Map(), dt = 1000 / s.mf.fps;
+      for (let i = Math.ceil(w * WINDOW_MS / dt); i * dt < Math.min((w + 1) * WINDOW_MS, s.mf.t1_ms); i++) at.set(Math.round(i * dt), []);
       for (const r of rows) at.set(r[0], [...(at.get(r[0]) ?? []), r]);
       return { times: [...at.keys()].sort((a, b) => a - b), at };
+    }).catch((err) => {
+      s.dets.delete(w);
+      throw err;
     }));
   }
   return s.dets.get(w);
@@ -28,7 +31,7 @@ function dets(s, t) {
 
 function rowsAt({ times, at }, t) {
   const ft = times.reduce((best, x) => (best == null || Math.abs(x - t) < Math.abs(best - t) ? x : best), null);
-  return ft != null && Math.abs(ft - t) <= HOLD_MS ? at.get(ft) : [];
+  return ft != null && Math.abs(ft - t) <= 500 / S.mf.fps ? at.get(ft) : [];
 }
 
 function draw(rows) {
@@ -49,6 +52,7 @@ function sync(t) {
   const { chunks } = S, i = chunks.findIndex((c) => t < c.t1_ms), k = i < 0 ? chunks.length - 1 : i, c = chunks[k];
   if (k !== S.cur) {
     S.cur = k;
+    S.presented = null;
     video.src = ctx.api.url(c.url);
     // play() rejects when a pause() interrupts it; that is expected here.
     if (ctx.clock.playing) video.play().catch(() => {});
@@ -64,8 +68,17 @@ async function tick(t) {
   if (!s) return;
   sync(t);
   root.querySelector('.st-now').style.left = pct(t);
-  const d = await dets(s, t);
-  if (s === S && t === ctx.clock.t) draw(rowsAt(d, t));
+  draw([]);
+  const presented = s.presented;
+  if (presented == null || Math.abs(presented - t) > (ctx.clock.playing ? 250 : 1000 / s.mf.fps)) return;
+  try {
+    const d = await dets(s, presented);
+    if (s !== S || t !== ctx.clock.t || presented !== s.presented) return;
+    draw(rowsAt(d, presented));
+    root.querySelector('.st-chip').textContent = 'L1 · 2D video';
+  } catch {
+    if (s === S && t === ctx.clock.t) root.querySelector('.st-chip').textContent = 'L1 · 2D video · Detections unavailable';
+  }
 }
 
 function renderBands() {
@@ -90,11 +103,22 @@ export async function mount(el, c) {
   root = el.firstElementChild;
   video = root.querySelector('video');
   ovl = root.querySelector('.st-ovl').getContext('2d');
+  let alive = true;
+  const onFrame = (now, md) => {
+    if (!alive) return;
+    if (S && !video.seeking) {
+      S.presented = Math.round(md.mediaTime * 1000) + S.chunks[S.cur].t0_ms;
+      tick(ctx.clock.t);
+    }
+    video.requestVideoFrameCallback(onFrame);
+  };
+  video.requestVideoFrameCallback(onFrame);
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
   offs = [ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
   await loadScene(ctx.route.scene_key);
   return () => {
+    alive = false;
     offs.forEach((off) => off());
     video.pause();
     video.removeAttribute('src');
@@ -121,7 +145,7 @@ async function load(key) {
   const box = root.querySelector('.st-vbox'), canvas = root.querySelector('.st-ovl');
   box.style.setProperty('--ar', cam.w / cam.h);
   Object.assign(canvas, { width: cam.w, height: cam.h });
-  S = { key, mf, cam, chunks, cur: -1, dets: new Map(), moments: [], boxes: 0 };
+  S = { key, mf, cam, chunks, cur: -1, presented: null, dets: new Map(), moments: [], boxes: 0 };
   renderBands();
   if (ctx.route.t_ms != null) ctx.clock.seek(ctx.route.t_ms);
   else tick(ctx.clock.t);

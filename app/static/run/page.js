@@ -38,7 +38,7 @@ const NOTES = {
   C4: ['Timing C4', (p) => p.segments.map((s) => `<span class="mono">${tc(s.start_s * 1000)}–${tc(s.end_s * 1000)}</span> <span class="rp-dim">"${esc(s.text)}"</span>`).join('; ') || `<span class="rp-dim">"${esc(p.query)}" not found</span>`],
 };
 const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./run.css', import.meta.url).href });
-let observer = null, pinned = false;
+let observer = null, pinned = false, generation = 0;
 
 const ms = (n) => (n == null ? '–' : n < 1000 ? `${n} ms` : sec(n));
 const when = (iso) => iso.slice(0, 16).replace('T', ' ');
@@ -76,7 +76,7 @@ function header(r, src, ev) {
   const sentence = (a) => (a.cites?.length
     ? `<span class="rp-sent">${esc(a.text)}${a.cites.map((id) => cite(ev.get(id), id)).join('')}</span>`
     : `<span class="rp-sent uncited">${esc(a.text)}<span class="rp-ns">Not supported</span></span>`);
-  const answers = src.steps.filter((s) => s.name === 'answer' && s.output?.text).map((s) => s.output);
+  const answers = src.steps.filter((s) => s.name === 'answer').flatMap((s) => Array.isArray(s.output) ? s.output : [s.output]).filter((a) => a?.text);
   return `
     <h1 class="rp-q">${esc(r.q)}</h1>
     <div class="rp-meta">${verdictOf(r)}<span class="mono">${meta(r)}</span>
@@ -238,21 +238,30 @@ export const runpage = {
   isOpen: () => !el().hidden,
   // runId null lists the recent runs; summaries: see trace.renderRun.
   async open(runId, summaries) {
+    const current = ++generation;
     if (!css.isConnected) document.head.append(css);
     observer?.disconnect();
     pinned = false;
     el().hidden = false;
     el().onclick = onClick;
     try {
-      if (!runId) return renderList(await api.get('api/agent/runs'));
+      if (!runId) {
+        const runs = await api.get('api/agent/runs');
+        if (current === generation && !el().hidden) renderList(runs);
+        return;
+      }
       const r = await api.get(`api/agent/runs/${runId}`);
+      if (current !== generation || el().hidden) return;
       // A cache replay persists a single cache_replay step; the reasoning it replayed is in its source run.
-      renderRun(r, r.source_run_id ? await api.get(`api/agent/runs/${r.source_run_id}`) : r, summaries);
+      const src = r.source_run_id ? await api.get(`api/agent/runs/${r.source_run_id}`) : r;
+      if (current === generation && !el().hidden) renderRun(r, src, summaries);
     } catch {
+      if (current !== generation || el().hidden) return;
       el().innerHTML = `${top('Back', null)}<div class="rp-col"><p class="muted">Could not read run ${esc(runId ?? 'list')}.</p></div>`;
     }
   },
   close() {
+    generation++;
     observer?.disconnect();
     el().hidden = true;
   },

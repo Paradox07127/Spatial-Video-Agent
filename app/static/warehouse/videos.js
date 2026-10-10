@@ -26,6 +26,7 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
   el.innerHTML = `${cell(cams[0], 0)}${cams.length > 1 ? `<div class="wh-vgrid">${cams.slice(1).map((c, i) => cell(c, i + 1)).join('')}</div>` : ''}`;
   const owner = owners(entities);
   const chunks = new Map();
+  const unavailable = new Set();
   const frame = 1 / mf.fps;
   let selected = new Set(), alive = true;
 
@@ -51,7 +52,19 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
       chunks.set(name, null);
       api.get(`api/assets/${key}/${mf.assets.boxes_dir}/${name}.json`).then((b) => {
         chunks.set(name, b.rows);
-        if (alive) draw(x);
+        unavailable.delete(name);
+        if (alive) sync(clock.t);
+      }).catch((err) => {
+        if (err.message.startsWith('404 ')) chunks.set(name, []);
+        else {
+          chunks.delete(name);
+          unavailable.add(name);
+          if (alive && Math.floor(clock.t / 10000) === Math.floor(t / 10000)) {
+            x.cv.getContext('2d').clearRect(0, 0, x.cv.width, x.cv.height);
+            x.fig.classList.add('nov');
+            x.nov.textContent = 'Detections unavailable';
+          }
+        }
       });
     }
     return chunks.get(name);
@@ -85,8 +98,13 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
       const want = Math.max(0, (t - x.c.offset_ms) / 1000);
       const seg = lanes[x.c.id]?.find(([a, b]) => t >= a && t < b);
       const nov = !seg || seg[2] === 'no_video';
-      x.fig.classList.toggle('nov', nov);
+      rows(x, t);
+      const failed = unavailable.has(`${x.c.id}/${String(Math.floor(t / 10000)).padStart(5, '0')}`);
+      x.fig.classList.toggle('nov', nov || failed);
       if (nov) x.nov.textContent = `No video at ${tc(t)}`;
+      else if (failed) x.nov.textContent = 'Detections unavailable';
+      if (x.ms != null && Math.abs(x.ms - t) <= frame * 1000) draw(x);
+      else x.cv.getContext('2d').clearRect(0, 0, x.cv.width, x.cv.height);
       if (clock.playing) {
         x.v.playbackRate = clock.rate;
         if (x.v.paused) x.v.play().catch(() => {}); // rejected when a pause() interrupts it

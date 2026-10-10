@@ -45,11 +45,14 @@ function entities(v, out = new Set()) {
   return out;
 }
 
-// The workspace route at the moment a step read; warehouse routes carry no time.
-function where(s) {
-  const r = rangeOf(s), key = r?.scene_key ?? s.input?.scene_key ?? run.context?.scene_key;
+// Resolve the evidence scene independently of the workspace where the question was asked.
+async function where(s) {
+  const r = rangeOf(s), e = run.evidence.find((x) => s.evidence_ids.includes(x.eid));
+  const key = r?.scene_key ?? e?.scene_key ?? s.input?.scene_key ?? run.context?.scene_key;
   if (!key) return null;
-  return run.context?.workspace === 'fleet' ? `#/fleet/${key}@${r?.t0_ms ?? 0}` : `#/warehouse/${key}`;
+  const mf = await api.get(`api/scene/${key}/manifest`), t = r?.t0_ms ?? e?.t0_ms ?? s.input?.t_ms ?? 0;
+  // Warehouse's shell route has no time suffix; its page consumes this query on load.
+  return mf.workspace === 'warehouse' ? `?t_ms=${t}#/warehouse/${key}` : `#/${mf.workspace}/${key}@${t}`;
 }
 
 function weave(step) {
@@ -59,7 +62,7 @@ function weave(step) {
 }
 
 function detail(s) {
-  const r = rangeOf(s), ids = [...entities(s.input)], href = where(s);
+  const r = rangeOf(s), ids = [...entities(s.input)];
   const pts = s.output?.pts_read;
   const kv = [
     ['why', s.note && esc(s.note)],
@@ -79,7 +82,7 @@ function detail(s) {
         <div class="td-links">
           <details class="jt"><summary>Request</summary>${tree(s.input, undefined, 0)}</details>
           <details class="jt"><summary title="${s.name.startsWith('tool.') ? 'Tool envelope' : 'Output'}">Response</summary>${tree(s.output, undefined, 0)}</details>
-          ${href ? `<a class="td-3d" href="${esc(href)}">Show in 3D ↗</a>` : ''}
+          <a class="td-3d" hidden>Show in 3D ↗</a>
         </div>
       </div>
     </div>`;
@@ -119,6 +122,12 @@ export const trace = {
     li.classList.toggle('open', !open);
     if (open) return open.remove();
     li.insertAdjacentHTML('beforeend', detail(run.steps.find((s) => s.i === i)));
+    const link = li.querySelector('.td-3d');
+    where(run.steps.find((s) => s.i === i)).then((href) => {
+      if (!href || !link.isConnected) return;
+      link.href = href;
+      link.hidden = false;
+    }).catch(() => {});
   },
   linkWeave(url) {
     weaveUrl = url;

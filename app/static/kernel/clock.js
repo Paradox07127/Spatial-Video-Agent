@@ -1,6 +1,9 @@
 // Master clock: clock.t (integer ms, scene time or fleet replay wall time) is the single source of truth.
 import { bus } from './bus.js';
 
+let generation = 0;
+const clamp = (t) => Math.min(Math.max(Math.round(t), clock.range.t0), clock.range.t1 - 1);
+
 export const clock = {
   t: 0,
   playing: false,
@@ -9,25 +12,28 @@ export const clock = {
   domain: { kind: 'scene' },
 
   seek(t) {
-    clock.t = Math.round(Math.min(Math.max(t, clock.range.t0), clock.range.t1));
+    clock.t = clamp(t);
     bus.emit('clock:tick', clock.t);
   },
   play() {
     if (clock.playing) return;
-    if (clock.t >= clock.range.t1) clock.seek(clock.range.t0);
+    if (clock.t >= clock.range.t1 - 1) clock.seek(clock.range.t0);
+    const current = ++generation;
     clock.playing = true;
     bus.emit('clock:play', true);
     let last = performance.now();
     const step = (now) => {
-      if (!clock.playing) return;
+      if (!clock.playing || current !== generation) return;
       clock.seek(clock.t + (now - last) * clock.rate);
+      if (!clock.playing || current !== generation) return;
       last = now;
-      if (clock.t >= clock.range.t1) clock.pause();
+      if (clock.t >= clock.range.t1 - 1) clock.pause();
       else requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   },
   pause() {
+    generation++;
     clock.playing = false;
     bus.emit('clock:play', false);
   },
@@ -46,7 +52,7 @@ export const clock = {
   },
   // Wall ms -> {trip_id, t_ms}; scene domain is the identity. null when no trip covers wall_ms.
   map(wall_ms) {
-    if (clock.domain.kind === 'scene') return { trip_id: null, t_ms: wall_ms };
+    if (clock.domain.kind === 'scene') return { trip_id: null, t_ms: clamp(wall_ms) };
     for (const m of clock.domain.replay) {
       const t = m.source_start_ms + (wall_ms - m.replay_start_ms) * m.rate;
       if (m.coverage_intervals.some(([a, b]) => t >= a && t < b)) return { trip_id: m.trip_id, t_ms: Math.round(t) };
