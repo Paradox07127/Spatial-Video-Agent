@@ -113,6 +113,12 @@ export async function mount(el, c) {
     video.requestVideoFrameCallback(onFrame);
   };
   video.requestVideoFrameCallback(onFrame);
+  // A seek while paused need not present a new frame callback; the seeked position is the presented frame.
+  video.addEventListener('seeked', () => {
+    if (!alive || !S || ctx.clock.playing) return;
+    S.presented = Math.round(video.currentTime * 1000) + S.chunks[S.cur].t0_ms;
+    tick(ctx.clock.t);
+  });
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
   offs = [ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
