@@ -271,6 +271,8 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         moments = sorted([*grouped.values(),*street_cards],key=lambda m:-m.score)[:request.k]
     evidence = list({e.eid:e for e in evidence}.values())
     output = {'moments':[{**m.model_dump(exclude_none=True),'thumb':m.thumb} for m in moments], 'expanded_ranges':expanded,'backend':backend}
+    if not moments and (request.t_ms is not None or request.selection or parsed.zone):
+        output.update(abstain='UNRESOLVED',reason='missing_constrained_evidence')
     return parsed, result(key or 'all',min((r['t0_ms'] for r in expanded),default=0),
                           max((r['t1_ms'] for r in expanded),default=0),output,evidence=evidence,
                           pts_read=len(clips),gaps=gaps,started=started)

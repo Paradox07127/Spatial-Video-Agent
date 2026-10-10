@@ -36,6 +36,8 @@ def test_search_never_returns_another_person_or_time(tmp_path,monkeypatch,q,cont
     s=fixture_store(tmp_path)
     _,result=retrieve(s,SearchRequest(q=q,workspace='warehouse',scene_key=KEY,**context))
     assert result.envelope.output['moments']==[]
+    if context:
+        assert result.envelope.output['abstain']=='UNRESOLVED'
 
 
 def test_search_conflicting_constraints_are_unknown(tmp_path):
