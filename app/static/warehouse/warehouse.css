@@ -177,3 +177,9 @@ body[data-stage="evidence"] .wh-stage-video:has(.wh-sv-src) { border-color: var(
 
 /* ---- model lanes the page adds to the shell timeline */
 .lane-model .tl-seg { top: 4px; height: 10px; border: 1px dashed var(--src-model); background: color-mix(in srgb, var(--src-model) 18%, transparent); }
+@media (max-width: 850px) {
+  .wh-bar { right: 100px; gap: 6px; flex-wrap: wrap; align-items: flex-start; }
+  .wh-bar .seg, .wh-bar .ghost { flex: none; }
+  .wh-focus { max-width: 100%; white-space: nowrap; }
+  .wh-focus > span { overflow: hidden; text-overflow: ellipsis; }
+}
