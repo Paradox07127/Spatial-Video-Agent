@@ -77,8 +77,7 @@
                 "enum": [
                   "warehouse",
                   "fleet",
-                  "fixed",
-                  "mobile"
+                  "fixed"
                 ]
               },
               "minItems": 1,
@@ -223,8 +222,7 @@
                 "enum": [
                   "warehouse",
                   "fleet",
-                  "fixed",
-                  "mobile"
+                  "fixed"
                 ]
               },
               "minItems": 1,

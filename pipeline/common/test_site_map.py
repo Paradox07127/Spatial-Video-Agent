@@ -37,8 +37,6 @@ def test_pie_chunk_maps_through_live_identity():
 
 
 @pytest.mark.parametrize("stem, camera_id, key", [
-    ("GX050001", "nyc_bike_gopro-1", "st-nyc_bike_gopro_1-gx050001"),
-    ("GOPR0130", "nyc_bike_gopro-1", "st-nyc_bike_gopro_1-gopr0130"),
     ("VID_20261006_174811_003", "nyc_streets_cam-1", "st-nyc_streets_cam_1-vid_20261006_174811_003"),
     ("IMG_0509", "nyc_streets_cam-2", "st-nyc_streets_cam_2-img_0509"),
     ("sf1", "sf_streets_cam-1", "st-sf_streets_cam_1-sf1"),
@@ -47,6 +45,12 @@ def test_pie_chunk_maps_through_live_identity():
 def test_street_stems_map_to_their_camera_scene(stem, camera_id, key):
     chunk = f"s3://team-38-vss-chunks/team-38/20261008_074640_{stem}_chunk_0003.mp4"
     assert site_map.scene_of(row(chunk, 25.0, 115.0, camera_id=camera_id), {}) == ("street", (key, camera_id, 115000))
+
+
+@pytest.mark.parametrize("stem", ["GX050001", "GOPR0130", "GX010001"])
+def test_removed_camera_stems_have_no_scene(stem):
+    chunk = f"s3://team-38-vss-chunks/team-38/20261008_074640_{stem}_chunk_0003.mp4"
+    assert site_map.scene_of(row(chunk, 25.0, 115.0, camera_id="nyc_bike_gopro-1"), {}) == ("other", None)
 
 
 def test_other_sources_have_no_scene():

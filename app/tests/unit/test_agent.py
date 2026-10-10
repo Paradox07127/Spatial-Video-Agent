@@ -961,7 +961,7 @@ def test_keep_sources_drops_moments_of_other_tags(corpus):
     cards = [MomentCard(moment_id='m_'+k,scene_key=k,t0_ms=0,t1_ms=1,cams=[],primary_cam='c',actor_refs=[],evidence_ids=[],
                         score=1,why=[],thumb=None) for k in ['wh-sdg-fixture-01','fl-pie-fixture-01',L1_KEY]]
     assert [m.scene_key for m in agent.keep_sources(corpus,cards,['fleet','fixed'])]==['fl-pie-fixture-01',L1_KEY]
-    assert agent.keep_sources(corpus,cards,['mobile'])==[] and agent.keep_sources(corpus,cards,None)==cards
+    assert agent.keep_sources(corpus,cards,None)==cards
 
 
 def test_sources_limit_the_corpus_hits(corpus):
@@ -980,7 +980,7 @@ def test_one_scene_of_hits_opens_and_is_navigated(corpus):
 
 
 def test_hits_across_scenes_send_no_navigation(corpus):
-    frames = ask(corpus, ANCHOR['q'], {**CORPUS,'sources':['warehouse','fleet','fixed','mobile']}, {'tools':16,'seconds':45})
+    frames = ask(corpus, ANCHOR['q'], {**CORPUS,'sources':['warehouse','fleet','fixed']}, {'tools':16,'seconds':45})
     assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
     hits, = of(frames, 'hits')
     assert hits['auto_open'] is None and len({m['scene_key'] for m in hits['moments']})==3

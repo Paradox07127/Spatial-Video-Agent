@@ -106,15 +106,15 @@ def test_tag_of(key, tag):
     assert models.tag_of(manifest(key)) == tag
 
 
-def test_bike_gopro_is_mobile_and_other_street_cameras_are_fixed():
+def test_street_cameras_are_fixed():
     st = manifest(ST_KEY)
-    for camera, tag in [("nyc_bike_gopro-1", "mobile"), ("nyc_streets_cam-1", "fixed"), ("sf_streets_cam-4", "fixed"), ("neighborhood_cam-1", "fixed")]:
-        assert models.tag_of({**st, "sources": {"vss": {"camera_id": camera}}}) == tag
+    for camera in ("nyc_streets_cam-1", "nyc_streets_cam-2", "sf_streets_cam-4", "neighborhood_cam-1"):
+        assert models.tag_of({**st, "sources": {"vss": {"camera_id": camera}}}) == "fixed"
 
 
 def test_sources_are_tags():
     q = dict(template="find", entities=[], t_range=None, place=None, zone=None, scene_key=None, workspace="warehouse")
     assert models.Query(**q).sources is None
-    assert models.Query(**q, sources=["fixed", "mobile"]).sources == ["fixed", "mobile"]
+    assert models.Query(**q, sources=["warehouse", "fleet", "fixed"]).sources == ["warehouse", "fleet", "fixed"]
     with pytest.raises(ValidationError):
         models.Query(**q, sources=["street"])

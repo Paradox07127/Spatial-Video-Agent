@@ -33,7 +33,7 @@ CHUNK = re.compile(r"^\d{8}_\d{6}_(.+)_chunk_\d{4}\.mp4$")
 SDG = re.compile(r"^[0-9a-f]{20}_([0-9a-f]{20})_run_(\d+)_seed_\d+\.(\w+)\.rgb$")
 SMARTSPACES = re.compile(r"^2025_test_(Warehouse_\d+)_(Camera(?:_\d+)?)$")
 PIE = re.compile(r"^set\d+_video$")
-STREET = re.compile(r"^(nyc_bike_gopro|nyc_streets_cam|sf_streets_cam|neighborhood_cam)-\d+$")
+STREET = re.compile(r"^(nyc_streets_cam|sf_streets_cam|neighborhood_cam)-\d+$")
 
 
 def pie_index(identity: dict) -> dict:

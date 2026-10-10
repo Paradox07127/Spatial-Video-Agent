@@ -28,7 +28,7 @@ ANALYSIS_REV = "l1-1"
 SIZE = {"neighborhood_cam": (2048, 1154, 19.9)}
 DEFAULT_SIZE = (1920, 1080, 30)
 CAPTION_MODEL = "nvidia/cosmos3-nano-reasoner"
-NAMES = {"nyc_bike_gopro": "New York bike GoPro", "nyc_streets_cam": "New York street camera",
+NAMES = {"nyc_streets_cam": "New York street camera",
          "sf_streets_cam": "San Francisco street camera", "neighborhood_cam": "Neighborhood camera"}
 
 

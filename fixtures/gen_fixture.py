@@ -962,10 +962,10 @@ def labels(wh) -> dict:
 ANCHOR_Q = "Show me every clip, from any camera in any site, where a person is close to a moving vehicle"
 CORPUS_ASKS = [
     ("corpus-anchor", "warehouse", ANCHOR_Q,
-     {"workspace": "warehouse", "scene_key": WH_KEY, "scope": "corpus", "sources": ["warehouse", "fleet", "fixed", "mobile"]}),
+     {"workspace": "warehouse", "scene_key": WH_KEY, "scope": "corpus", "sources": ["warehouse", "fleet", "fixed"]}),
     ("corpus-street-distance", "street", "How far was the pedestrian from the car on the street?",
      {"workspace": "street", "scene_key": ST_KEY, "scope": "corpus", "sources": ["fixed"]}),
-    ("corpus-nomatch", "street", "Find a person on the bike camera", {"workspace": "street", "scope": "corpus", "sources": ["mobile"]}),
+    ("corpus-nomatch", "street", "Find a bicycle on the street camera", {"workspace": "street", "scope": "corpus", "sources": ["fixed"]}),
 ]
 
 
