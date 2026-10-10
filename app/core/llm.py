@@ -51,9 +51,13 @@ def rule_parse(q: str, ctx: dict) -> Query:
         place = named.group(1)
     t_range = ctx.get('t_range')
     point = None
-    interval = re.search(r'(?:from)?\s*(\d+(?:\.\d+)?)\s*(?:to|[-–])\s*(\d+(?:\.\d+)?)\s*(?:s\b|seconds)', text)
+    during_span = re.search(r'\bduring\s+(?:(?:these|the)\s+)?(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)',text)
+    interval = (re.search(r'(?:from)?\s*(\d+(?:\.\d+)?)\s*(?:to|[-–])\s*(\d+(?:\.\d+)?)\s*(?:s\b|seconds)', text)
+                or re.search(r'\bbetween\s+(\d+(?:\.\d+)?)\s+and\s+(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)',text))
     if interval:
         t_range = (int(float(interval[1])*1000), int(float(interval[2])*1000))
+    elif during_span:
+        t_range = (0,int(float(during_span[1])*1000))
     else:
         point = re.search(r'\bat\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))',text)
         if point:
@@ -71,7 +75,10 @@ def rule_parse(q: str, ctx: dict) -> Query:
     bound_pattern = r'\b(before|after)\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))'
     bounds = list(re.finditer(bound_pattern,text))
     temporal = re.findall(r'\b(?:after|before|until|since|unless)\b',text)
-    if len(temporal)>len(bounds):
+    if (len(temporal)>len(bounds)
+            or re.search(r'\b\d{1,2}:\d{2}(?::\d{2})?\b',text)
+            or re.search(r'\b(?:first|last)\s+\d+(?:\.\d+)?\s*(?:s\b|seconds?\b)',text)
+            or re.search(r'\bduring\b',text) and not interval and not point and not during_span):
         constraints.append('temporal_relation')
     quantity = r'(?:two|three|four|five|six|seven|eight|nine|ten|\d+)'
     if re.search(r'\b'+quantity+r'\s+(?:people|workers|persons|pedestrians|vehicles|cars|forklifts)\b',text):

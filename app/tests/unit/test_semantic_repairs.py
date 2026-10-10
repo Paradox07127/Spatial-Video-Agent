@@ -229,3 +229,27 @@ def test_moving_modifier_uses_the_described_actor(store,monkeypatch,q,expected):
     frames = ask(store,q)
     assert final(frames)==expected
     assert speed_reads==(['F1'] if expected=='SUPPORTED' else [])
+
+
+@pytest.mark.parametrize('q',[
+    'When did the worker dodge the forklift between 7 and 9 seconds?',
+    'When did the worker dodge the forklift during the first 3 seconds?',
+    'When did the worker dodge the forklift in the last 2 seconds?',
+    'When did the worker dodge the forklift at 00:07?',
+    'When did the worker dodge the forklift from 00:07 to 00:09?',
+])
+def test_common_time_scopes_do_not_support_an_earlier_event(store,q):
+    frames = ask(store,q)
+    assert final(frames)!='SUPPORTED'
+    assert all('4.6 s' not in f['data']['text'] for f in frames if f['event']=='answer')
+
+
+def test_between_time_has_actual_search_bounds():
+    parsed = llm.rule_parse('When did the worker dodge between 7 and 9 seconds?',{'workspace':'warehouse'})
+    assert parsed.t_range==(7000,9000)
+    assert 'temporal_relation' not in parsed.constraints
+
+
+def test_default_blind_spot_during_window_remains_explicit():
+    parsed = llm.rule_parse('Is there anyone in the ceiling_00 blind spot during these 10 seconds?',{'workspace':'warehouse'})
+    assert parsed.t_range==(0,10000) and 'temporal_relation' not in parsed.constraints
