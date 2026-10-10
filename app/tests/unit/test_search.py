@@ -108,7 +108,7 @@ def test_search_group_expansion_and_schema(tmp_path, monkeypatch):
     parsed, result = retrieve(store, SearchRequest(q='The worker dodges the forklift', workspace='warehouse'))
     cards = result.envelope.output['moments']
     assert len(cards) == 1 and cards[0]['t0_ms'] == 4600
-    assert len(cards[0]['cams']) == 3
+    assert cards[0]['cams'] == ['ceiling_04','eye_00'] and cards[0]['primary_cam']=='ceiling_04'
     assert result.envelope.output['expanded_ranges'][0]['t1_ms'] == 10000
     from app.api.search import search_response
     assert schema_errors(search_response(store, parsed, result), 'search.json') == []

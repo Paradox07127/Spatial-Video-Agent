@@ -49,6 +49,17 @@ def test_street_moments_are_2d_segments_and_never_read_boxes_or_entities(store, 
                                    'frames_read': 50, 'source': 'yolo11_coco'}
 
 
+
+def test_street_card_thumb_is_the_decode_route_without_a_thumbs_directory(store, monkeypatch):
+    # site street cameras have thumbs=None; the thumb route decodes the frame from the chunk
+    manifest = store.manifest
+    monkeypatch.setattr(store, 'manifest', lambda k: {**manifest(k), 'cams': [{**c, 'thumbs': None} for c in manifest(k)['cams']]}
+                        if k == L1_KEY else manifest(k))
+    _, r = retrieve(store, SearchRequest(q='Find a person', workspace='street', scene_key=L1_KEY), vss=SimpleNamespace())
+    cards = r.envelope.output['moments']
+    assert cards and all(m['thumb'] == f"/api/street/{L1_KEY}/thumb?cam={L1_CAM}&t={m['t0_ms']}" for m in cards)
+
+
 def test_street_guard_spy_fires(store, monkeypatch):
     street_guards(monkeypatch, store)
     with pytest.raises(AssertionError, match='street scene'):

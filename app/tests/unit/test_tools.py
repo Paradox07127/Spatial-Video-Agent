@@ -164,13 +164,13 @@ def test_detections_2d_reads_the_street_boxes(tmp_path):
     assert r.evidence[0].value['frames_together']>0 and r.envelope.coverage==1 and r.envelope.gaps==[]
 
 
-def test_blind_presence_joins_gaps_shorter_than_the_visibility_step(tmp_path, monkeypatch):
+def test_blind_presence_splits_at_visible_samples(tmp_path, monkeypatch):
     s=fixture_store(tmp_path)
     real=tools.geometry.floor_visibility
     def flicker(data, t_ms, point):
         states=real(data,t_ms,point)
-        # P1's root sits on a cell edge for 0.3 s and reads as visible to ceiling_00
+        # Verified visibility interrupts each person's blind interval.
         return {**states,'ceiling_00':'visible'} if 4800<=t_ms<5100 else states
     monkeypatch.setattr(tools.geometry,'floor_visibility',flicker)
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_00',0,10000)
-    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms) for e in r.evidence]==[('P2',3600,9300),('P1',4000,6000)]
+    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms) for e in r.evidence]==[('P2',3600,4800),('P1',4000,4800),('P1',5100,6000),('P2',5100,9300)]

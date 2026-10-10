@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import bisect
+import math
 import time
 
 from shapely.geometry import Point, Polygon
@@ -29,6 +30,12 @@ def search(store, q, filters, *, parsed=None, vss=None):
     return retrieve(store,SearchRequest(q=q,**filters),parsed=parsed,vss=vss)[1]
 
 
+def thumbnail(store, scene_key, cam, t_ms):
+    c = next((c for c in store.manifest(scene_key)['cams'] if c['id']==cam),None)
+    path = f"{c['thumbs']}/{t_ms//1000:05d}.jpg" if c and c.get('thumbs') else None
+    return store.asset_url(scene_key,path) if path and store.asset_exists(scene_key,path) else None
+
+
 def get_synced_views(store, scene_key, t_ms, *, cam=None):
     from app.api.search import box_rows
     started = time.monotonic()
@@ -42,12 +49,15 @@ def get_synced_views(store, scene_key, t_ms, *, cam=None):
         if no_video:
             gaps.append((t_ms,t_ms+1,'no_video'))
             continue
-        frames.append({'id':c['id'],'frame_url':store.asset_url(scene_key,f"{c['thumbs']}/{t_ms//1000:05d}.jpg"),
+        url = thumbnail(store,scene_key,c['id'],t_ms)
+        if url is None:
+            gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
+        frames.append({'id':c['id'],'frame_url':url,
                        'media_pts_ms':t_ms-c['offset_ms'],'boxes':rows})
         obs.extend(ObservationRef(scene_key=scene_key,cam_id=c['id'],local_track_id=r[1],t_ms=r[0]) for r in rows)
     ev = evidence(store,scene_key,cam,t_ms,t_ms+1,'measure','synced_views',{'cams':frames},observations=obs)
     return result(scene_key,t_ms,t_ms+1,{'cams':frames},cam=cam,evidence=[ev],pts_read=len(frames),
-                  gaps=gaps,coverage=len(frames)/len(cams) if cams else 0,started=started)
+                  gaps=gaps,coverage=sum(c['frame_url'] is not None for c in frames)/len(cams) if cams else 0,started=started)
 
 
 def no_capability(m, cap, t_ms):
@@ -75,7 +85,7 @@ def detections_2d(store, scene_key, cam, t0_ms, t1_ms, groups):
 
 def visibility(store, scene_key, t_ms, target, *, cam=None):
     m = store.manifest(scene_key)
-    if m['workspace']=='street':
+    if not capabilities(m)['blind_spot']['ok']:
         return no_capability(m,'blind_spot',t_ms)
     moment = store.moment(scene_key,t_ms)
     person = next((p for p in moment.persons if p.entity_id==target),None) if isinstance(target,str) else None
@@ -95,7 +105,10 @@ def visibility(store, scene_key, t_ms, target, *, cam=None):
 
 def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
     started = time.monotonic()
-    assets = store.manifest(scene_key)['assets']
+    manifest = store.manifest(scene_key)
+    if not capabilities(manifest)['blind_spot']['ok']:
+        return no_capability(manifest,'blind_spot',t0_ms)
+    assets = manifest['assets']
     data = store.asset_json(scene_key,assets['visibility'])
     skeleton = store.asset_json(scene_key,assets['skeleton'])
     frame = round(1000/skeleton['fps'])
@@ -106,26 +119,30 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms):
     unseen = {(s,'unknown') for s in seconds if s not in missing and s not in sampled}
     samples = sorted(((t,eid,root) for eid,p in skeleton['persons'].items() for t,root in zip(p['t_ms'],p['root_world'])
                       if t0_ms<=t<t1_ms and t//1000 not in missing),key=lambda x:(x[0],x[1]))
-    spans = {}
+    spans, interrupted = {}, set()
     for t, eid, root in samples:
         states = geometry.floor_visibility(data,t,root)
         if states[cam] in {'unknown','no_video'}:
+            interrupted.add(eid)
             unseen.add((t//1000,states[cam]))
             continue
         if states[cam]=='visible':
+            interrupted.add(eid)
             continue
         seen = [c for c,state in states.items() if state=='visible']
         runs = spans.setdefault(eid,[])
-        # visibility is a 1 s grid, so a shorter visible gap is a root on a cell edge, not a person leaving the blind area
-        if runs and t-runs[-1]['t1_ms']<1000:
+        if runs and eid not in interrupted and t-runs[-1]['t1_ms']<=1:
             runs[-1]['seen_by'] = [c for c in data['cam_bit_order'] if c in seen or c in runs[-1]['seen_by']]
         else:
             runs.append({'entity_id':eid,'t0_ms':t,'seen_by':seen})
         runs[-1]['t1_ms'] = min(t+frame,t1_ms)
+        interrupted.discard(eid)
     gaps = sorted([(s,'missing_visibility') for s in missing]+list(unseen))
     gaps = [(max(s*1000,t0_ms),min(s*1000+1000,t1_ms),reason) for s,reason in gaps]
     checked = len(set(seconds)-missing-{s for s,_ in unseen})
     intervals = sorted((r for runs in spans.values() for r in runs),key=lambda r:(r['t0_ms'],r['entity_id']))
+    gaps.extend((r['t0_ms'],r['t1_ms'],'missing_thumbnail') for r in intervals
+                if thumbnail(store,scene_key,(r['seen_by'] or [cam])[0],r['t0_ms']) is None)
     evs = [evidence(store,scene_key,cam,r['t0_ms'],r['t1_ms'],'measure','blind_presence',
                     {'entity_id':r['entity_id'],'cam':cam,'t0_s':r['t0_ms']/1000,'t1_s':r['t1_ms']/1000,'seen_by':r['seen_by']},
                     params={'cam':cam,'target':r['entity_id']}) for r in intervals]
@@ -155,14 +172,21 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     pb = points.get(b.entity_id) if hasattr(b,'entity_id') else None
     if pa is None or (kind=='distance' and pb is None):
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_measurement'},gaps=[(t_ms,t_ms+1,'missing_measurement')])
-    if cam and pa.get('seen_by') is not None and (cam not in pa['seen_by'] or cam not in pa['observed_in']):
+    if cam and capabilities(m)['blind_spot']['ok'] and pa.get('seen_by') is not None and (cam not in pa['seen_by'] or cam not in pa['observed_in']):
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'occluded'},cam=cam,gaps=[(t_ms,t_ms+1,'occluded')])
     if kind=='distance':
         value, sigma = geometry.distance(pa,pb); unit = 'm'; method = 'ground_distance'
     elif kind=='in_zone':
         value, sigma, unit, method = Polygon(b).covers(Point(pa['x'],pa['y'])),pa['sigma_m'],None,'ground_in_zone'
     elif kind=='speed' and 'speed' in pa:
-        value, sigma, unit, method = pa['speed'],pa['sigma_m'],'m/s','track_speed'
+        sigma = pa.get('sigma_speed_m_s')
+        if sigma is None and 'forklift' in m['assets']:
+            track = next((f['track'] for f in store.asset_json(scene_key,m['assets']['forklift'])['forklifts'] if f['entity_id']==a.entity_id),[])
+            i = min(range(len(track)),key=lambda i:abs(track[i]['t_ms']-t_ms)) if track else 0
+            left, right = (track[max(0,i-1)],track[min(len(track)-1,i+1)]) if track else (None,None)
+            if left and right['t_ms']>left['t_ms']:
+                sigma = math.hypot(left['sigma_m'],right['sigma_m'])/((right['t_ms']-left['t_ms'])/1000)
+        value, unit, method = pa['speed'],'m/s','track_speed'
     else:
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_speed'})
     observations = []
@@ -181,16 +205,23 @@ def closest_approach(store, scenes, t_range=None, zone=None):
     with a zone, only people standing inside it count."""
     started = time.monotonic()
     area = Polygon(zone) if zone else None
-    best, seen, pts = None, set(), 0
+    best, seen, pts, scene_coverage, gaps = None, set(), 0, {}, []
     for m in scenes:
         key, assets = m['scene_key'], m['assets']
         t0, t1 = (max(m['t0_ms'],t_range[0]),min(m['t1_ms'],t_range[1])) if t_range else (m['t0_ms'],m['t1_ms'])
+        cap = capabilities(m)['distance']
+        if not cap['ok']:
+            scene_coverage[key] = {'coverage':0,'reason':cap['reason']}
+            if t0<t1:
+                gaps.append((t0,t1,cap['reason']))
+            continue
         persons = store.asset_json(key,assets['skeleton'])['persons'] if 'skeleton' in assets else {}
         tracks = store.asset_json(key,assets['forklift'])['forklifts'] if 'forklift' in assets else []
         samples = [(t,eid,root,s) for eid,p in persons.items() for t,root,s in zip(p['t_ms'],p['root_world'],p['root_sigma_m'])
                    if t0<=t<t1 and root and (area is None or area.covers(Point(root[0],root[1])))]
         tracks = [(f['entity_id'],f['track'],[r['t_ms'] for r in f['track']]) for f in tracks
                   if any(t0<=r['t_ms']<t1 for r in f['track'])]
+        scene_coverage[key] = {'coverage':1 if samples and tracks else 0,'reason':None if samples and tracks else 'missing_tracks'}
         if samples:
             seen.add('person')
         if tracks:
@@ -211,7 +242,14 @@ def closest_approach(store, scenes, t_range=None, zone=None):
     t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
     evs = [evidence(store,key,None,best['t_ms'],best['t_ms']+1,'measure','closest_approach',{**best,'t_s':best['t_ms']/1000},
                     params={'t_range':t_range,'zone':zone})] if best else []
-    return result(key,t0,t1,{'closest':best,'missing':missing},evidence=evs,pts_read=pts,started=started)
+    if best:
+        cams = store.manifest(key)['cams']
+        if not cams or thumbnail(store,key,cams[0]['id'],best['t_ms']) is None:
+            gaps.append((best['t_ms'],best['t_ms']+1,'missing_thumbnail'))
+    output = {'closest':best,'missing':missing,'scene_coverage':scene_coverage}
+    if scene_coverage and all(c['reason']=='scene_not_metric' for c in scene_coverage.values()):
+        output.update(status='UNRESOLVED',reason='scene_not_metric')
+    return result(key,t0,t1,output,evidence=evs,gaps=gaps,pts_read=pts,started=started)
 
 
 def geocode(store, name):
@@ -258,7 +296,19 @@ def facade(store, passes, lat, lon, side):
     value = {'bid':b['bid'],'label':label,'name':b.get('name'),'addr':b.get('addr'),'pois':b['pois'],'osm_id':b['osm_id'],
              'u0':b['u0'],'u1':b['u1'],'side':side}
     ev = evidence(store,key,cam['id'],t,t+1,'map','osm_facade',value,params={'side':side})
-    return result(key,t,t+1,{'scene_key':key,'t_ms':t,'side':side,'building':value},cam=cam['id'],evidence=[ev],pts_read=1,started=started)
+    gaps = [(t,t+1,'missing_thumbnail')] if thumbnail(store,key,cam['id'],t) is None else []
+    return result(key,t,t+1,{'scene_key':key,'t_ms':t,'side':side,'building':value},cam=cam['id'],evidence=[ev],pts_read=1,gaps=gaps,started=started)
+
+
+def gps_position(store, scene_key, t_ms):
+    m = store.manifest(scene_key)
+    points = [f['properties'] for f in store.asset_json(scene_key,m['assets']['trip'])['features'][1:]] if 'trip' in m['assets'] else []
+    point = next((p for p in reversed(points) if p['t_ms']<=t_ms<p['t_ms']+500),None)
+    if point is None or point['state'] not in {'observed','interpolated'}:
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'no_gps'},gaps=[(t_ms,t_ms+1,'no_gps')],coverage=0)
+    value = {k:point[k] for k in ('lat','lon','state','t_ms')}
+    ev = evidence(store,scene_key,None,t_ms,t_ms+1,'map','gps_position',value)
+    return result(scene_key,t_ms,t_ms+1,value,evidence=[ev],pts_read=1,coverage=1)
 
 
 def speed_limit(store, scene_key, t_ms):
@@ -276,33 +326,66 @@ def speed_limit(store, scene_key, t_ms):
 
 def speeding_candidates(store, scenes, t_range=None, k=3, passes=None):
     started = time.monotonic()
-    best = []
+    best, maxima, gaps, scene_coverage, total, checked, pts = [], [], [], {}, 0, 0, 0
     for m in scenes:
-        if not m['cams'] or 'trip' not in m['assets']:
-            continue
-        points = [f['properties'] for f in store.asset_json(m['scene_key'],m['assets']['trip'])['features'][1:]]
-        limited = [p for p in points if p['maxspeed_kmh'] is not None and p['state'] in {'observed','interpolated'}
-                   and (not t_range or t_range[0]<=p['t_ms']<t_range[1])
-                   and (passes is None or any(q['trip_id']==m['scene_key'] and q['t0_ms']<=p['t_ms']<q['t1_ms'] for q in passes))]
+        key = m['scene_key']
+        lo, hi = t_range or (m['t0_ms'],m['t1_ms'])
+        spans = [(lo,hi)] if passes is None else [(max(lo,p['t0_ms']),min(hi,p['t1_ms'])) for p in passes if p['trip_id']==key]
+        spans = [(a,b) for a,b in spans if a<b]
+        points = sorted((f['properties'] for f in store.asset_json(key,m['assets']['trip'])['features'][1:]),key=lambda p:p['t_ms']) if 'trip' in m['assets'] else []
+        limited, available, missing = [], [], []
+        for i,p in enumerate(points):
+            a, b = p['t_ms'], min(p['t_ms']+500,points[i+1]['t_ms']) if i+1<len(points) else p['t_ms']+500
+            if not any(x<b and a<y for x,y in spans):
+                continue
+            pts += 1
+            next_gap = i+1<len(points) and points[i+1]['state'] not in {'observed','interpolated'}
+            reason = ('no_gps' if p['state'] not in {'observed','interpolated'} or p.get('speed') is None else
+                      'no_speed_limit' if p['maxspeed_kmh'] is None else None)
+            if reason or next_gap:
+                missing.append((a,b,reason or 'no_gps'))
+            else:
+                available.append((a,b))
+            if reason is None and any(x<=a<y for x,y in spans):
+                limited.append(p)
+        scene_gaps = [g for a,b in spans for g in street.availability_gaps(a,b,available,missing)]
+        length = sum(b-a for a,b in spans)
+        covered = length-sum(b-a for a,b,_ in scene_gaps)
+        total += length; checked += covered
+        gaps.extend(tuple(g) for g in scene_gaps)
+        scene_coverage[key] = {'coverage':covered/length if length else 0,'gaps':scene_gaps}
         if limited:
-            p = max(limited,key=lambda p:p['speed']*3.6-p['maxspeed_kmh'])
-            best.append({'scene_key':m['scene_key'],'t_ms':p['t_ms'],'speed_kmh':p['speed']*3.6,'limit_kmh':p['maxspeed_kmh'],
-                         'over_kmh':p['speed']*3.6-p['maxspeed_kmh']})
-    best = sorted(best,key=lambda c:-c['over_kmh'])[:k]
+            for candidates, p in [(best,max(limited,key=lambda p:p['speed']*3.6-p['maxspeed_kmh'])),
+                                  (maxima,max(limited,key=lambda p:p['speed']))]:
+                candidates.append({'scene_key':key,'t_ms':p['t_ms'],'speed_kmh':p['speed']*3.6,'limit_kmh':p['maxspeed_kmh'],
+                                   'over_kmh':p['speed']*3.6-p['maxspeed_kmh']})
+    best = (sorted(maxima,key=lambda c:-c['speed_kmh']) if best and all(c['over_kmh']<=0 for c in best) else
+            sorted(best,key=lambda c:-c['over_kmh']))[:k]
+    for c in best:
+        cams = store.manifest(c['scene_key'])['cams']
+        if cams and thumbnail(store,c['scene_key'],cams[0]['id'],c['t_ms']) is None:
+            gaps.append((c['t_ms'],c['t_ms']+1,'missing_thumbnail'))
     evs = [evidence(store,c['scene_key'],None,c['t_ms'],c['t_ms']+1,'measure','obd_over_limit',c['over_kmh'],unit='km/h') for c in best]
-    return result(best[0]['scene_key'] if best else 'all',min((c['t_ms'] for c in best),default=0),max((c['t_ms']+1 for c in best),default=0),
-                  {'candidates':best},evidence=evs,pts_read=len(best),started=started)
+    t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
+    return result(best[0]['scene_key'] if best else 'all',t0,t1,{'candidates':best,'scene_coverage':scene_coverage},
+                  evidence=evs,pts_read=pts,gaps=gaps,coverage=checked/total if total else 0,started=started)
 
 
 def events(store, scene_key, t0_ms, t1_ms, zone=None):
     found = store.events_in(scene_key,t0_ms,t1_ms)
-    if zone:
-        polygon = Polygon(zone)
-        found = [e for e in found if any(p.entity_id in e.actor_ids and polygon.covers(Point(p.root_world))
-                                        for p in store.moment(scene_key,e.t0_ms).persons)]
-    evs = [evidence(store,scene_key,None,e.t0_ms,e.t1_ms,'measure','event_'+e.source,e.model_dump(),
-                    params={'event_id':e.event_id}) for e in found]
-    return result(scene_key,t0_ms,t1_ms,[e.model_dump() for e in found],evidence=evs,pts_read=len(found))
+    output = []
+    for e in found:
+        value = e.model_dump()
+        if zone:
+            from app.api.scenes import event_zone_time
+            t = event_zone_time(store,scene_key,e,t0_ms,t1_ms,Polygon(zone))
+            if t is None:
+                continue
+            value['params'] = {**value['params'],'zone_t_ms':t}
+        output.append(value)
+    evs = [evidence(store,scene_key,None,max(t0_ms,e['t0_ms']),min(t1_ms,e['t1_ms']),'measure','event_'+e['source'],e,
+                    params={'event_id':e['event_id']}) for e in output]
+    return result(scene_key,t0_ms,t1_ms,output,evidence=evs,pts_read=len(found))
 
 
 def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
@@ -311,6 +394,8 @@ def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
     prefix = task=='predict_next'
     m = store.manifest(scene_key)
     t0, t1 = max(0,t_ms-(2000 if prefix else 3000)), t_ms if prefix else min(m['t1_ms'],t_ms+3000)
+    if task=='localize':
+        t0, t1 = max(m['t0_ms'],args['t0_ms']), min(m['t1_ms'],args['t1_ms'])
     try:
         if circuit['failures']>=2:
             raise vlm.VLMUnavailable('circuit_open')

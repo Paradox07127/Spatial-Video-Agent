@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Annotated, get_args
 
@@ -9,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core import embed, geo, llm, street
-from app.core.models import EntityRef, Evidence, MomentCard, ObservationRef, Scope, SearchFilters, Workspace, level_of
+from app.core.models import EntityRef, Evidence, MomentCard, ObservationRef, Scope, SearchFilters, Tag, Workspace, level_of, tag_of
 
 router = APIRouter()
 LEVEL_QUOTA = 4
@@ -27,10 +28,11 @@ class SearchRequest(BaseModel):
     k: int = Field(default=10, ge=1, le=50)
     # corpus searches every workspace and ignores workspace and scene; at most min(LEVEL_QUOTA, k) moments per level
     scope: Scope = 'scene'
+    sources: list[Tag] | None = None
 
     @model_validator(mode='after')
     def workspace_for_scene_scope(self):
-        if self.scope == 'scene' and self.workspace is None:
+        if self.scope == 'scene' and self.workspace is None and not self.sources:
             raise ValueError('workspace is required unless scope is corpus')
         return self
 
@@ -68,20 +70,28 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     started = time.monotonic()
     corpus = request.scope=='corpus'
     context = request.model_dump(exclude_none=True)
-    if corpus:
+    if corpus or request.sources:
         # the parser needs a workspace; corpus retrieval does not read it
         context.setdefault('workspace','warehouse')
     parsed = parsed or llm.parse(request.q, context)
+    corpus = corpus or parsed.scope=='corpus'
     if corpus:
         parsed = parsed.model_copy(update={'scope':'corpus'})
     key = None if corpus else parsed.scene_key
-    evidence, grouped, expanded, chunks = [], {}, [], {}
+    evidence, grouped, expanded, chunks, gaps = [], {}, [], {}, []
     backend = getattr(store, 'backend', 'duckdb')
     empty = {'moments':[], 'expanded_ranges':[], 'backend':backend}
     if parsed.template == 'unsupported':
         return parsed, result(key or 'all',0,0,empty,started=started)
-    filters = SearchFilters(workspace=parsed.workspace,scene_keys=[key] if key else None,
-                            t_range=parsed.t_range,k=50)
+    scenes = store.list_scenes(None if corpus else parsed.workspace)
+    selected = [m for m in scenes if (not key or m['scene_key']==key)
+                and (not parsed.sources or tag_of(m) in parsed.sources)]
+    cam_ids = list(dict.fromkeys(c['id'] for m in selected for c in m['cams']
+                                if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',request.q,re.I)))
+    filters = SearchFilters(workspace=parsed.workspace,scene_keys=[m['scene_key'] for m in selected],
+                            cam_ids=cam_ids or None,t_range=parsed.t_range,k=50)
+    if not selected:
+        return parsed, result(key or 'all',0,0,empty,started=started)
     windows = None
     if parsed.place:
         place = geo.geocode(store,parsed.place)
@@ -89,6 +99,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         windows = [(p['trip_id'],p['t0_ms'],p['t1_ms']) for p in passes if not key or p['trip_id']==key]
         if not windows:
             return parsed, result(key or 'all',0,0,{**empty,'abstain':'OUT_OF_RANGE'},started=started)
+        windows = [w for w in windows if w[0] in filters.scene_keys]
         filters.scene_keys = list(dict.fromkeys(w[0] for w in windows))
     # site (vss given) always embeds; without an embedding service (local dev) the search is unranked over the filtered clips.
     # VSS /search is never awaited here: the store ranks our clips and the live rows directly
@@ -112,7 +123,11 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     street_clips = []
     for clip in clips:
         if clip.workspace=='street':
-            street_clips.append(clip)
+            if parsed.t_range:
+                clip = clip.model_copy(update={'t0_ms':max(clip.t0_ms,parsed.t_range[0]),
+                                               't1_ms':min(clip.t1_ms,parsed.t_range[1])})
+            if clip.t0_ms<clip.t1_ms:
+                street_clips.append(clip)
             continue
         manifest = store.manifest(clip.scene_key)
         t0 = max(manifest['t0_ms'],clip.t0_ms-5000)
@@ -148,20 +163,29 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 continue
         candidates = events if events else [(r[0],None) for r in rows[:1]]
         for candidate_t, event in candidates:
-            stamps = sorted({r[0] for r in rows if t0<=r[0]<t1})
-            if not stamps:
-                continue
-            t_ms = min(stamps,key=lambda t:abs(t-candidate_t))
-            actors = [EntityRef(scene_key=clip.scene_key,entity_id=e.entity_id,kind=e.kind) for e in store.entities(clip.scene_key)
-                      if e.entity_id in event.actor_ids] if event is not None else []
-            if parsed.zone:
-                from shapely.geometry import Point, Polygon
-                moment = store.moment(clip.scene_key,t_ms)
-                if not any(Polygon(parsed.zone).covers(Point(p.root_world)) for p in moment.persons):
-                    continue
             explicit = [x for x in parsed.entities if x[:1] in 'PFV' and x[1:].isdigit()]
             if explicit and event is not None and not set(explicit)<=set(event.actor_ids):
                 continue
+            entities = store.entities(clip.scene_key)
+            bound = explicit or (event.actor_ids if event else [])
+            participant_rows = [r for r in rows if not bound or any(e.entity_id in bound and
+                                any(o['cam_id']==clip.cam_id and o['local_track_id']==r[1] and o['t0_ms']<=r[0]<o['t1_ms']
+                                    for o in e.observations) for e in entities)]
+            stamps = sorted({r[0] for r in participant_rows if t0<=r[0]<t1 and
+                             (event is None or event.t0_ms<=r[0]<event.t1_ms and abs(r[0]-candidate_t)<=250)})
+            if not stamps:
+                gaps.append((max(t0,event.t0_ms) if event else t0,min(t1,event.t1_ms) if event else t1,'no_participant_sample'))
+                continue
+            t_ms = min(stamps,key=lambda t:abs(t-candidate_t))
+            actors = [EntityRef(scene_key=clip.scene_key,entity_id=e.entity_id,kind=e.kind) for e in entities
+                      if e.entity_id in bound]
+            if parsed.zone:
+                from shapely.geometry import Point, Polygon
+                moment = store.moment(clip.scene_key,t_ms)
+                points = [p.root_world for p in moment.persons if not bound or p.entity_id in bound]
+                points += [(f.x,f.y) for f in moment.forklift if not bound or f.entity_id in bound]
+                if not any(Polygon(parsed.zone).covers(Point(p)) for p in points):
+                    continue
             live = {k:v for k, v in [('rank_vss_text',clip.rank_vss_text),('rank_vss_visual',clip.rank_vss_visual)] if v is not None}
             rank_score = sum(1/(60+r) for r in [clip.rank_text,clip.rank_visual,*live.values()] if r is not None)
             ev = Evidence.create(scene_key=clip.scene_key,cam_id=clip.cam_id,t0_ms=t0,t1_ms=t1,observation_ids=[],
@@ -171,7 +195,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             evidence.append(ev)
             eids = [ev.eid]
             observations = [ObservationRef(scene_key=clip.scene_key,cam_id=clip.cam_id,local_track_id=r[1],t_ms=t_ms)
-                            for r in rows if r[0]==t_ms]
+                            for r in participant_rows if r[0]==t_ms]
             stamp_ev = Evidence.create(scene_key=clip.scene_key,cam_id=clip.cam_id,t0_ms=t_ms,t1_ms=t_ms+1,
                                        observation_ids=observations,analysis_rev=manifest['analysis_rev'],kind='measure',
                                        method='detection_timestamp',value={'t_ms':t_ms})
@@ -198,13 +222,17 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 card.cams = list(dict.fromkeys([*card.cams,clip.cam_id]))
                 card.evidence_ids = list(dict.fromkeys([*card.evidence_ids,*eids]))
                 continue
-            primary = manifest['cams'][0]['id'] if len(manifest['cams'])>1 else clip.cam_id
+            primary = clip.cam_id
+            from app.core.tools import thumbnail
+            thumb = thumbnail(store,clip.scene_key,primary,t_ms)
+            if thumb is None:
+                gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
             grouped[group_key] = MomentCard(moment_id=f'm_{clip.scene_key}_{t_ms}',scene_key=clip.scene_key,t0_ms=t_ms,
                                             t1_ms=min(t_ms+1000,manifest['t1_ms']),cams=[clip.cam_id],primary_cam=primary,
                                             actor_refs=actors,evidence_ids=eids,score=rank_score,
                                             why=[f'caption rank {clip.rank_text}; visual rank {clip.rank_visual}',
                                                  'detection timestamp verified'],
-                                            thumb=store.asset_url(clip.scene_key,f'thumbs/{primary}/{t_ms//1000:05d}.jpg'),
+                                            thumb=thumb,
                                             exec_state='live',backend=backend,clip_id=clip.clip_id,
                                             **({'workspace':manifest['workspace'],'evidence_level':level_of(manifest)} if corpus else {}))
     quota = min(LEVEL_QUOTA,request.k) if corpus else request.k
@@ -217,6 +245,8 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             card, card_evidence = street.moment(store,clip,backend=backend,vss=vss)
             if any(w in request.q.lower() for w in ['bicycle','cycling']) and not card_evidence[1].value['counts'].get('bicycle'):
                 continue
+            if card.thumb is None:
+                gaps.append((card.t0_ms,card.t1_ms,'missing_thumbnail'))
             street_cards.append(card)
             evidence.extend(card_evidence)
             expanded.append({'clip_id':clip.clip_id,'t0_ms':clip.t0_ms,'t1_ms':clip.t1_ms})
@@ -228,10 +258,10 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     else:
         moments = sorted([*grouped.values(),*street_cards],key=lambda m:-m.score)[:request.k]
     evidence = list({e.eid:e for e in evidence}.values())
-    output = {'moments':[m.model_dump(exclude_none=True) for m in moments], 'expanded_ranges':expanded,'backend':backend}
+    output = {'moments':[{**m.model_dump(exclude_none=True),'thumb':m.thumb} for m in moments], 'expanded_ranges':expanded,'backend':backend}
     return parsed, result(key or 'all',min((r['t0_ms'] for r in expanded),default=0),
                           max((r['t1_ms'] for r in expanded),default=0),output,evidence=evidence,
-                          pts_read=len(clips),started=started)
+                          pts_read=len(clips),gaps=gaps,started=started)
 
 
 def search_response(store, parsed, result):

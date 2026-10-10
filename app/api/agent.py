@@ -8,15 +8,15 @@ import logging
 import re
 import threading
 import time
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.search import event_types
 from app.core import cache, geo, llm, policy, tools, trace
-from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of
+from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -123,21 +123,43 @@ def distance_status(ev, operator, value):
     return 'supported' if supported else 'contradicted' if contradicted else 'unknown'
 
 
-def keep_sources(store, moments, sources):
-    """The moments whose scene tag is in `sources` (all of them without sources); retrieval does not filter by tag yet."""
-    return [m for m in moments if not sources or tag_of(store.manifest(m.scene_key)) in sources]
-
-
 class Budget(BaseModel):
     model_config = ConfigDict(extra='forbid')
     tools: int = Field(default=8, ge=0, le=16)
     seconds: float = Field(default=25, ge=0, le=45)
 
 
+class AskContext(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    workspace: Workspace | None = None
+    scene_key: str | None = Field(default=None,pattern=r'^[a-z0-9_-]+$')
+    scene_id: str | None = Field(default=None,pattern=r'^(wh|fl|st)/[a-z0-9_]+/[a-zA-Z0-9_-]+$')
+    place: str | None = None
+    t_ms: Annotated[int, Field(strict=True,ge=0)] | None = None
+    t_range: tuple[Annotated[int, Field(strict=True,ge=0)], Annotated[int, Field(strict=True,ge=0)]] | None = None
+    selection: list[Annotated[str, Field(strict=True)]] | None = None
+    zone: list[tuple[Annotated[float, Field(strict=True,allow_inf_nan=False)], Annotated[float, Field(strict=True,allow_inf_nan=False)]]] | None = Field(default=None,min_length=3)
+    scope: Scope = 'scene'
+    sources: list[Tag] | None = None
+
+    @model_validator(mode='after')
+    def ordered_range(self):
+        if self.workspace is None:
+            if self.scope!='corpus':
+                raise ValueError('context.workspace is required unless scope is corpus')
+            # the parser needs a workspace; corpus scope does not read it
+            self.workspace = 'warehouse'
+        if self.t_range and self.t_range[0]>=self.t_range[1]:
+            raise ValueError('context.t_range must have increasing bounds')
+        if self.scene_key and self.scene_id and self.scene_key!=self.scene_id.replace('/','-').lower():
+            raise ValueError('context.scene_key must match scene_id')
+        return self
+
+
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     q: str = Field(min_length=1, max_length=500)
-    context: dict
+    context: AskContext
     budget: Budget = Field(default_factory=Budget)
 
 
@@ -157,8 +179,9 @@ class LevelBudget(BudgetExhausted):
 
 
 def ask_frames(store, body: AskRequest, *, vss=None):
+    context = body.context.model_dump(exclude_unset=True)
     start = time.monotonic()
-    run = trace.start_run(store,body.q,body.context)
+    run = trace.start_run(store,body.q,context)
     run.deadline = start+body.budget.seconds
     # site only: VSS's own retrieval, shown next to the answer for comparison; the answer never waits for it
     native = native_search(vss,body.q) if vss is not None else None
@@ -168,6 +191,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     circuit = {'failures':0}
     finished = False
     no_limit = False
+    speed_coverage, speed_note = None, None
     covered, building, closest = [], None, None
     claim_id = 'c1'
     reserve, cut, levels = 0, False, {}
@@ -201,7 +225,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         keys = {m.scene_key for m in cards}
         sent_hits, auto_open = True, keys.pop() if len(keys)==1 else None
         store.set_hits(run.run_id,cards)
-        return frame('hits',query_id=run.run_id,moments=[m.model_dump(exclude_none=True) for m in cards],auto_open=auto_open)
+        return frame('hits',query_id=run.run_id,moments=[{**m.model_dump(exclude_none=True),'thumb':m.thumb} for m in cards],auto_open=auto_open)
 
     def level(key):
         if key not in levels:
@@ -305,14 +329,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         stop_reason = 'enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} and not explain.get('abstain') else 'no_new_info'
 
     try:
-        with trace.traced(run,'parse',{'q':body.q,'context':body.context},state='parse') as t:
+        with trace.traced(run,'parse',{'q':body.q,'context':context},state='parse') as t:
             yield step_frame(t,'parse','Parse the question template')
-            parsed = llm.rule_parse(body.q,body.context)
+            parsed = llm.rule_parse(body.q,context)
             if llm.needs_llm(body.q,parsed):
                 if time.monotonic()-start>=body.budget.seconds:
                     raise BudgetExhausted
                 with trace.traced(run,'llm.parse',{'q':body.q,'rule':parsed.model_dump(mode='json')},state='parse',parent_step_id=t.step_id) as child:
-                    parsed = llm.parse(body.q,body.context)
+                    parsed = llm.parse(body.q,context)
                     child.output(parsed.model_dump(mode='json'))
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
@@ -344,9 +368,21 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     not any(store.manifest(s['scene_key'])['t0_ms']<parsed.t_range[1] and
                             store.manifest(s['scene_key'])['t1_ms']>parsed.t_range[0] for s in scoped))):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
-            elif body.context.get('t_ms') is not None and not any(
-                    store.manifest(s['scene_key'])['t0_ms']<=body.context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
+            elif context.get('t_ms') is not None and not any(
+                    store.manifest(s['scene_key'])['t0_ms']<=context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
+            elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
+                  and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
+                  and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']):
+                key, tm = parsed.scene_key or scoped[0]['scene_key'], context['t_ms']
+                with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm},state='measure') as t:
+                    yield step_frame(t,'measure','Read the trip GPS position')
+                    res = yield from call(t,'gps_position','measure',{'scene_key':key,'t_ms':tm},lambda:tools.gps_position(store,key,tm))
+                    predicates = [Predicate(predicate_id='p1',subject_refs=[],operator='located',value=None,unit=None,
+                                            status='supported' if res.evidence else 'unknown',eids=[e.eid for e in res.evidence])]
+                yield claim_frame(predicates,explain={'note':'Position comes from trip GPS; camera observations were not checked.'},key=key)
+                final = aggregate_of(predicates)
+                stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
             elif blind_scenes:
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
                     yield step_frame(t,'plan','Choose the blind spot verification path')
@@ -380,7 +416,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                     t0_ms=interval['t0_ms'],t1_ms=interval['t1_ms'],cams=[*interval['seen_by'],blind_cam],
                                                     primary_cam=primary,actor_refs=[EntityRef(scene_key=key,entity_id=interval['entity_id'],kind='person')],
                                                     evidence_ids=[ev.eid],score=1,why=['blind_presence'],
-                                                    thumb=store.asset_url(key,f"{cams[primary]['thumbs']}/{interval['t0_ms']//1000:05d}.jpg") if cams[primary]['thumbs'] else None,
+                                                    thumb=tools.thumbnail(store,key,primary,interval['t0_ms']),
                                                     backend=getattr(store,'backend','duckdb'),exec_state='live'))
                 except BudgetExhausted:
                     # the scenes already checked still answer; the unchecked ones only rule out CONTRADICTED
@@ -430,7 +466,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     cam = next(s['cams'] for s in warehouse if s['scene_key']==key)[0]
                     hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                      actor_refs=[person,vehicle],evidence_ids=[e.eid for e in [*scan.evidence,*res.evidence]],score=1,
-                                     why=['closest_approach'],thumb=store.asset_url(key,f"{cam['thumbs']}/{tm//1000:05d}.jpg") if cam['thumbs'] else None,
+                                     why=['closest_approach'],thumb=tools.thumbnail(store,key,cam['id'],tm),
                                      backend=getattr(store,'backend','duckdb'),exec_state='live')
                     yield hits([hit],special=True)
                     yield from ui('seek',{'t_ms':tm,'scene_key':key},key)
@@ -473,7 +509,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         cam = next(s['cams'] for s in fleet if s['scene_key']==key)[0]
                         hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                          actor_refs=[],evidence_ids=[e.eid for e in res.evidence],score=1,why=['osm_facade'],
-                                         thumb=store.asset_url(key,f"{cam['thumbs']}/{tm//1000:05d}.jpg"),
+                                         thumb=tools.thumbnail(store,key,cam['id'],tm),
                                          backend=getattr(store,'backend','duckdb'),exec_state='live')
                         yield hits([hit],special=True)
                     if found['t_ms'] is not None:
@@ -507,22 +543,28 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             near = passes.envelope.output if parsed.place else None
                             res=yield from call(t,'speeding_candidates','retrieve',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'passes':near},
                                                 lambda:tools.speeding_candidates(store,fleet,parsed.t_range,passes=near))
+                            speed_coverage = res.envelope.coverage
+                            reasons = {'no_gps':'GPS gap','no_speed_limit':'missing speed limit data','no_frames':'missing speed or limit samples'}
+                            unchecked = [f"{key}: {a/1000}-{b/1000} s ({reasons.get(reason,reason)})"
+                                         for key,coverage in res.envelope.output['scene_coverage'].items() for a,b,reason in coverage['gaps']]
+                            speed_note = 'Intervals not checked: '+'; '.join(unchecked)+'.' if unchecked else None
                             moments=[]
                             for c,ev in zip(res.envelope.output['candidates'],res.evidence):
                                 cams=next(s['cams'] for s in fleet if s['scene_key']==c['scene_key'])
                                 moments.append(MomentCard(moment_id=f"m_{c['scene_key']}_{c['t_ms']}",scene_key=c['scene_key'],t0_ms=c['t_ms'],
-                                                          t1_ms=c['t_ms']+1,cams=[x['id'] for x in cams],primary_cam=cams[0]['id'],actor_refs=[],
+                                                          t1_ms=c['t_ms']+1,cams=[x['id'] for x in cams],primary_cam=cams[0]['id'] if cams else '',actor_refs=[],
                                                           evidence_ids=[ev.eid],score=c['over_kmh'],why=['OBD speed minus map speed limit'],
-                                                          thumb=store.asset_url(c['scene_key'],f"{cams[0]['thumbs']}/{c['t_ms']//1000:05d}.jpg"),
+                                                          thumb=tools.thumbnail(store,c['scene_key'],cams[0]['id'],c['t_ms']) if cams else None,
                                                           backend=getattr(store,'backend','duckdb'),exec_state='live'))
                             final, no_limit = 'UNRESOLVED', not moments
-                        elif parsed.template=='where_is' and body.context.get('t_ms') is not None and not parsed.place:
+                        elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
+                              and capabilities(store.manifest(parsed.scene_key or scoped[0]['scene_key']))['ground_position']['ok']):
                             key=parsed.scene_key or scoped[0]['scene_key']
-                            tm=body.context['t_ms']
+                            tm=context['t_ms']
                             cam=store.manifest(key)['cams'][0]['id']
                             res=yield from call(t,'get_synced_views','retrieve',{'scene_key':key,'t_ms':tm,'cam':cam},
                                                 lambda:tools.get_synced_views(store,key,tm,cam=cam))
-                            ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)] or body.context.get('selection',[])
+                            ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)] or context.get('selection',[])
                             actors=[EntityRef(scene_key=key,entity_id=e.entity_id,kind=e.kind) for e in store.entities(key)
                                     if e.entity_id in ids and any(o['t0_ms']<=tm<o['t1_ms'] for o in e.observations)]
                             moments=[MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam],
@@ -532,11 +574,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                 backend=getattr(store,'backend','duckdb'),exec_state='live')] if actors else []
                             final='UNRESOLVED' if moments else 'NO_MATCH'
                         else:
+                            if parsed.template=='where_is' and context.get('t_ms') is not None:
+                                parsed = parsed.model_copy(update={'t_range':(context['t_ms'],context['t_ms']+1000)})
                             filters = {'workspace':parsed.workspace,'scene_key':parsed.scene_key,'t_range':parsed.t_range,
-                                       'place':parsed.place,'zone':parsed.zone,**({'scope':'corpus'} if corpus else {})}
+                                       'place':parsed.place,'zone':parsed.zone,'sources':parsed.sources,**({'scope':'corpus'} if corpus else {})}
                             res = yield from call(t,'search','retrieve',{'q':body.q,'filters':filters},
                                                   lambda:tools.search(store,body.q,filters,parsed=parsed,vss=vss))
-                            moments = keep_sources(store,[MomentCard.model_validate(m) for m in res.envelope.output['moments']],parsed.sources)
+                            moments = [MomentCard.model_validate(m) for m in res.envelope.output['moments']]
                             final = res.envelope.output.get('abstain','UNRESOLVED') if moments else res.envelope.output.get('abstain','NO_MATCH')
                             if final=='NO_MATCH' and parsed.place:
                                 video = {s['scene_key'] for s in scoped if s['cams']}
@@ -573,7 +617,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             if card.actor_refs:
                                 yield from ui('highlight',{'ids':[a.entity_id for a in card.actor_refs],'mode':'outline'},key)
                             manifest = store.manifest(key)
-                            entities = store.entities(key)
+                            entities = [] if speeding_q and not manifest['cams'] else store.entities(key)
                             subjects = card.actor_refs or [EntityRef(scene_key=key,entity_id=e.entity_id,kind=e.kind) for e in entities]
                             related = store.events_in(key,tm,tm+1)
                             has_distance = bool(spatial and spatial[0]=='distance')
@@ -609,8 +653,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             measure_result = None
                             with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm,'cam':cam},state='inspect') as t:
                                 yield step_frame(t,'inspect','Inspect the primary camera and spatial evidence')
-                                yield from call(t,'get_synced_views','inspect',{'scene_key':key,'t_ms':tm,'cam':cam},
-                                                lambda:tools.get_synced_views(store,key,tm,cam=cam))
+                                if manifest['cams']:
+                                    yield from call(t,'get_synced_views','inspect',{'scene_key':key,'t_ms':tm,'cam':cam},
+                                                    lambda:tools.get_synced_views(store,key,tm,cam=cam))
                                 person = next((s for s in subjects if s.kind=='person'),None)
                                 vis = None
                                 if manifest['workspace']=='warehouse' and person:
@@ -624,15 +669,53 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                     limit = speed.envelope.output.get('value')
                                     predicates[0].value = limit
                                     if limit is not None:
-                                        predicates[0].status = 'supported' if speed.envelope.output['speed_kmh']>limit else 'contradicted'
+                                        predicates[0].status = ('supported' if speed.envelope.output['speed_kmh']>limit else
+                                                                'contradicted' if speed_coverage==1 else 'unknown')
                                     predicates[0].eids = [e.eid for e in speed.evidence]
+                                    if speed_note:
+                                        explain['note'] = speed_note
                                 elif parsed.template=='link':
-                                    ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)] or body.context.get('selection',[])
-                                    valid = len(set(ids))==1 and all(e.association['valid'] for e in entities if e.entity_id in ids)
-                                    valid &= all(c['sync_method']!='unknown' for c in manifest['cams']) and bool(ids)
+                                    ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)] or context.get('selection',[])
+                                    matched = [e for e in entities if e.entity_id in ids]
+                                    lo, hi = parsed.t_range or ((context['t_ms'],context['t_ms']+1) if context.get('t_ms') is not None else
+                                                               (manifest['t0_ms'],manifest['t1_ms']))
+                                    verified = {}
+                                    for moment in moments:
+                                        if moment.scene_key!=key:
+                                            continue
+                                        for eid in moment.evidence_ids:
+                                            ev = read[eid]
+                                            if ev.method!='detection_timestamp':
+                                                continue
+                                            observations = [o for o in ev.observation_ids if lo<=o.t_ms<hi and any(
+                                                e.association.get('valid') and
+                                                (not isinstance(e.association['valid'],list) or len(e.association['valid'])==2 and
+                                                 e.association['valid'][0]<=o.t_ms<e.association['valid'][1]) and
+                                                any(p['cam_id']==o.cam_id and p['local_track_id']==o.local_track_id and
+                                                    p['t0_ms']<=o.t_ms<p['t1_ms'] for p in e.observations) for e in matched)]
+                                            if observations:
+                                                verified[eid] = observations
+                                    observed_cams = {o.cam_id for observations in verified.values() for o in observations}
+                                    requested_cams = {c['id'] for c in manifest['cams'] if re.search(
+                                        r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)}
+                                    valid = len(set(ids))==1 and len(matched)==1 and requested_cams<=observed_cams
+                                    if re.search(r'\bclips?\b',body.q,re.I):
+                                        clip_ids = {r['clip_id'] for r in res.envelope.output['expanded_ranges'] if r['clip_id'].rsplit(':',2)[0]==key}
+                                        clips = {clip_id for clip_id in clip_ids if any(
+                                            o.cam_id==clip_id.rsplit(':',2)[1] and int(clip_id.rsplit(':',1)[1])*5000<=o.t_ms<
+                                            (int(clip_id.rsplit(':',1)[1])+1)*5000 for observations in verified.values() for o in observations)}
+                                        requested_clips = set(re.findall(r'[a-z0-9_-]+:[a-z0-9_-]+:\d{5}',body.q,re.I))
+                                        valid &= len(clips)>=2 and requested_clips<=clips
+                                    else:
+                                        valid &= len(observed_cams)>=2
+                                    valid &= all(c['sync_method']!='unknown' for c in manifest['cams'])
+                                    predicates[0].operator = 'same_entity'
+                                    predicates[0].subject_refs = [EntityRef(scene_key=key,entity_id=e.entity_id,kind=e.kind) for e in matched]
                                     predicates[0].status='supported' if valid else 'unknown'
-                                    predicates[0].eids=card.evidence_ids
-                                elif parsed.template=='where_is' and not parsed.place and body.context.get('t_ms') is not None:
+                                    predicates[0].eids=list(verified)
+                                    if not valid:
+                                        explain['note']='The requested entity and observations in every requested camera or clip were not verified.'
+                                elif parsed.template=='where_is' and not parsed.place and context.get('t_ms') is not None:
                                     observed=vis.envelope.output.get('person',{}).get('observed_in',[]) if vis else []
                                     predicates[0].operator='located'
                                     predicates[0].status='supported' if cam in observed else 'unknown'
@@ -682,7 +765,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 yield from ui('highlight',{'ids':[person.entity_id,vehicle.entity_id],'mode':'outline'},key)
                             with trace.traced(run,'assess',{'predicates':[p.model_dump(mode='json') for p in predicates]},state='assess') as t:
                                 yield step_frame(t,'assess','Check the situation and predicate states')
-                                if subjects and not speeding and not (parsed.template=='where_is' and not parsed.place and body.context.get('t_ms') is not None):
+                                if subjects and not speeding and not (parsed.template=='where_is' and not parsed.place and context.get('t_ms') is not None):
                                     situation = yield from call(t,'situation','assess',{'scene_key':key,'t_ms':tm,'actor_refs':[s.model_dump() for s in subjects]},
                                                                 lambda:tools.situation(store,key,tm,subjects,run=run,circuit=circuit))
                                     record = situation.envelope.output.get('record')
@@ -790,10 +873,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 return '{{n'+str(len(names)-1)+'}}'
             # nouns follow the workspace of the scenes the sentence is about
             keys = [c.scene_key for c in group if c.scene_key] or [e.scene_key for e in covered]
-            workspace = store.manifest(keys[0])['workspace'] if keys else body.context.get('workspace')
+            workspace = store.manifest(keys[0])['workspace'] if keys else context.get('workspace')
             limit = next((e for e in evidence.values() if e.method=='osm_maxspeed'),None)
             if final=='UNRESOLVED' and (limit and limit.value is None or no_limit):
                 text='This road segment lacks map speed limit data, so speeding cannot be determined.'
+            if final=='UNRESOLVED' and speed_coverage is not None and speed_coverage<1 and limit and limit.value is not None:
+                speed = next((e for e in evidence.values() if e.method=='obd_speed'),None)
+                if speed:
+                    text=('Maximum measured speed in the covered part: OBD speed '+ref(speed,'value',speed.value)+
+                          ' km/h against map speed limit '+ref(limit,'value',limit.value)+' km/h. Part of the requested interval was not checked.')
             if final=='UNRESOLVED' and building:
                 text=('No map building facade '+SIDES[building['side']]+' was found in the videos passing '+name(parsed.place)+'.' if building['video']
                       else 'The trips passing '+name(parsed.place)+' have no video, so buildings on either side cannot be viewed.')
@@ -924,8 +1012,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
 
 @router.post('/api/agent/ask')
 def ask(request: Request, body: AskRequest):
-    if body.context.get('workspace') not in {'warehouse','fleet','street'}:
-        raise HTTPException(422,'context.workspace must be warehouse, fleet or street')
+    context = body.context.model_dump(exclude_unset=True)
+    key = context.get('scene_key') or (context['scene_id'].replace('/','-').lower() if context.get('scene_id') else None)
+    if key:
+        try:
+            manifest = request.app.state.store.manifest(key)
+        except FileNotFoundError:
+            raise HTTPException(422,'context scene does not exist') from None
+        if manifest['workspace']!=context['workspace']:
+            raise HTTPException(422,'context scene does not belong to workspace')
     settings=getattr(request.app.state,'settings',None)
     if getattr(settings,'mode','dev')=='site' and getattr(request.app.state,'vss',None) is None:
         raise HTTPException(503,'site VSS is not configured')
@@ -933,7 +1028,7 @@ def ask(request: Request, body: AskRequest):
     def sse(frame):
         return 'event: '+frame['event']+'\ndata: '+json.dumps(frame['data'],ensure_ascii=False)+'\n\n'
     def stream():
-        hit=cache.replay(store,body.q,body.context)
+        hit=cache.replay(store,body.q,context)
         if hit:
             yield from map(sse,hit[1])
             return
@@ -953,7 +1048,7 @@ def ask(request: Request, body: AskRequest):
         if status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'} and complete:
             # every frame is already sent; a failed cache write must not break the stream
             try:
-                cache.put(store,body.q,body.context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])
+                cache.put(store,body.q,context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])
             except Exception:
                 logger.exception('answer cache write for run %s failed',frames[0]['data']['run_id'])
     return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})

@@ -111,13 +111,13 @@ def test_situation_finds_the_batch_moment_at_the_agents_detection_time(calls, st
     event = {"id": "E2", "type": "dodge", "t0_ms": 3300, "t1_ms": 5600, "actor_ids": ["P1", "F1"],
              "place_id": None, "severity": 1, "source": "gt", "params": {}, "clip_ids": [], "eids": []}
     monkeypatch.setattr(store, "asset_json", lambda key, rel: {"events": [event]} if rel == "events.json" else
-                        {"rows": [[3267, *r[1:]] for r in asset_json(key, rel)["rows"] if r[0] == 3300]}
+                        {"rows": [[3333, *r[1:]] for r in asset_json(key, rel)["rows"] if r[0] == 3300]}
                         if rel.startswith("boxes/") else asset_json(key, rel))
     _, found = search.retrieve(store, search.SearchRequest(
         q="When did the worker start to dodge the forklift, and how far was it?", workspace="warehouse", scene_key=K))
     card = found.envelope.output["moments"][0]
     tm = card["t0_ms"]  # agent.ask_frames takes tm from the search card
-    assert tm == 3267
+    assert tm == 3333
     gt = {"task": [None] * 300, "dist": np.zeros(300)}
     gt["dist"][60] = 10
     times = cb.wh_moments(gt, [event, {**event, "t0_ms": 5800}], 10000)

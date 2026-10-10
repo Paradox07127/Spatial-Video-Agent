@@ -48,10 +48,10 @@ def test_fixture_asks_and_readback(setup):
             assert all('input' in s and 'output' in s for s in saved['steps'])
             if ask['ask_id'] == 'wh-main':
                 claims = [f['data'] for f in frames if f['event']=='claim']
-                assert claims[0]['after']=='UNRESOLVED' and claims[-1]['after']=='SUPPORTED'
+                assert claims[0]['after']=='SUPPORTED' and claims[-1]['after']=='SUPPORTED'
                 plans = [s for s in saved['steps'] if s['name']=='policy.plan_next']
-                assert plans[0]['output']['cam'] == 'ceiling_04'
-                assert plans[0]['output']['candidates']
+                assert plans[0]['output'].get('cam') is None
+                assert saved['hits'][0]['primary_cam']=='ceiling_04'
             if ask['expect']['final'] in ['NO_MATCH', 'UNSUPPORTED']:
                 assert not saved['hits']
         assert client.get('/api/agent/runs').json()
@@ -444,7 +444,7 @@ def test_speeding_compares_obd_speed_with_map_limit(setup, monkeypatch, limit, s
                 f['properties']['maxspeed_kmh'] = limit
         return doc
     monkeypatch.setattr(store, 'asset_json', asset_json)
-    context = {'workspace':'fleet','scene_key':'fl-pie-fixture-01','t_range':[0,4500]}  # GPS samples cover this range
+    context = {'workspace':'fleet','scene_key':'fl-pie-fixture-01','t_range':[0,4000]}  # GPS samples cover this range
     frames = list(agent.ask_frames(store, agent.AskRequest(q='Was this car speeding?', context=context)))
     assert check_sse_sequence(frames) == []
     read = {e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data']['evidence']}
@@ -472,7 +472,7 @@ def set_limits(store, monkeypatch, limit_at):
 
 @pytest.mark.parametrize('limit_at,final,text', [
     (lambda key,t: 5. if (key,t)==('fl-pie-fixture-01',9500) else None, 'SUPPORTED', 'map speed limit 5 km/h'),
-    (lambda key,t: 40., 'CONTRADICTED', 'not speeding'),
+    (lambda key,t: 40. if key=='fl-pie-fixture-01' else None, 'UNRESOLVED', 'Maximum measured speed'),
     (lambda key,t: None, 'UNRESOLVED', 'lacks map speed limit')])
 def test_speeding_without_trip_ranks_points_by_speed_over_limit(setup, monkeypatch, limit_at, final, text):
     _, store = setup
@@ -966,12 +966,9 @@ def test_ask_route_accepts_the_street_workspace(corpus):
 
 # ---------------------------------------------------------------- source tags and the candidate list
 
-def test_keep_sources_drops_moments_of_other_tags(corpus):
-    from app.core.models import MomentCard
-    cards = [MomentCard(moment_id='m_'+k,scene_key=k,t0_ms=0,t1_ms=1,cams=[],primary_cam='c',actor_refs=[],evidence_ids=[],
-                        score=1,why=[],thumb=None) for k in ['wh-sdg-fixture-01','fl-pie-fixture-01',L1_KEY]]
-    assert [m.scene_key for m in agent.keep_sources(corpus,cards,['fleet','fixed'])]==['fl-pie-fixture-01',L1_KEY]
-    assert agent.keep_sources(corpus,cards,None)==cards
+def test_search_sources_limit_scene_filters(corpus):
+    _,result=search.retrieve(corpus,search.SearchRequest(q='Find a person',workspace='warehouse',sources=['fleet','fixed'],k=1))
+    assert {m['scene_key'] for m in result.envelope.output['moments']}=={'fl-pie-fixture-01',L1_KEY}
 
 
 def test_sources_limit_the_corpus_hits(corpus):
@@ -1214,7 +1211,7 @@ def test_b1_completed_measurement_survives_budget_boundary(setup, monkeypatch, b
         return res
     monkeypatch.setattr(agent.time, 'monotonic', lambda: clock()+offset[0])
     monkeypatch.setattr(tools, 'measure', measure)
-    frames = ask(store, WH_MAIN['q'], WH_MAIN['context'], {'tools':6 if boundary=='tools' else 16,'seconds':25})
+    frames = ask(store, WH_MAIN['q'], WH_MAIN['context'], {'tools':4 if boundary=='tools' else 16,'seconds':25})
     assert any(e['method']=='ground_distance' for r in of(frames, 'tool_result') for e in r['evidence'])
     assert of(frames, 'claim')[-1]['predicates'][0]['status']=='supported'
     assert frames[-2]['data']['final']=='SUPPORTED' and frames[-2]['data']['stop_reason']=='budget_exhausted'

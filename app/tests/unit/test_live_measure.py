@@ -12,7 +12,7 @@ from app.core import live_measure
 
 DATA = Path(__file__).parent / 'data/live_measure'
 SIDECAR = json.loads((DATA / 'sidecar.json').read_text())
-MANIFEST = json.loads((DATA / 'manifest.json').read_text())
+MANIFEST = {**json.loads((DATA / 'manifest.json').read_text()),'metric':True}
 SOURCE = 's3://team-38-vss-chunks-segments/segments/20261001_055249_wh_test_chunk_0004_segment_005_of_006.mp4'
 ROW = {'source': SOURCE, 'scene_key': 'wh-test', 'cam_id': 'cam_a', 't_ms': 20000}
 # a forward-looking dashcam 1.5 m above the ground, level: the ego_scene.cam2world basis at zero pitch
@@ -110,7 +110,7 @@ def test_fleet_measures_the_ego_vehicle_to_the_closest_pedestrian_ahead():
         {'frame_index': k, 'detections': [{'label': 'person', 'confidence': 0.9, 'bbox': [940, 600 + 10 * k, 980, 800 + 10 * k]},
                                           {'label': 'person', 'confidence': 0.9, 'bbox': [100, 100, 140, 300]}]}
         for k in range(5)]}
-    manifest = {'scene_key': 'fl-test', 'workspace': 'fleet', 'cams': [DASHCAM]}
+    manifest = {'scene_key': 'fl-test', 'workspace': 'fleet', 'metric':True, 'cams': [DASHCAM]}
     row = {**ROW, 'scene_key': 'fl-test', 'cam_id': 'dashcam', 't_ms': 0}
     out = live_measure.measure(store_with(sidecar, manifest), 'fl-test', 'dashcam', 0, 5000, pair=('person', 'vehicle'), rows=[row])
     assert out['value_m'] == pytest.approx(5.0) and out['t_ms'] == 133

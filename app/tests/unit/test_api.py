@@ -209,7 +209,7 @@ def test_street_chunk_proxies_s3_with_range(tmp_path, monkeypatch):
         r = c.get(f'/api/street/{L1_KEY}/chunk/{L1_CAM}/0')
         assert r.status_code == 200 and r.content == data
         d = c.get(f'/api/street/{L1_KEY}/detections?cam={L1_CAM}&t0=0&t1=10000').json()
-        assert d['rows'] == [] and d['gaps'] == [[0, 5000, 'sidecar_unavailable'], [5000, 10000, 'sidecar_unavailable']]
+        assert d['rows'] == [] and d['gaps'] == [[0, 10000, 'sidecar_unavailable']]
 
 
 def test_static_files_are_revalidated(client):

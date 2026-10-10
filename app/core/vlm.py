@@ -16,6 +16,7 @@ import json
 import os
 import re
 import time
+import tempfile
 from contextlib import nullcontext
 from functools import lru_cache
 from pathlib import Path
@@ -174,7 +175,14 @@ def _call(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt, sch
                                region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
             p = _cache_dir() / f"{rid}.json"
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(rec.model_dump_json())
+            with tempfile.NamedTemporaryFile(dir=p.parent, suffix='.tmp', delete=False) as f:
+                tmp = Path(f.name)
+                try:
+                    f.write(rec.model_dump_json().encode())
+                    f.close()
+                    os.replace(tmp,p)
+                finally:
+                    tmp.unlink(missing_ok=True)
         if st is not None:
             st.exec_state(state)
             st.output(rec.model_dump())

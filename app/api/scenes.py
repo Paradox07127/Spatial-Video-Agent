@@ -166,28 +166,56 @@ def model_results(scene_key: str, request: Request, t_ms: int, window_ms: int = 
     return [r for r in store.asset_json(scene_key, path)['records'] if abs(r['t_ms'] - t_ms) <= window_ms] if path else []
 
 
-def actor_points(store, scene_key, t_ms, actor_ids):
+def actor_points(store, scene_key, t_ms, actor_ids, t_range=None):
     m = store.manifest(scene_key)
     points = []
     if 'tracks' in m['assets']:
         for track in store.asset_json(scene_key, m['assets']['tracks'])['tracks']:
             if track['entity_id'] in actor_ids and track['t0_ms'] <= t_ms < track['t1_ms']:
-                i = nearest([p[0] for p in track['pts']], t_ms)
+                pts = [p for p in track['pts'] if not t_range or t_range[0]<=p[0]<t_range[1]]
+                i = nearest([p[0] for p in pts], t_ms)
                 if i is not None:
-                    points.append(track['pts'][i][1:3])
+                    points.append(pts[i][1:3])
     if 'forklift' in m['assets']:
         for f in store.asset_json(scene_key, m['assets']['forklift'])['forklifts']:
             if f['entity_id'] in actor_ids:
-                i = nearest([r['t_ms'] for r in f['track']], t_ms)
+                pts = [p for p in f['track'] if not t_range or t_range[0]<=p['t_ms']<t_range[1]]
+                i = nearest([r['t_ms'] for r in pts], t_ms)
                 if i is not None:
-                    p = f['track'][i]
+                    p = pts[i]
                     points.append([p['x'], p['y']])
     if 'ego_dir' in m['assets']:
         frames = store.asset_json(scene_key, f"{m['assets']['ego_dir']}/{t_ms // 10000:05d}.json")['frames']
+        frames = [f for f in frames if not t_range or t_range[0]<=f['t_ms']<t_range[1]]
         i = nearest([f['t_ms'] for f in frames], t_ms)
         if i is not None:
             points.extend([p['x'], p['y']] for p in frames[i]['peds'] + frames[i]['vehs'] if p['entity_id'] in actor_ids)
     return points
+
+
+def event_zone_time(store, scene_key, event, t0, t1, polygon):
+    lo, hi = max(t0,event.t0_ms), min(t1,event.t1_ms)
+    if lo>=hi:
+        return None
+    m = store.manifest(scene_key)
+    times = set()
+    if 'tracks' in m['assets']:
+        times.update(p[0] for track in store.asset_json(scene_key,m['assets']['tracks'])['tracks']
+                     if track['entity_id'] in event.actor_ids for p in track['pts'] if lo<=p[0]<hi)
+    if 'forklift' in m['assets']:
+        times.update(p['t_ms'] for f in store.asset_json(scene_key,m['assets']['forklift'])['forklifts']
+                     if f['entity_id'] in event.actor_ids for p in f['track'] if lo<=p['t_ms']<hi)
+    if 'ego_dir' in m['assets']:
+        for chunk in range(lo//10000,(hi-1)//10000+1):
+            try:
+                frames = store.asset_json(scene_key,f"{m['assets']['ego_dir']}/{chunk:05d}.json")['frames']
+            except FileNotFoundError:
+                continue
+            times.update(f['t_ms'] for f in frames if lo<=f['t_ms']<hi)
+    for t in sorted(times):
+        if any(polygon.covers(Point(p)) for p in actor_points(store,scene_key,t,event.actor_ids,(lo,hi))):
+            return t
+    return None
 
 
 @router.post('/api/scene/{scene_key}/zone')
@@ -205,7 +233,7 @@ def zone(scene_key: str, body: ZoneRequest, request: Request):
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=float)
         coords = np.array(body.polygon_px, dtype=float).reshape(-1, 1, 2)
         if cam['model'] == 'fisheye':
-            rays = cv2.fisheye.undistortPoints(coords, K, np.asarray(cam['dist'])).reshape(-1, 2)
+            rays = cv2.fisheye.undistortPoints(coords, K, np.asarray(cam['dist'], dtype=float)).reshape(-1, 2)
         else:
             rays = np.array([[(u - cx) / fx, (v - cy) / fy] for u, v in body.polygon_px])
         matrix = np.asarray(cam['cam2world']).reshape(4, 4, order='F')
@@ -233,7 +261,9 @@ def zone(scene_key: str, body: ZoneRequest, request: Request):
     t0, t1 = body.t_range or (m['t0_ms'], m['t1_ms'])
     events = []
     for event in store.events_in(scene_key, t0, t1):
-        t = event.params.get('t_min_ms', event.params.get('near_t0_ms', event.t0_ms))
-        if any(shape.covers(Point(p)) for p in actor_points(store, scene_key, t, event.actor_ids)):
-            events.append(event.model_dump(mode='json'))
+        t = event_zone_time(store,scene_key,event,t0,t1,shape)
+        if t is not None:
+            value = event.model_dump(mode='json')
+            value['params'] = {**value['params'],'zone_t_ms':t}
+            events.append(value)
     return {'polygon_world': polygon, 'cells': cells, 'events_in_zone': events}

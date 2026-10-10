@@ -136,6 +136,9 @@ def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('p
         mark[0] = now
 
     manifest = store.manifest(scene_key)
+    if not manifest.get('metric',False):
+        return {'value_m':None,'reason':'scene_not_metric','n_frames':0,'n_boxes':0,'source_uris':[],
+                'scene_coverage':{scene_key:{'coverage':0,'reason':'scene_not_metric'}},'timing_ms':timing}
     cam = next(c for c in manifest['cams'] if c['id'] == cam_id)
     fleet = manifest['workspace'] == 'fleet'
     segs = covering_rows(rows, scene_key, cam_id, t0_ms, t1_ms)

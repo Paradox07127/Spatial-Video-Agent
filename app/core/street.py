@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -63,19 +65,43 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:32]
 
 
+def _publish(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, suffix=path.suffix, delete=False) as f:
+        tmp = Path(f.name)
+        try:
+            f.write(data)
+            f.close()
+            os.replace(tmp,path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
+def availability_gaps(t0, t1, available, missing=()):
+    edges = sorted({t0,t1,*(max(t0,min(t1,t)) for a,b in available for t in (a,b)),
+                    *(max(t0,min(t1,t)) for a,b,_ in missing for t in (a,b))})
+    gaps = []
+    for a,b in zip(edges,edges[1:]):
+        if a==b or any(lo<=a and b<=hi for lo,hi in available):
+            continue
+        reason = next((reason for lo,hi,reason in missing if lo<=a<b<=hi),'no_frames')
+        if gaps and gaps[-1][1]==a and gaps[-1][2]==reason:
+            gaps[-1][1] = b
+        else:
+            gaps.append([a,b,reason])
+    return gaps
+
+
 def _sidecar(store, source: str) -> dict:
     """The segment's YOLO sidecar read from S3, as {source, video_shape, frame_count, frames [{time_sec, rows [label, x1, y1, x2, y2, conf]}]}."""
     path = _cache(store, 'detections', _digest(source) + '.json')
     if not path.is_file():
         raw = live_measure.fetch_sidecar(store.s3(), live_measure.sidecar_uri(source))
-        doc = {'source': raw.get('source', 'yolo11_coco'), 'video_shape': raw['video_shape'][:2],
+        doc = {'source': raw.get('source', 'yolo11_coco'), 'fps':raw['fps'], 'video_shape': raw['video_shape'][:2],
                'frame_count': raw.get('frame_count', len(raw['frames'])),
                'frames': [{'time_sec': f['frame_index'] / raw['fps'], 'rows': [[d['label'], *d['bbox'], d['confidence']] for d in f['detections']]}
                           for f in raw['frames']]}
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(doc))
-        tmp.replace(path)
+        _publish(path,json.dumps(doc).encode())
     return json.loads(path.read_text())
 
 
@@ -85,28 +111,33 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
     A site sidecar whose video_shape or frame_count does not match the chunk gives a gap instead of boxes."""
     m = street_manifest(store, scene_key)
     c = camera(m, cam)
-    rows, sources, gaps, frames = [], [], [], 0
+    rows, sources, gaps, stamps, available = [], [], [], set(), []
     if any(ch['uri'].startswith('s3://') for ch in c['chunks']):
         segments = store.search_clips(SearchFilters(workspace='street', scene_keys=[scene_key], cam_ids=[cam], t_range=(t0_ms, t1_ms)), None, None)
         for seg in sorted(segments, key=lambda s: s.t0_ms):
+            lo, hi = max(t0_ms,seg.t0_ms), min(t1_ms,seg.t1_ms)
+            if lo>=hi:
+                continue
             if not seg.vss_source:
-                gaps.append([seg.t0_ms, seg.t1_ms, 'no_detections'])
+                gaps.append([lo, hi, 'no_detections'])
                 continue
             try:
                 doc = _sidecar(store, seg.vss_source)
             except (BotoCoreError, ClientError):
-                gaps.append([seg.t0_ms, seg.t1_ms, 'sidecar_unavailable'])
+                gaps.append([lo, hi, 'sidecar_unavailable'])
                 continue
             # one frame of slack for the rounding of a segment's end
             expected = round((seg.t1_ms - seg.t0_ms) * m['fps'] / 1000)
             if list(doc['video_shape']) != [c['h'], c['w']] or abs(doc['frame_count'] - expected) > 1:
-                gaps.append([seg.t0_ms, seg.t1_ms, 'detections_mismatch'])
+                gaps.append([lo, hi, 'detections_mismatch'])
                 continue
             sources.append(doc['source'])
             for f in doc['frames']:
                 t = seg.t0_ms + round(f['time_sec'] * 1000)
-                if t0_ms <= t < t1_ms:
-                    frames += 1
+                end = seg.t0_ms+round((f['time_sec']+1/doc.get('fps',m['fps']))*1000)
+                available.append((max(lo,t),min(hi,end)))
+                if lo <= t < hi and t not in stamps:
+                    stamps.add(t)
                     rows.extend([t, *r] for r in f['rows'])
     else:
         for i, ch in enumerate(c['chunks']):
@@ -120,9 +151,16 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
                 continue
             sources.append(doc['source'])
             inside = [r for r in doc['rows'] if lo <= r[0] < hi]
-            frames += len({r[0] for r in inside})
+            times = sorted({r[0] for r in doc['rows']})
+            step = min((b-a for a,b in zip(times,times[1:])),default=round(1000/m['fps']))
+            for j,t in enumerate(times):
+                end = times[j+1] if j+1<len(times) and times[j+1]-t<=step+1 else t+step
+                if t<hi and end>lo:
+                    available.append((max(lo,t),min(hi,end)))
+            stamps.update(r[0] for r in inside)
             rows.extend(inside)
-    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps, 'frames_read': frames}
+    gaps = availability_gaps(t0_ms,t1_ms,[(a,b) for a,b in available if a<b],gaps)
+    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps, 'frames_read': len(stamps)}
 
 
 def counts_of(store, clip: Clip) -> dict | None:
@@ -148,10 +186,7 @@ def local_chunk(store, scene_key: str, chunk: dict) -> Path:
     path = _cache(store, 'chunks', _digest(uri) + '.mp4')
     if not path.is_file():
         bucket, key = uri[5:].split('/', 1)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix('.tmp')
-        tmp.write_bytes(store.s3().get_object(Bucket=bucket, Key=key)['Body'].read())
-        tmp.replace(path)
+        _publish(path,store.s3().get_object(Bucket=bucket, Key=key)['Body'].read())
     return path
 
 
@@ -172,10 +207,10 @@ def thumb(store, scene_key: str, cam: str, t_ms: int) -> Path:
         if not ok:
             raise FileNotFoundError('No frame at this time')
         ref = c['frame_ref']
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix('.tmp.jpg')
-        cv2.imwrite(str(tmp), cv2.resize(bgr, (ref['thumb_w'], ref['thumb_h'])))
-        tmp.replace(path)
+        ok, data = cv2.imencode('.jpg',cv2.resize(bgr, (ref['thumb_w'], ref['thumb_h'])))
+        if not ok:
+            raise OSError('Could not encode thumbnail')
+        _publish(path,data.tobytes())
     return path
 
 

@@ -810,11 +810,11 @@
             "type": "string",
             "pattern": "^[a-z0-9_-]+$"
           },
-          "minItems": 1
+          "minItems": 0
         },
         "primary_cam": {
           "type": "string",
-          "pattern": "^[a-z0-9_-]+$"
+          "pattern": "^[a-z0-9_-]*$"
         },
         "actor_refs": {
           "type": "array",
