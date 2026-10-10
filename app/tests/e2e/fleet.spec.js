@@ -478,7 +478,10 @@ test('the place presets asked from a chip run against all trips; the speeding pr
   };
   // Esc ends the shown run, so the preset chips come back
   const onTrip = async () => {
-    if (sent.length) await page.keyboard.press('Escape');
+    if (sent.length) {
+      if (await page.locator('body').getAttribute('data-stage') === 'evidence') await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+    }
     await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
     await page.goto(TRIP);
     await expect(page.locator('#source-tag')).toHaveText(T1);
@@ -490,8 +493,9 @@ test('the place presets asked from a chip run against all trips; the speeding pr
   await onTrip();
   await page.locator('#presets .preset').nth(0).click();
   expect(await scope(1)).toEqual(['fleet', null]);
-  await expect(page).toHaveURL(/#\/fleet$/);
-  await expect(page.locator('#source-tag')).toHaveText('all trips');
+  // Search was global; the answer now activates its cited trip and time.
+  await expect(page).toHaveURL(new RegExp(`#/fleet/${T1}@3000$`));
+  await expect(page.locator('#source-tag')).toHaveText(T1);
   await answered();
   await onTrip();
   await page.locator('#presets .preset').nth(2).click();

@@ -238,7 +238,7 @@ async function mockApi(page) {
     if ((m = p.match(/^assets\/(.+)$/))) {
       const f = path.join(OUT, m[1]);
       if (!f.startsWith(OUT) || !fs.existsSync(f)) return route.fulfill({ status: 404, body: '' });
-      return route.fulfill({ status: 200, contentType: MIME[path.extname(f)] || 'application/octet-stream', body: fs.readFileSync(f) });
+      return fulfillFile(route, f, MIME[path.extname(f)] || 'application/octet-stream');
     }
     return json({ detail: `mockapi: no route for ${p}` }, 404);
   });

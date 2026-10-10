@@ -532,6 +532,7 @@ test('several predictions of one actor: one Model label at the end of the latest
   await open(page);
   await page.locator('.preset').first().click();
   await expect(page.locator('body')).toHaveAttribute('data-view', 'hit');
+  await page.locator('.wh-mode [data-mode="explore"]').click();
   const pred = page.locator('.lbl-model', { hasText: 'predicts' });
   await expect(pred).toHaveCount(1);
   await expect(pred).toHaveText(/^Model\s*F1 predicts continue · 2 s$/);

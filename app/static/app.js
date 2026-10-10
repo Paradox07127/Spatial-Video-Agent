@@ -329,8 +329,20 @@ async function activateEvidence(e, after = null, automatic = false) {
     selection.clear();
     setStage('explore', null);
     r.home = hash;
-    const p = await go(hash, true);
-    if (!p || r !== run || generation !== runGeneration || activation !== evidenceGeneration) return;
+    if (ctx.route.workspace === 'fleet' && ws.id === 'fleet' && pageKind === 'fleet') {
+      // The Fleet page already owns all trips. Updating its active route preserves camera and media ownership.
+      history.pushState(null, '', hash);
+      wsHash = hash;
+      ctx.route = parseRoute(hash);
+      pageContext.route = ctx.route;
+      state.sourceTag = { hash, workspace: 'fleet', scene_key: e.scene_key, trip_id: ctx.route.trip_id };
+      store(LAST_ROUTE, hash);
+      renderSourceTag();
+      bus.emit('route', ctx.route);
+    } else {
+      const p = await go(hash, true);
+      if (!p || r !== run || generation !== runGeneration || activation !== evidenceGeneration) return;
+    }
   }
   if (!page) return;
   r.activeScene = e.scene_key;
@@ -746,7 +758,7 @@ function renderKeyframe() {
   $('#keyframe .kf-play').onclick = () => activateEvidence(m, () => { clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500))); clock.play(); });
 }
 
-const predText = (p) => `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator)} ${esc(p.value)} ${esc(p.unit ?? '')}`;
+const predText = (p) => p.operator === 'measured' ? `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${p.unit === 'm' ? 'distance' : 'measurement'}` : `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator.replace(/_/g, ' '))} ${esc(p.value)} ${esc(p.unit ?? '')}`;
 // The value a predicate was decided on: its first evidence with a number.
 function predValue(p) {
   const e = p.eids.map((id) => run.evidence.get(id)).find((x) => typeof x?.value === 'number');
@@ -779,7 +791,7 @@ function renderClaims() {
     const status = cs.some((c) => c.after === 'CONTRADICTED') ? 'CONTRADICTED' : cs.some((c) => c.after !== 'SUPPORTED') ? 'UNRESOLVED' : 'SUPPORTED';
     const seen = new Set();
     const predicates = cs.flatMap((c) => c.predicates).filter((p) => { const key = JSON.stringify([p.subject_refs, p.operator, p.value, p.status]); if (seen.has(key)) return false; seen.add(key); return true; });
-    return `<div class="claim verdict-card v-${status.toLowerCase()}" data-claim="${esc(cs[0].claim_id)}">
+    return `<div class="claim verdict-card card-${status.toLowerCase()}" data-claim="${esc(cs[0].claim_id)}">
       <div class="claim-row"><span class="claim-head">${change(cs[0].before, status)}</span>${moment ? `<span class="mono muted">${esc(moment.primary_cam)} · ${tc(moment.t0_ms)}</span>` : ''}</div>
       <div class="preds condition-chips">${predicates.map((p) => { const checked = p.eids.length > 0, label = p.status === 'supported' ? (p.eids.some((id) => run.evidence.get(id)?.kind === 'measure') ? 'measured' : 'checked') : p.status === 'contradicted' ? 'contradicted' : checked ? 'unresolved' : 'not checked'; const mark = p.status === 'supported' ? '✓' : p.status === 'contradicted' ? '✗' : checked ? '?' : '—'; return `<span class="condition-chip pst-${p.status}" title="${esc(label)}"><b>${mark}</b> <span class="pt">${predText(p)}</span>${predValue(p)} <small>${label}</small></span>`; }).join('')}</div>
     </div>`;

@@ -459,8 +459,8 @@ body[data-ws="warehouse"] .stage-controls, body[data-ws=""] .stage-controls, bod
 .not-measured { margin: 0; color: var(--ink-2); font-size: var(--fs-2); line-height: 1.5; }
 .ans-src { flex-wrap: wrap; }
 .verdict-card { border: 1px solid var(--rule); border-left: 3px solid var(--neutral); border-radius: var(--radius); padding: 10px; }
-.verdict-card.v-supported { border-left-color: var(--src-measure); }
-.verdict-card.v-contradicted { border-left-color: var(--danger); }
+.verdict-card.card-supported { border-left-color: var(--src-measure); }
+.verdict-card.card-contradicted { border-left-color: var(--danger); }
 .condition-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .condition-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 6px; font-size: var(--fs-2); }
 .condition-chip small { color: var(--ink-2); font-size: var(--fs-1); }

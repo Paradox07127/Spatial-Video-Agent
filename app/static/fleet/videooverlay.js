@@ -57,6 +57,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const out = remapEl.getContext('2d');
   let undist = false, lut = null, last = null, alive = true, time = 0, playing = false;
   video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing));
+  video.addEventListener('loadeddata', () => alive && player.sync(time, playing));
 
   // lut[i] = source pixel index for pinhole pixel i, −1 outside the fisheye frame.
   function buildLut() {

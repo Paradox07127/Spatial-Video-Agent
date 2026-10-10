@@ -386,7 +386,7 @@ export async function mount(el, c) {
   offs = [
     () => window.removeEventListener('keydown', onKey, true),
     ctx.clock.onTick(tick),
-    ctx.selection.onChange(() => ix?.video.redraw()),
+    ctx.selection.onChange(() => { ix?.video.redraw(); if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids); }),
     () => ctx.bus.off('view:state', onView),
     () => ctx.bus.off('clock:play', onPlay),
     () => ctx.bus.off('panel:tab', onTab),
