@@ -8,6 +8,7 @@ import time
 from shapely.geometry import Point, Polygon
 
 from app.core import geo, geometry, street, vlm
+from app.core.deadline import remaining
 from app.core.models import Envelope, Evidence, InputRange, ObservationRef, ToolResult, capabilities
 
 
@@ -125,6 +126,7 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms, *, selection=None, zone=
                       if t0_ms<=t<t1_ms),key=lambda x:(x[0],x[1]))
     spans, interrupted, known, reasons = {}, set(), {eid:[] for eid in targets}, {}
     for t, eid, root in samples:
+        remaining(30)
         sec = t//1000
         if not root or not 0<=sec-data['t0_s']<len(data['per_sec']):
             interrupted.add(eid)
@@ -261,6 +263,7 @@ def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
         return result('all',0,0,{'closest':None,'missing':sorted(selected),'scene_coverage':{},'reason':'selection_not_available'},coverage=0)
     best, seen, pts, scene_coverage, gaps = None, set(), 0, {}, []
     for m in scenes:
+        remaining(30)
         key, assets = m['scene_key'], m['assets']
         t0, t1 = (max(m['t0_ms'],t_range[0]),min(m['t1_ms'],t_range[1])) if t_range else (m['t0_ms'],m['t1_ms'])
         cap = capabilities(m)['distance']
@@ -284,6 +287,7 @@ def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
         if tracks:
             seen.add('forklift')
         for t, eid, root, s in samples:
+            remaining(30)
             for fid, track, times in tracks:
                 if not times[0]<=t<=times[-1]:
                     continue

@@ -105,12 +105,13 @@ def rule_parse(q: str, ctx: dict) -> Query:
 
 
 def complete_json(messages: list[dict], *, role: str, timeout: float = 5) -> dict:
+    from app.core.deadline import remaining
     url = os.environ['LLM_URL'].rstrip('/')
     if not url.endswith('/v1'):
         url += '/v1'
     model = os.environ.get('LLM_MODEL_SMALL' if role == 'parse' else 'LLM_MODEL_LARGE', '')
     headers = {'Authorization': 'Bearer ' + os.environ['LLM_API_KEY']} if os.environ.get('LLM_API_KEY') else {}
-    with httpx.Client(timeout=timeout) as client:
+    with httpx.Client(timeout=remaining(timeout)) as client:
         response = client.post(url+'/chat/completions', headers=headers,
                                json={'model': model, 'messages': messages, 'temperature': 0,
                                      'response_format': {'type': 'json_object'}})

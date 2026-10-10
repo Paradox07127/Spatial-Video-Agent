@@ -29,3 +29,13 @@ def test_new_channels_can_be_added_to_existing_action(store, alerts):
     assert second.action_id==first.action_id and second.review_task_id==first.review_task_id
     assert second.zone_id and second.delivered and len(alerts)==1
     assert len(store.list_actions(WH))==len(store.list_zones(WH))==1
+
+
+def test_legacy_delivered_action_does_not_resend_after_upgrade(store, alerts):
+    req = TriggerRequest(scene_key=WH,event_id='E1',auto=False,actions=['wandb_alert'])
+    first = trigger(store,req)
+    assert first.delivered and len(alerts)==1
+    # The old schema / remote snapshot has the action but no channel outbox.
+    store.app.execute('DELETE FROM action_deliveries')
+    second = trigger(store,req)
+    assert second.existing and second.delivered and len(alerts)==1

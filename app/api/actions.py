@@ -61,6 +61,13 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
     event_id = (req.event_id if ':' in req.event_id else f'{req.scene_key}:{req.event_id}') if req.event_id else None
     with store.lock:
         existing = store.find_action(req.scene_key, event_id) if event_id else None
+        if existing and existing.delivered:
+            # Older releases and remote snapshots predate per-channel delivery rows.
+            # Their successful channels must not be sent again during migration.
+            for channel in existing.actions:
+                if channel in ('wandb_alert','webhook'):
+                    store.app.execute('INSERT INTO action_deliveries VALUES (?,?,?,?) ON CONFLICT DO NOTHING',
+                                      [existing.action_id,channel,'sent',now()])
         m = store.manifest(req.scene_key)
         event = next((e for e in store.events_in(req.scene_key, m['t0_ms'], m['t1_ms']) if e.event_id == event_id), None)
         if event_id and event is None:

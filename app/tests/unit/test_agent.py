@@ -814,7 +814,7 @@ def test_corpus_asks_run_through_the_real_agent(corpus):
         assert frames[-2]['data']['final']==a['expect']['final']==a['events'][-2]['data']['final'], ask_id
         assert [h['auto_open'] for h in of(frames, 'hits')]==[h['auto_open'] for h in of(a['events'], 'hits')], ask_id
     assert {k:(a['expect']['final'],[h['auto_open'] for h in of(a['events'], 'hits')]) for k, a in CORPUS_ASKS.items()}=={
-        'corpus-anchor':('SUPPORTED',[None]),'corpus-street-distance':('UNRESOLVED',[L1_KEY]),'corpus-nomatch':('NO_MATCH',[])}
+        'corpus-anchor':('UNRESOLVED',[None]),'corpus-street-distance':('UNRESOLVED',[L1_KEY]),'corpus-nomatch':('NO_MATCH',[])}
     frames = ask(corpus, ANCHOR['q'], ANCHOR['context'], ANCHOR['budget'])
     assert frames[-2]['data']['final']==ANCHOR['expect']['final']
     hits = of(frames, 'hits')[0]['moments']
@@ -822,7 +822,9 @@ def test_corpus_asks_run_through_the_real_agent(corpus):
 
 
 def test_anchor_measures_on_the_l3_hit_and_abstains_on_l1(corpus):
-    frames = ask(corpus, ANCHOR['q'], ANCHOR['context'], ANCHOR['budget'])
+    # More conditions now require separate evidence. Allow the second-camera measurement,
+    # while keeping the exhaustive "every clip" question unresolved without full coverage.
+    frames = ask(corpus, ANCHOR['q'], ANCHOR['context'], {'tools':16,'seconds':45})
     read = {e['eid']:e for r in of(frames, 'tool_result') for e in r['evidence']}
     claims = {c['claim_id']:c for c in of(frames, 'claim')}.values()
     l3 = next(c for c in claims if c['evidence_level']=='L3')
@@ -831,11 +833,13 @@ def test_anchor_measures_on_the_l3_hit_and_abstains_on_l1(corpus):
     l1 = next(c for c in claims if c['evidence_level']=='L1')
     assert l1['scene_key']==L1_KEY and l1['moment_id'].startswith('m_'+L1_KEY)
     assert l1['explain']['abstain']=={'reason':'no_geometry','text':ABSTAIN_TEXT['no_geometry']}
-    assert [(p['operator'],p['status']) for p in l1['predicates']]==[('detected','supported'),('measured','unknown')]
+    assert [(p['operator'],p['status']) for p in l1['predicates']]==[
+        ('detected','supported'),('measured','unknown'),('exhaustive_coverage','unknown'),('action_modifier:moving','unknown')]
     answers = {a['evidence_level']:a for a in of(frames, 'answer')}
     assert list(answers)==[None,'L3','L2','L1']
     assert answers['L1']['measure_refs']==[] and '(2D)' in answers['L1']['text'] and ABSTAIN_TEXT['no_geometry'] in answers['L1']['text']
-    assert answers['L3']['measure_refs'] and 'uncited number' not in answers['L3']['text']
+    assert not answers['L3']['measure_refs'] and 'exhaustive coverage' in answers['L3']['text']
+    assert of(frames,'status')[-1]['final']=='UNRESOLVED'
     assert all(e.evidence_level for e in corpus.get_run(frames[0]['data']['run_id']).evidence)
 
 

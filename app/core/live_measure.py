@@ -16,6 +16,7 @@ import numpy as np
 import supervision as sv
 
 from app.core.geometry import ground_point
+from app.core.deadline import remaining
 
 THREADS = 4
 cv2.setNumThreads(THREADS)
@@ -66,6 +67,7 @@ def track(frames: list[tuple[int, dict]], fps: float, labels: set[str]) -> list[
     names = sorted(labels)
     tracker, out = sv.ByteTrack(frame_rate=round(fps)), []
     for t, f in frames:
+        remaining(30)
         ds = [d for d in f['detections'] if d['label'] in labels]
         dets = sv.Detections(xyxy=np.array([d['bbox'] for d in ds], dtype=np.float32).reshape(-1, 4),
                              confidence=np.array([d['confidence'] for d in ds], dtype=np.float32),

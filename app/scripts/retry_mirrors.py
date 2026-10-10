@@ -1,4 +1,8 @@
-"""Retry pending VastDB rows using the same environment as the app; no notification delivery."""
+"""Offline maintenance: stop the app, then retry pending VastDB rows in its environment.
+
+DuckDB permits one writer process. Do not run this command alongside Uvicorn.
+The command only mirrors durable rows; it does not send notifications.
+"""
 import argparse
 from pathlib import Path
 import sys

@@ -268,10 +268,13 @@ def people_statistics(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int, m
     second; ties use the earliest observed frame. Missing frames keep the claim unknown.
     """
     from app.core import tools
+    from app.core.deadline import remaining
+    remaining(30)
     dets = detections(store,scene_key,cam,t0_ms,t1_ms)
     m = street_manifest(store,scene_key)
     by_time = {t:[] for t in dets.get('frame_times',[])}
     for t,label,x1,y1,x2,y2,conf in dets['rows']:
+        remaining(30)
         if label=='person':
             by_time.setdefault(t,[]).append({'label':label,'bbox':[x1,y1,x2,y2],'confidence':conf})
     frames = [(t,{'detections':rows}) for t,rows in sorted(by_time.items())]
@@ -283,6 +286,7 @@ def people_statistics(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int, m
         # Restart after missing input; linking tracks over a gap would assert continuity.
         blocks = []
         for f in frames:
+            remaining(30)
             if not blocks or any(blocks[-1][-1][0]<b and a<f[0] for a,b,_ in dets['gaps']):
                 blocks.append([])
             blocks[-1].append(f)
@@ -295,6 +299,7 @@ def people_statistics(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int, m
     elif mode=='peak_count':
         per_second = {}
         for t,f in frames:
+            remaining(30)
             second = t//1000
             n = len(f['detections'])
             if second not in per_second or n>per_second[second]['count']:

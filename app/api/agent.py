@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.api.search import event_types
 from app.core import cache, geo, llm, policy, street, tools, trace
 from app.core.investigation_context import apply_constraints
+from app.core.deadline import DeadlineExceeded, remaining, scope as deadline_scope
 from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
 
 router = APIRouter()
@@ -247,7 +248,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         count += 1
         with trace.traced(run,'tool.'+name,args,state=state,parent_step_id=parent.step_id) as t:
             yield frame('tool_call',step_id=parent.step_id,call_id=t.step_id,name=name,args=args,why=name)
-            res = fn()
+            try:
+                with deadline_scope(run.deadline):
+                    res = fn()
+            except DeadlineExceeded as exc:
+                raise BudgetExhausted from exc
+            if res.envelope.exec_state=='failed' and time.monotonic()>=run.deadline:
+                raise BudgetExhausted
             res.evidence = [e if e.evidence_level else e.model_copy(update={'evidence_level':level(e.scene_key)}) for e in res.evidence]
             store.add_evidence(run.run_id,res.evidence)
             t.output(res.envelope.model_dump(mode='json'))
@@ -355,7 +362,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if time.monotonic()-start>=body.budget.seconds:
                     raise BudgetExhausted
                 with trace.traced(run,'llm.parse',{'q':body.q,'rule':parsed.model_dump(mode='json')},state='parse',parent_step_id=t.step_id) as child:
-                    parsed = llm.parse(body.q,context)
+                    with deadline_scope(run.deadline):
+                        parsed = llm.parse(body.q,context)
+                        remaining(1)
                     child.output(parsed.model_dump(mode='json'))
             parsed, constraint_reason = apply_constraints(body.q,context,parsed)
             quantifier = parsed.quantifier
@@ -927,7 +936,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         stop_reason='abstained'
                 elif final not in {'UNSUPPORTED','NO_MATCH','OUT_OF_RANGE'} and not speeding_q:
                     final,stop_reason='NO_MATCH','abstained'
-    except BudgetExhausted:
+    except (BudgetExhausted, DeadlineExceeded):
         final=counted(True)
         stop_reason='budget_exhausted'
     except GeneratorExit:
