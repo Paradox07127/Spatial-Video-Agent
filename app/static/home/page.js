@@ -27,7 +27,15 @@ function lastRoute() {
 function ask(q, opts) {
   el.querySelector('#home-input').value = q;
   el.querySelector('.home-refusal')?.remove();
-  ctx.ask(q, opts);
+  if (q.length > 500) return showError('Keep the question to 500 characters or fewer.');
+  const owner = el;
+  Promise.resolve(ctx.ask(q, opts)).catch(() => { if (el === owner) showError('Could not start the investigation. Please retry.'); });
+}
+
+function showError(message) {
+  if (!el) return;
+  el.querySelector('.home-error')?.remove();
+  el.querySelector('.home-out').insertAdjacentHTML('beforeend', `<p class="home-error muted" role="alert">${esc(message)}</p>`);
 }
 
 export function mount(root, c) {
@@ -44,16 +52,17 @@ export function mount(root, c) {
       <span class="home-scene mono" hidden></span>
       <h1 class="home-title">What happened, where, and how far apart?</h1>
       <form id="home-form" class="home-ask" autocomplete="off">
-        ${icon('search')}<span class="home-src mono" hidden></span><input id="home-input" placeholder="Ask about any moment in the footage">
+        ${icon('search')}<span class="home-src mono" hidden></span><input id="home-input" maxlength="500" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="home-source-list" aria-expanded="false" placeholder="Ask about any moment in the footage">
         <button class="home-go" title="Ask">${icon('corner-down-left')}</button>
-        <ul class="home-at" role="listbox" hidden></ul>
+        <ul id="home-source-list" class="home-at" role="listbox" hidden></ul>
       </form>
       <div class="home-out"></div>
       <div class="home-chips">${[...warehouse.slice(0, 2).map((q) => chip(q, 'warehouse')), chip(fleet[0], 'fleet')].join('')}</div>
       <p class="home-note">Numbers come from measurement. Questions about identity, intent or blame are declined.</p>
     </div>`;
   el = root.firstElementChild;
-  sources = ctx.workspaces().then(sourceRows);
+  const owner = el;
+  sources = ctx.workspaces().then(sourceRows, () => { if (el === owner) showError('Sources could not load. Please reload and try again.'); return []; });
   const input = el.querySelector('#home-input');
   el.querySelector('#home-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -162,9 +171,12 @@ function onKey(e) {
 function renderAt() {
   const list = el.querySelector('.home-at');
   list.hidden = !at;
-  if (!at) return list.replaceChildren();
+  const input = el.querySelector('#home-input');
+  input.setAttribute('aria-expanded', String(!!at));
+  if (!at) { input.removeAttribute('aria-activedescendant'); return list.replaceChildren(); }
+  input.setAttribute('aria-activedescendant', `home-source-${at.i}`);
   const row = (i, html, cls = '', ws = '') =>
-    `<li class="home-at-row${cls}${i === at.i ? ' on' : ''}" role="option" aria-selected="${i === at.i}" data-i="${i}"${ws && ` data-ws="${ws}"`}>${html}</li>`;
+    `<li id="home-source-${i}" class="home-at-row${cls}${i === at.i ? ' on' : ''}" role="option" aria-selected="${i === at.i}" data-i="${i}"${ws && ` data-ws="${ws}"`}>${html}</li>`;
   list.innerHTML = [
     ...at.rows.map((r, i) => row(i, `${wsIcon(r.ws)}<span class="home-at-id mono">${esc(r.id)}</span><span class="home-at-meta">${esc(r.meta)}</span>`, '', r.ws)),
     row(at.rows.length, PICK_ANY, ' home-at-any'),

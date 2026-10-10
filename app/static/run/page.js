@@ -38,7 +38,7 @@ const NOTES = {
   C4: ['Timing C4', (p) => p.segments.map((s) => `<span class="mono">model says ≈${tc(s.start_s * 1000)}–${tc(s.end_s * 1000)}</span> <span class="rp-dim">not measured</span> <span class="rp-dim">"${esc(s.text)}"</span>`).join('; ') || `<span class="rp-dim">"${esc(p.query)}" not found</span>`],
 };
 const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./run.css', import.meta.url).href });
-let observer = null, pinned = false, generation = 0;
+let observer = null, pinned = false, generation = 0, refreshTimer = null;
 
 const ms = (n) => (n == null ? '–' : n < 1000 ? `${n} ms` : sec(n));
 const when = (iso) => iso.slice(0, 16).replace('T', ' ');
@@ -86,14 +86,19 @@ function header(r, src, ev) {
 
 // The step that changed the verdict: the last one that read evidence a changed claim's predicates rest on.
 function changedAt(src) {
-  const claims = src.claims.filter((c) => c.after !== (c.before ?? 'UNRESOLVED'));
-  const eids = new Set(claims.flatMap((c) => c.predicates.flatMap((p) => p.eids)));
-  const step = src.steps.findLast((s) => s.evidence_ids.some((e) => eids.has(e)));
-  return step ? { step, claims } : null;
+  return src.claims.filter((c) => c.after !== (c.before ?? 'UNRESOLVED')).flatMap((claim) => {
+    const eids = new Set(claim.predicates.flatMap((p) => p.eids));
+    const step = src.steps.findLast((s) => s.evidence_ids.some((e) => eids.has(e)));
+    return step ? [{ step, claims: [claim] }] : [];
+  });
 }
 
 function changed({ step, claims }, src, ev) {
-  const before = src.steps.findLast((s) => s.i < step.i && rangeOf(s));
+  const ids = new Set(claims[0].predicates.flatMap((p) => p.eids));
+  const scene = claims[0].scene_key ?? [...ids].map((eid) => ev.get(eid)?.scene_key).find(Boolean);
+  const before = src.steps.findLast((s) => s.i < step.i && rangeOf(s) && (!scene || rangeOf(s).scene_key === scene));
+  const moment = (src.hits ?? []).find((m) => claims[0].moment_id ? m.moment_id === claims[0].moment_id : m.scene_key === scene && m.evidence_ids?.some((id) => ids.has(id)));
+  const afterFrame = moment?.thumb ? { output: { thumb: moment.thumb } } : step;
   const decided = (p) => p.eids.map((id) => ev.get(id)).find((e) => typeof e?.value === 'number');
   const pred = (p, e = decided(p)) => `<span class="mono rp-pred">${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator)} ${esc(p.value)} ${esc(p.unit ?? '')}${e ? ` → <span class="pv-${e.kind}">${value(e)}</span>` : ''}</span>`;
   return `
@@ -102,7 +107,7 @@ function changed({ step, claims }, src, ev) {
       <div class="rp-cg">
         <div class="rp-fr">${frame(before, before ? atOf(before) : 'No earlier frame')}${verdict(claims[0].before ?? 'UNRESOLVED')}</div>
         <span class="rp-arrow">→</span>
-        <div class="rp-fr after">${frame(step, atOf(step))}${verdict(claims[0].after)}</div>
+        <div class="rp-fr after">${frame(afterFrame, atOf(step))}${verdict(claims[0].after)}</div>
         <div class="rp-claims">${claims.map((c) => `<span class="rp-ctext" data-claim="${esc(c.claim_id)}">${esc(c.text)}</span>${c.predicates.map((p) => pred(p)).join('')}`).join('')}</div>
       </div>
     </div>`;
@@ -179,12 +184,15 @@ function go(id) {
 }
 
 // r: the opened run; src: the run whose steps it shows (r itself, or the source of a cache replay).
-function renderRun(r, src, summaries) {
+function renderRun(r, src, summaries, keepView = false) {
+  const scroll = el().scrollTop, active = keepView && el().querySelector('.rp-nav .on')?.dataset.go;
+  const expanded = keepView ? [...el().querySelectorAll('.trace-step.open')].map((s) => +s.dataset.i) : [];
+  const raws = keepView ? [...el().querySelectorAll('.rp-raw-btn[aria-expanded="true"]')].map((b) => b.closest('[data-eid]').dataset.eid) : [];
   const ev = new Map(src.evidence.map((e) => [e.eid, e]));
   const ch = changedAt(src), recs = notes(src), vss = src.steps.findLast((s) => s.name === 'vss.search' && s.output);
   const secs = [
     ['verdict', 'Verdict', header(r, src, ev)],
-    ch && ['changed', 'What changed', changed(ch, src, ev)],
+    ch.length && ['changed', 'What changed', ch.map((change) => changed(change, src, ev)).join('')],
     ['steps', `Steps · ${src.steps.length}`, '<span class="p-label">STEPS</span><div class="rp-steps"></div>'],
     ['evidence', `Evidence · ${src.evidence.length}`, `<span class="p-label">EVIDENCE</span>${evidence(src, ev)}`],
     recs.length && ['models', `Model notes · ${recs.length}`, `<span class="p-label">MODEL NOTES · NOT USED FOR NUMBERS</span><div class="rp-notes">${recs.map(note).join('')}</div>`],
@@ -196,9 +204,12 @@ function renderRun(r, src, summaries) {
       <nav class="rp-nav">${secs.map(([id, label]) => `<button type="button" data-go="${id}">${label}</button>`).join('')}</nav>
       <div class="rp-main">${secs.map(([id, , html]) => `<section class="rp-sec" data-sec="${id}">${html}</section>`).join('')}</div>
     </div>`;
-  trace.renderRun(src, el().querySelector('.rp-steps'), summaries, ch?.step.i);
-  activate('verdict');
+  trace.renderRun(src, el().querySelector('.rp-steps'), summaries, ch.at(-1)?.step.i);
+  for (const i of expanded) if (src.steps.some((s) => s.i === i) && !el().querySelector(`.trace-step[data-i="${i}"].open`)) trace.expandStep(i);
+  for (const eid of raws) { const b = el().querySelector(`.rp-evrow[data-eid="${CSS.escape(eid)}"] .rp-raw-btn`); if (b) { b.setAttribute('aria-expanded', 'true'); b.nextElementSibling.hidden = false; } }
+  activate(active ?? 'verdict');
   spy();
+  if (keepView) el().scrollTop = scroll;
 }
 
 function renderList(runs) {
@@ -244,24 +255,41 @@ export const runpage = {
     pinned = false;
     el().hidden = false;
     el().onclick = onClick;
-    try {
-      if (!runId) {
-        const runs = await api.get('api/agent/runs');
-        if (current === generation && !el().hidden) renderList(runs);
-        return;
+    clearTimeout(refreshTimer);
+    const owns = () => current === generation && !el().hidden;
+    let previous = null;
+    const load = async () => {
+      try {
+        if (!runId) {
+          const runs = await api.get('api/agent/runs');
+          if (owns()) renderList(runs);
+          return;
+        }
+        const r = await api.get(`api/agent/runs/${runId}`);
+        if (!owns()) return;
+        const src = r.source_run_id ? await api.get(`api/agent/runs/${r.source_run_id}`) : r;
+        if (!owns()) return;
+        const snapshot = JSON.stringify([r, src]);
+        if (snapshot !== previous) renderRun(r, src, summaries, previous !== null);
+        previous = snapshot;
+        el().querySelector('.rp-refresh-error')?.remove();
+        if (r.status === 'running' || src.status === 'running') refreshTimer = setTimeout(load, 1000);
+      } catch {
+        if (!owns()) return;
+        if (previous !== null) {
+          el().querySelector('.rp-refresh-error')?.remove();
+          el().querySelector('.rp-main').insertAdjacentHTML('afterbegin', '<p class="rp-refresh-error muted" role="status">Run updates could not load. Retrying…</p>');
+          refreshTimer = setTimeout(load, 2000);
+        } else {
+          el().innerHTML = `${top('Back', null)}<div class="rp-col"><p class="muted">Could not read run ${esc(runId ?? 'list')}.</p></div>`;
+        }
       }
-      const r = await api.get(`api/agent/runs/${runId}`);
-      if (current !== generation || el().hidden) return;
-      // A cache replay persists a single cache_replay step; the reasoning it replayed is in its source run.
-      const src = r.source_run_id ? await api.get(`api/agent/runs/${r.source_run_id}`) : r;
-      if (current === generation && !el().hidden) renderRun(r, src, summaries);
-    } catch {
-      if (current !== generation || el().hidden) return;
-      el().innerHTML = `${top('Back', null)}<div class="rp-col"><p class="muted">Could not read run ${esc(runId ?? 'list')}.</p></div>`;
-    }
+    };
+    await load();
   },
   close() {
     generation++;
+    clearTimeout(refreshTimer);
     observer?.disconnect();
     el().hidden = true;
   },

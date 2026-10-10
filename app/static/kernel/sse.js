@@ -20,7 +20,18 @@ export function askSSE(body, handlers) {
       body: JSON.stringify(body),
       signal: ctl.signal,
     });
-    if (!r.ok) throw new Error(`agent/ask ${r.status}`);
+    if (!r.ok) {
+      let detail;
+      try { detail = (await r.json()).detail; } catch { /* A proxy can return plain text. */ }
+      if (r.status === 422) {
+        const messages = Array.isArray(detail) ? detail.map((item) => {
+          const field = (item.loc ?? []).filter((part) => part !== 'body').join('.');
+          return `${field ? field + ': ' : ''}${item.msg ?? 'Invalid value'}`;
+        }).join('; ') : typeof detail === 'string' ? detail : 'Check the question and selected context.';
+        throw new Error(`The investigation request is invalid. ${messages}`);
+      }
+      throw new Error(typeof detail === 'string' ? detail : `Could not start the investigation (${r.status}). Please retry.`);
+    }
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
     let buf = '';
     for (;;) {

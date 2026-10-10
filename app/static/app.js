@@ -437,6 +437,7 @@ const took = () => run.steps.at(-1)?.elapsed_ms ?? 0;
 // home: the route a question asked from the home page runs against; it opens on the first hits (or an answer that is not a refusal).
 function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {}) {
   q = q.trim();
+  if (q.length > 500) { statusLine('Keep the question to 500 characters or fewer.'); return; }
   if (!q) return;
   toDefault();
   const route = home ? parseRoute(home) : ctx.route;
@@ -688,9 +689,12 @@ function numbered(d) {
   let html = '', rest = d.text;
   for (const r of d.measure_refs) {
     const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), ms = r.field.endsWith('_ms'), time = ms || r.field.endsWith('_s');
-    const n = typeof v === 'number' && String(+(ms ? v / 1000 : v).toPrecision(4)).replace('.', '\\.');
-    const pat = time ? `${n}${n.includes('.') ? '0*' : '(?:\\.0+)?'}(?:\\s?s\\b)?` : n;
-    const m = n && rest.match(new RegExp(`(?<![\\d.])${pat}(?!\\d)`));
+    const expected = typeof v === 'number' && Number.isFinite(v) ? Number((ms ? v / 1000 : v).toPrecision(4)) : null;
+    // Compare numeric tokens, preserving the server's spelling (.4g can use e-05/e+05).
+    // Word boundaries exclude identifiers such as P1, floor_00 and scene ids.
+    const tokens = rest.matchAll(/(?<![\w.+-])[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])/g);
+    const token = expected !== null && [...tokens].find((t) => Number(t[0]) === expected);
+    const m = token && { index: token.index, 0: token[0] + (time ? rest.slice(token.index + token[0].length).match(/^\s?s\b/)?.[0] ?? '' : '') };
     if (!m) continue;
     html += `${esc(rest.slice(0, m.index))}<button class="${time ? 'ans-time' : 'ans-num'} mono" data-cite data-eid="${esc(r.eid)}" title="${esc(r.eid)} · ${esc(r.field)}">${m[0]}</button>`;
     rest = rest.slice(m.index + m[0].length);
@@ -963,7 +967,8 @@ function focusEvidence(eid, e) {
 
 // ---- Esc steps back one layer
 async function closeRunpage() {
-  location.hash = wsHash ?? (await defaultRoute());
+  try { location.hash = wsHash ?? (await defaultRoute()); }
+  catch { statusLine('Could not load the destination. Please retry.'); }
 }
 
 function stepBack() {
@@ -1049,7 +1054,10 @@ document.addEventListener('pointerout', (e) => !e.relatedTarget && hover(null));
 $('#runpage').addEventListener('click', (e) => e.target.closest('.rp-back') && closeRunpage());
 
 async function openCmdk() {
-  const items = (await workspaces).flatMap((w) => w.id === 'warehouse'
+  let catalog;
+  try { catalog = await workspaces; }
+  catch { statusLine('Could not load sources. Please reload and try again.'); return; }
+  const items = catalog.flatMap((w) => w.id === 'warehouse'
     ? w.scenes.map((s) => ({ icon: 'warehouse', label: s.title, hint: s.scene_key, run: () => (location.hash = `#/warehouse/${s.scene_key}`) }))
     : w.id === 'street'
     ? w.scenes.map((s) => ({ icon: 'camera', label: s.title, hint: s.scene_key, run: () => (location.hash = `#/street/${s.scene_key}`) }))
