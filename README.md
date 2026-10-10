@@ -1,6 +1,6 @@
 # Spatial Video Agent (sva)
 
-Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance, fleet dashcams and street cameras. You ask a question in one sentence. The agent finds the moment to one-second precision, gets more camera views when it needs them, and shows the evidence in 3D or on a map. Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
+Spatial Video Agent is an investigation workbench for multi-camera warehouse surveillance, fleet dashcams and street cameras. You ask a question in one sentence. The agent searches candidate moments, reads more camera views when needed, and shows their evidence in 3D, on a map or in the source video. Numbers come only from CV and geometry (distances, positions, visibility, speed). Models parse the question, write captions and narrate. The agent marks each claim SUPPORTED, CONTRADICTED or UNRESOLVED, and it abstains when the scene cannot answer the question.
 
 ![A warehouse answer: the measured distance between worker P1 and forklift F1 drawn on the 3D floor, the answer panel with the verdict, key frame, claim and model note, and the timeline with the Evidence lane](docs/screenshots/01-warehouse-answer.png)
 
@@ -65,6 +65,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
   - Ego-frame 3D: the car at the origin, pedestrians and vehicles with labels and sigma, buildings; views **Chase**, **Top**, **Dashcam**; badge "Monocular range: indicative only".
   - Place card: the place under the car from the map, its side and distance ("Ahead · 6 m"), and the Cosmos C5 reading with "checked by map".
 - **Trip** tab: the trip, whether GPS had a live fix during the moment, other passes near the same place, duration and distance.
+- Video loading, buffering and decode errors are shown separately from timeline coverage. Unavailable media hides stale frames and annotations; **Retry video** retains the current investigation.
 
 ![A fleet answer: dashcam with detections and facade columns, map with the GPS ring, ego-frame 3D and the place card, next to the answer "The building on the right at Queen & Spadina is MAC Cosmetics."](docs/screenshots/07-fleet-answer.png)
 
@@ -82,6 +83,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 
 - `#/run/<run_id>` shows one stored run: the question, verdict, run id, date, step count and time, and the answer sentences with their cites (a sentence without cites is muted and marked "Not supported").
 - A section nav: **Verdict**, **What changed** (the step that changed the verdict, with before and after frames), **Steps · N**, **Evidence · N**, **Model notes · N**, **VSS comparison**.
+- Running run pages refresh until completion and stop refreshing when closed. Each verdict change uses its own claim, step and moment.
 - Steps: name, summary, exec state (live, cached, waiting, failed) and duration per step and tool call; a click expands its input and output, the Request and Response JSON, and its evidence.
 - Evidence: source, a readable label, cameras and time, value, and **raw** fields.
 - Model notes: Cosmos C1 situation, C2 prediction, C4 timing, each with "Checked by measure" or a conflict.
@@ -174,7 +176,7 @@ Each Esc press goes back one layer, in this order:
 5. clears the answer (the stage returns to its default state);
 6. with no answer open, goes to the home page.
 
-On the home page, Esc closes the `@` list. The top bar reminds you: "Esc steps back".
+On the home page, Esc closes the `@` list. The command palette keeps keyboard focus inside the dialog and returns it to its invoker. The timeline supports arrow keys, Page Up/Down and Home/End; event and evidence marks activate with Enter or Space. The top bar reminds you: "Esc steps back".
 
 ### 8. Follow-up questions
 
