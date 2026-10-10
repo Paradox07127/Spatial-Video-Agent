@@ -3,6 +3,7 @@
 // presented frame's mediaTime (requestVideoFrameCallback). video.dataset.sceneMs = scene time of the presented frame.
 // The same element serves the Videos tab and the stage video dock; the container styles its layout.
 import { esc, tc } from '../kernel/format.js';
+import { createMediaStatus } from '../kernel/media.js';
 
 const css = getComputedStyle(document.documentElement);
 
@@ -35,6 +36,7 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     const x = { c, fig, v: fig.querySelector('video'), cv: fig.querySelector('canvas'), nov: fig.querySelector('.wh-nov'), ms: null };
     const onFrame = (now, md) => {
       if (!alive) return;
+      if (!x.media.present()) { x.v.requestVideoFrameCallback(onFrame); return; }
       x.ms = md.mediaTime * 1000 + c.offset_ms;
       x.v.dataset.sceneMs = Math.round(x.ms);
       draw(x);
@@ -42,6 +44,11 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     };
     x.v.requestVideoFrameCallback(onFrame);
     x.v.addEventListener('loadedmetadata', () => sync(clock.t));
+    x.media = createMediaStatus(x.v, {
+      host: fig.querySelector('.wh-vframe'),
+      onUnavailable() { x.ms = null; delete x.v.dataset.sceneMs; x.cv.getContext('2d').clearRect(0, 0, x.cv.width, x.cv.height); },
+      onReady() { if (alive) queueMicrotask(() => alive && sync(clock.t)); },
+    });
     return x;
   });
 
@@ -76,7 +83,7 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     cv.width = w * dpr;
     cv.height = h * dpr;
     const g = cv.getContext('2d');
-    const all = x.ms == null ? null : rows(x, x.ms);
+    const all = !x.media?.available || x.ms == null ? null : rows(x, x.ms);
     if (!all?.length) return;
     let best = Infinity;
     for (const r of all) best = Math.min(best, Math.abs(r[0] - x.ms));
@@ -125,7 +132,8 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     },
     dispose() {
       alive = false;
-      for (const { v } of vids) {
+      for (const { v, media } of vids) {
+        media.dispose();
         v.pause();
         v.removeAttribute('src');
         v.load();

@@ -494,3 +494,7 @@ body[data-stage="evidence"] :is(.lbl-model, .fl-model, .fl-pin, .fl-cluster) { d
 }
 
 .moment-level { margin: 8px 0 4px; color: var(--ink-2); font-size: var(--fs-1); }
+/* Actual decoder/network state is separate from evidence coverage on the timeline. */
+.media-status { position: absolute; inset: 0; z-index: 7; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 12px; color: var(--ink-2); background: var(--paper); font-size: var(--fs-2); text-align: center; }
+.media-status[hidden] { display: none; }
+.media-unavailable video, .media-unavailable canvas, .media-unavailable .fl-cols { visibility: hidden; }

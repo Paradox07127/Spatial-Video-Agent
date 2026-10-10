@@ -5,6 +5,7 @@
 import { esc } from '../kernel/format.js';
 import { state } from '../kernel/state.js';
 import { selection } from '../kernel/selection.js';
+import { createMediaStatus } from '../kernel/media.js';
 
 // COCO-17 limbs.
 const LIMBS = [[0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12], [11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
@@ -50,7 +51,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     </div>
     <div class="fl-vhead"><span class="mono">${esc(cam.id)}</span><span class="muted">fisheye · ${w}×${h}</span>
       <button class="ghost fl-undist" aria-pressed="false">Pinhole crop</button></div>
-    <div class="fl-legend"></div><span class="fl-media-status muted" role="status" hidden></span>`;
+    <div class="fl-legend"></div>`;
   const video = el.querySelector('video'), remapEl = el.querySelector('.fl-remap'), ovl = el.querySelector('.fl-ovl').getContext('2d');
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
@@ -81,20 +82,19 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const onFrame = (now, md) => {
     if (!alive) return;
     if (undist) remap();
-    if (!video.seeking) onPresented(Math.round(md.mediaTime * 1000) + cam.offset_ms);
+    if (!video.seeking && media.present()) onPresented(Math.round(md.mediaTime * 1000) + cam.offset_ms);
     video.requestVideoFrameCallback(onFrame);
   };
   video.requestVideoFrameCallback(onFrame);
-  video.addEventListener('seeked', () => { if (alive && !playing) onPresented(Math.round(Math.min(video.currentTime, Number.isFinite(video.duration) ? Math.max(0, video.duration - 1 / fps) : video.currentTime) * 1000) + cam.offset_ms); });
-  for (const event of ['waiting', 'stalled', 'error', 'playing', 'canplay']) video.addEventListener(event, () => {
-    el.dataset.media = event === 'error' ? 'error' : ['waiting', 'stalled'].includes(event) ? 'waiting' : 'ready';
-    const status = el.querySelector('.fl-media-status');
-    status.hidden = el.dataset.media === 'ready';
-    status.textContent = event === 'error' ? 'Video unavailable · reopen this evidence to retry' : 'Waiting for video…';
-    el.querySelector('.fl-vhead').title = event === 'error' ? 'Video failed to load. Reopen this evidence to retry.' : event === 'waiting' || event === 'stalled' ? 'Waiting for video; overlays follow presented frames.' : '';
+  video.addEventListener('seeked', () => { if (alive && !playing && media.present()) onPresented(Math.round(Math.min(video.currentTime, Number.isFinite(video.duration) ? Math.max(0, video.duration - 1 / fps) : video.currentTime) * 1000) + cam.offset_ms); });
+  const media = createMediaStatus(video, {
+    host: el.querySelector('.fl-vbox'),
+    onUnavailable() { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.replaceChildren(); },
+    onReady() { if (alive) queueMicrotask(() => alive && player.sync(time, playing)); },
   });
 
   function draw(frame, boxes) {
+    if (!media.available) return;
     last = [frame, boxes];
     const P = undist ? (p) => undistortPx(cam, p) : (p) => p;
     ovl.clearRect(0, 0, w, h);
@@ -189,6 +189,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     },
     dispose() {
       alive = false;
+      media.dispose();
       video.pause();
       video.removeAttribute('src');
       video.load();

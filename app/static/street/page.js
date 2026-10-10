@@ -3,13 +3,14 @@
 // says what the scene cannot measure, from its caps in api/workspaces. The agent's moments are thin time bands under the video.
 import { esc, span } from '../kernel/format.js';
 import { state } from '../kernel/state.js';
+import { createMediaStatus } from '../kernel/media.js';
 
 const WINDOW_MS = 10000;
 const MEASURE = '#56B4E9';
 // Commands on objects or the 3D camera; an L1 scene has neither track ids nor geometry.
 const IGNORED = new Set(['highlight', 'annotate', 'focus', 'setView', 'showTrack']);
 
-let ctx, root, video, ovl, S = null, ready = null, offs = [];
+let ctx, root, video, media, ovl, S = null, ready = null, offs = [];
 
 // Detection rows of the 10 s window holding t, fetched once per window, as {times (sorted), at: Map(t_ms -> rows)}.
 function dets(s, t) {
@@ -72,6 +73,7 @@ async function tick(t) {
   sync(t);
   root.querySelector('.st-now').style.left = pct(t);
   draw([]);
+  if (!media.available) return;
   const presented = s.presented;
   if (presented == null || Math.abs(presented - t) > (ctx.clock.playing ? 250 : 1000 / s.mf.fps)) return;
   try {
@@ -109,7 +111,7 @@ export async function mount(el, c) {
   let alive = true;
   const onFrame = (now, md) => {
     if (!alive) return;
-    if (S && !video.seeking) {
+    if (S && !video.seeking && media.present()) {
       S.presented = Math.round(md.mediaTime * 1000) + S.chunks[S.cur].t0_ms;
       tick(ctx.clock.t);
     }
@@ -118,9 +120,14 @@ export async function mount(el, c) {
   video.requestVideoFrameCallback(onFrame);
   // A seek while paused need not present a new frame callback; the seeked position is the presented frame.
   video.addEventListener('seeked', () => {
-    if (!alive || !S || ctx.clock.playing) return;
+    if (!alive || !S || ctx.clock.playing || !media.present()) return;
     S.presented = Math.round(video.currentTime * 1000) + S.chunks[S.cur].t0_ms;
     tick(ctx.clock.t);
+  });
+  media = createMediaStatus(video, {
+    host: root.querySelector('.st-vbox'),
+    onUnavailable() { if (S) { S.presented = null; draw([]); } else ovl.clearRect(0, 0, ovl.canvas.width, ovl.canvas.height); },
+    onReady() { if (alive && S) queueMicrotask(() => alive && S && tick(ctx.clock.t)); },
   });
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
@@ -130,6 +137,7 @@ export async function mount(el, c) {
   offs = [() => ctx.bus.off('evidence:focus', onFocus), () => ctx.bus.off('stage:mode', onMode), ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
   const dispose = () => {
     alive = false;
+    media.dispose();
     offs.forEach((off) => off());
     video.pause();
     video.removeAttribute('src');
