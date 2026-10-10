@@ -159,3 +159,22 @@ def test_box_rows_skips_absent_chunks():
                 raise FileNotFoundError('Asset not found')
             return {'rows': [[12000, 'person'], [15000, 'person']]}
     assert box_rows(Store(), 'k', 'cam', 0, 30000) == [[12000, 'person'], [15000, 'person']]
+
+
+@pytest.mark.parametrize('q', ['Did the person intend to cross?', 'The worker intended to dodge?',
+    'The person intends to cross?', 'Was the person intending to cross?', 'Was crossing the intention?',
+    'Did the person mean it, or was it meant to happen?', 'Did the person cross on purpose?',
+    'Who drove the car past the person?', 'Who was driving when the pedestrian crossed?', 'Whose car crossed?'])
+def test_b1_intent_and_identity_are_unsupported(monkeypatch, q):
+    monkeypatch.setenv('LLM_URL', 'http://llm/v1')
+    parsed = llm.rule_parse(q, {'workspace':'fleet'})
+    assert parsed.template=='unsupported'
+    assert not llm.needs_llm(q, parsed)
+
+
+@pytest.mark.parametrize('time_text', ['at 5 s', 'at 5 seconds', 'at second 5', 'at 5.25 seconds'])
+def test_b1_point_time_overrides_context_interval(time_text):
+    start = 5250 if '5.25' in time_text else 5000
+    parsed = llm.rule_parse('How far was the worker from the forklift '+time_text+'?',
+                            {'workspace':'warehouse','t_range':[0,10000]})
+    assert parsed.t_range==(start,start+1000)

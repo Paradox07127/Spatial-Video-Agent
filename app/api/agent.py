@@ -88,9 +88,11 @@ def spatial_of(q, template):
     """(capability, operator, value, unit) of the spatial predicate the question needs, or None."""
     text = q.lower()
     threshold = re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',q,re.I)
-    if any(w in text for w in DISTANCE_WORDS) or re.search(r'\b(closest|nearest|minimum)\b',text):
+    if threshold or any(w in text for w in DISTANCE_WORDS) or re.search(r'\b(closest|nearest|minimum|beside|adjacent)\b|\bnear (?:a|an|the) (?:person|worker|pedestrian|forklift|car|vehicle)\b',text):
         if threshold:
-            return 'distance','lt',float(threshold[1]),'m'
+            operator = ('ge' if re.search(r'\bat least\b',text) else 'le' if re.search(r'\bat most\b',text) else
+                        'gt' if re.search(r'\b(greater than|more than|over|farther than)\b',text) else 'lt')
+            return 'distance',operator,float(threshold[1]),'m'
         return ('distance','lt',2.,'m') if 'near miss' in text else ('distance','measured',None,'m')
     if re.search(r"can'?t see|cannot see|blind",q,re.I):
         return 'blind_spot','present_in_blind_zone',None,None
@@ -108,6 +110,17 @@ def spatial_of(q, template):
 
 def abstained(claim):
     return bool((claim.explain or {}).get('abstain'))
+
+
+def distance_status(ev, operator, value):
+    if ev is None:
+        return 'unknown'
+    if operator=='measured':
+        return 'supported'
+    low, high = ev.value-ev.sigma, ev.value+ev.sigma
+    supported, contradicted = {'lt':(high<value,low>=value),'le':(high<=value,low>value),
+                               'gt':(low>value,high<=value),'ge':(low>=value,high<value)}[operator]
+    return 'supported' if supported else 'contradicted' if contradicted else 'unknown'
 
 
 def keep_sources(store, moments, sources):
@@ -160,6 +173,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     reserve, cut, levels = 0, False, {}
     corpus, groups, spatial = False, {}, None
     sent_hits, auto_open = False, None
+    quantifier = 'all' if re.search(r'\b(everyone|all (?:people|workers|persons|pedestrians)|(?:every|each) (?:person|worker|pedestrian))\b',body.q,re.I) else 'any'
 
     def frame(event, **data):
         f = {'event':event,'data':{'run_id':run.run_id,**data}}
@@ -215,8 +229,6 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             read.update({e.eid:e for e in res.evidence})
             yield frame('tool_result',step_id=parent.step_id,call_id=t.step_id,ok=res.envelope.exec_state!='failed',
                         envelope=res.envelope.model_dump(mode='json'),evidence=[e.model_dump(mode='json') for e in res.evidence])
-            if time.monotonic()-start>=body.budget.seconds:
-                raise BudgetExhausted
             if isinstance(res.envelope.output,dict) and 'record' in res.envelope.output:
                 record = res.envelope.output['record']
                 yield frame('model_result',scene_key=res.envelope.input_range.scene_key,t_ms=record['t_ms'],results=[record])
@@ -230,13 +242,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         claims[:]=[c for c in claims if c.claim_id!=claim_id]+[claim]
         return frame('claim',**{k:v for k,v in claim.model_dump(mode='json').items() if k!='run_id'})
 
-    def counted(exhausted=False):
-        """status.final over the claims that do not abstain; across the corpus, as across blind-spot scenes, a moment that
-        shows nothing does not veto another moment's finding, and unchecked moments only rule out CONTRADICTED."""
-        kept = [c for c in claims if not abstained(c)]
-        if not corpus:
-            return aggregate_of([p for c in kept for p in c.predicates])
+    def counted(exhausted=False, group=None):
+        """Candidate quantifiers apply to claims; predicates inside a claim remain conjunctive."""
+        kept = [c for c in (claims if group is None else group) if not abstained(c)]
         aggregates = [c.aggregate for c in kept]
+        if quantifier=='all':
+            return ('CONTRADICTED' if 'CONTRADICTED' in aggregates else
+                    'SUPPORTED' if aggregates and all(a=='SUPPORTED' for a in aggregates) and not exhausted else 'UNRESOLVED')
         return ('SUPPORTED' if 'SUPPORTED' in aggregates else
                 'CONTRADICTED' if aggregates and all(a=='CONTRADICTED' for a in aggregates) and not exhausted else 'UNRESOLVED')
 
@@ -325,7 +337,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             speeding_q = bool(fleet) and any(w in body.q.lower() for w in ['speeding'])
             building_q = bool(fleet) and parsed.place and re.search(r'\bbuilding\b',body.q,re.I)
             closest_q = (bool(warehouse) and {'person','forklift'}<=set(parsed.entities)
-                         and re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
+                         and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
+                              or re.search(r'\bhow close\b.*\b(come|came|comes|coming|get|got|gets|getting)\b',body.q,re.I))
                          and re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I))
             if not scoped or (parsed.t_range and (parsed.t_range[0]>=parsed.t_range[1] or
                     not any(store.manifest(s['scene_key'])['t0_ms']<parsed.t_range[1] and
@@ -390,7 +403,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
                     yield step_frame(t,'plan','Choose the closest approach path across the full interval')
                     t.output({'template':parsed.template,'path':['measure','answer']})
-                predicates = []
+                predicates, explain = [], {}
                 with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
                     yield step_frame(t,'measure','Scan worker and forklift tracks to measure the closest distance')
                     scan = yield from call(t,'closest_approach','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
@@ -403,12 +416,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         vehicle = EntityRef(scene_key=key,entity_id=nearest['b'],kind='forklift')
                         res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance'},
                                               lambda:tools.measure(store,key,tm,person,vehicle,'distance'))
-                        limit = re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',body.q,re.I)
                         ev = res.evidence[0] if res.evidence else None
-                        status = ('unknown' if ev is None else 'supported' if not limit or ev.value+ev.sigma<float(limit[1])
-                                  else 'contradicted' if ev.value-ev.sigma>=float(limit[1]) else 'unknown')
-                        predicates = [Predicate(predicate_id='p1',subject_refs=[person,vehicle],operator='lt' if limit else 'measured',
-                                                value=float(limit[1]) if limit else None,unit='m',status=status,eids=[e.eid for e in res.evidence])]
+                        _, operator, value, unit = spatial
+                        reason = res.envelope.output.get('reason')
+                        if reason in ABSTAIN_TEXT:
+                            explain['abstain'] = {'reason':reason,'text':ABSTAIN_TEXT[reason]}
+                        predicates = [Predicate(predicate_id='p1',subject_refs=[person,vehicle],operator=operator,
+                                                value=value,unit=unit,status=distance_status(ev,operator,value),eids=[e.eid for e in res.evidence]),
+                                      Predicate(predicate_id='p2',subject_refs=[person,vehicle],operator='closest_approach',value=None,unit=None,
+                                                status='supported',eids=[e.eid for e in scan.evidence])]
                     t.output({'predicates':[p.model_dump(mode='json') for p in predicates],'missing':closest['missing']})
                 if nearest:
                     cam = next(s['cams'] for s in warehouse if s['scene_key']==key)[0]
@@ -419,7 +435,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     yield hits([hit],special=True)
                     yield from ui('seek',{'t_ms':tm,'scene_key':key},key)
                     yield from ui('highlight',{'ids':[person.entity_id,vehicle.entity_id],'mode':'outline'},key)
-                    yield claim_frame(predicates,key=key,moment=hit.moment_id)
+                    yield claim_frame(predicates,explain=explain or None,key=key,moment=hit.moment_id)
                 final = aggregate_of(predicates)
                 stop_reason = 'enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
                 if corpus and nearest:
@@ -544,6 +560,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     for card_index, card in enumerate(order):
                         # one tool stays for the top moment of every later level
                         reserve = len(tops)-1-card_index if card_index<len(tops) else 0
+                        predicates, explain = [], {}
                         try:
                             check_budget()
                             claim_id='c'+str(len(claims)+1)
@@ -559,7 +576,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             entities = store.entities(key)
                             subjects = card.actor_refs or [EntityRef(scene_key=key,entity_id=e.entity_id,kind=e.kind) for e in entities]
                             related = store.events_in(key,tm,tm+1)
-                            has_distance = any(w in body.q.lower() for w in DISTANCE_WORDS)
+                            has_distance = bool(spatial and spatial[0]=='distance')
                             speeding = manifest['workspace']=='fleet' and any(w in body.q.lower() for w in ['speeding'])
                             vehicle = None
                             if has_distance:
@@ -572,18 +589,23 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                           if e.entity_id in ids and e.kind in {'forklift','vehicle'}]
                                 vehicle=vehicles[0] if len(vehicles)==1 else None
                                 subjects=list({s.entity_id:s for s in [*subjects,*([vehicle] if vehicle else [])]}.values())
-                            threshold = re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',body.q,re.I)
                             if speeding:
                                 operator, value, unit = 'gt', None, 'km/h'
-                            elif has_distance and not threshold and not any(w in body.q.lower() for w in ['near miss']):
-                                operator, value, unit = 'measured', None, 'm'
                             elif has_distance:
-                                operator, unit = 'lt', 'm'
-                                value = float(threshold[1]) if threshold else next((e.params['threshold_m'] for e in related if 'threshold_m' in e.params),2.)
+                                _, operator, value, unit = spatial
+                                if 'near miss' in body.q.lower() and value==2.:
+                                    value = next((e.params['threshold_m'] for e in related if 'threshold_m' in e.params),2.)
                             else:
                                 operator, value, unit = 'event', 'observed', None
                             predicates = [Predicate(predicate_id='p1',subject_refs=[] if speeding else subjects,operator=operator,
                                                     value=value,unit=unit,status='unknown',eids=[])]
+                            wanted = event_types(body.q)
+                            event_ids = {e.event_id for e in related if wanted and e.type in wanted and
+                                         {s.entity_id for s in subjects if s.kind=='person'}<=set(e.actor_ids)}
+                            event_eids = [eid for eid in card.evidence_ids if read[eid].kind=='measure' and
+                                          isinstance(read[eid].value,dict) and read[eid].value.get('event_id') in event_ids]
+                            if not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|near miss)\b',body.q,re.I):
+                                event_eids = []
                             measure_result = None
                             with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm,'cam':cam},state='inspect') as t:
                                 yield step_frame(t,'inspect','Inspect the primary camera and spatial evidence')
@@ -621,10 +643,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                     predicates[0].eids=[eid for eid in card.evidence_ids if read[eid].kind=='measure']
                                 if measure_result and measure_result.evidence:
                                     ev = measure_result.evidence[0]
-                                    predicates[0].status='supported' if operator=='measured' or ev.value+ev.sigma<predicates[0].value else 'contradicted' if ev.value-ev.sigma>=predicates[0].value else 'unknown'
-                                    predicates[0].eids=[ev.eid]
+                                    predicates[0].status=distance_status(ev,operator,predicates[0].value)
+                                    predicates[0].eids=[ev.eid,*event_eids]
+                                if measure_result and measure_result.envelope.output.get('reason') in ABSTAIN_TEXT:
+                                    reason = measure_result.envelope.output['reason']
+                                    explain['abstain'] = {'reason':reason,'text':ABSTAIN_TEXT[reason]}
                                 t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
-                            yield claim_frame(predicates,key=key,moment=card.moment_id)
+                            yield claim_frame(predicates,explain=explain or None,key=key,moment=card.moment_id)
                             candidates = []
                             if vis and vis.envelope.output.get('floor_cell'):
                                 seen = vis.envelope.output['floor_cell']['seen_by']
@@ -647,29 +672,28 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                                      lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=cam))
                                     if measure_result.evidence:
                                         ev = measure_result.evidence[0]
-                                        predicates[0].status='supported' if operator=='measured' or ev.value+ev.sigma<predicates[0].value else 'contradicted' if ev.value-ev.sigma>=predicates[0].value else 'unknown'
-                                        predicates[0].eids=[ev.eid]
+                                        predicates[0].status=distance_status(ev,operator,predicates[0].value)
+                                        predicates[0].eids=[ev.eid,*event_eids]
+                                    if measure_result.envelope.output.get('reason') in ABSTAIN_TEXT:
+                                        reason = measure_result.envelope.output['reason']
+                                        explain['abstain'] = {'reason':reason,'text':ABSTAIN_TEXT[reason]}
                                     t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
                             if measure_result and measure_result.evidence:
                                 yield from ui('highlight',{'ids':[person.entity_id,vehicle.entity_id],'mode':'outline'},key)
                             with trace.traced(run,'assess',{'predicates':[p.model_dump(mode='json') for p in predicates]},state='assess') as t:
                                 yield step_frame(t,'assess','Check the situation and predicate states')
-                                explain = {}
                                 if subjects and not speeding and not (parsed.template=='where_is' and not parsed.place and body.context.get('t_ms') is not None):
                                     situation = yield from call(t,'situation','assess',{'scene_key':key,'t_ms':tm,'actor_refs':[s.model_dump() for s in subjects]},
                                                                 lambda:tools.situation(store,key,tm,subjects,run=run,circuit=circuit))
                                     record = situation.envelope.output.get('record')
-                                    status = 'unknown' if situation.envelope.exec_state=='failed' or record['verification']['status']!='verified' else 'supported'
                                     expected='yielding' if any(e.type=='dodge' for e in related) else 'crossing' if any(e.type=='ped_crossing' for e in related) else None
                                     conflict=bool(record and (record['verification']['status']=='conflict' or
                                                               expected and record['payload']['label']!=expected))
                                     if conflict:
-                                        status='unknown'
-                                    # a failed call stays an unknown predicate; an unverified record is only explained
-                                    if record is None or record['verification']['status']=='verified':
-                                        predicates.append(Predicate(predicate_id='p2',subject_refs=subjects,operator='situation',
-                                                                    value=record['payload']['label'] if record else None,unit=None,status=status,
-                                                                    eids=[e.eid for e in situation.evidence]))
+                                        for p in predicates:
+                                            p.status='unknown'
+                                    if situation.envelope.exec_state=='failed':
+                                        explain['note']='Cosmos description is unavailable; independent evidence is retained.'
                                     if record:
                                         explain['c1']=record['record_id']
                                         if conflict:
@@ -703,11 +727,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             # candidates come highest excess first, so the first decided one answers the question
                             if speeding and final in {'SUPPORTED','CONTRADICTED'}:
                                 break
-                        except LevelBudget:
-                            cut = True
+                        except BudgetExhausted as exc:
                             # a measurement read after the claim was sent still reaches it
-                            if claims and claims[-1].claim_id==claim_id and claims[-1].predicates!=predicates:
-                                yield claim_frame(predicates,claims[-1].aggregate,claims[-1].explain,key=key,moment=card.moment_id)
+                            previous = next((c for c in claims if c.claim_id==claim_id),None)
+                            if predicates and (previous is None or previous.predicates!=predicates or previous.explain!=(explain or None)):
+                                yield claim_frame(predicates,previous.aggregate if previous else None,explain or None,key=key,moment=card.moment_id)
+                            if not isinstance(exc,LevelBudget):
+                                raise
+                            cut = True
                     reserve = 0
                     # an abstained claim does not count; all abstained leaves UNRESOLVED
                     final=counted(cut)
@@ -715,7 +742,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         yield from abstain_levels('speed','fleet')
                     if cut:
                         stop_reason='budget_exhausted'
-                    elif corpus:
+                    else:
                         stop_reason='enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
                     if claims and all(abstained(c) for c in claims) and not cut:
                         stop_reason='abstained'
@@ -742,7 +769,17 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     try:
         def compose(final, group, evidence):
             """The sentence for the claims `group`, citing only `evidence` (eid -> Evidence); numbers only through refs."""
+            if final in {'SUPPORTED','CONTRADICTED'}:
+                group = [c for c in group if not abstained(c) and c.aggregate==final]
+            if len(group)>1:
+                parts = [compose(final,[c],evidence) for c in group]
+                return dict(text=' '.join(p['text'] for p in parts),claim_ids=[i for p in parts for i in p['claim_ids']],
+                            cites=list(dict.fromkeys(e for p in parts for e in p['cites'])),measure_refs=[r for p in parts for r in p['measure_refs']])
+            evidence = {eid:evidence[eid] for c in group for p in c.predicates for eid in p.eids if eid in evidence}
             text = TEXT[final]
+            abstain = next((c.explain['abstain']['text'] for c in group if abstained(c)),None)
+            if final=='UNRESOLVED' and abstain:
+                text=abstain
             refs, cites, values, names = [], [], [], []
             def ref(e, field, value):
                 refs.append({'eid':e.eid,'field':field}); cites.append(e.eid); values.append(value)
@@ -788,7 +825,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     else:
                         text='Checked frame by frame: nobody is present in the '+name(blind.value)+' blind spot.'
                 elif closest:
-                    ev, scan = evidence[predicates[0].eids[0]], closest['scan']
+                    ev = next(e for e in evidence.values() if e.method=='ground_distance')
+                    scan = next(e for e in evidence.values() if e.method=='closest_approach')
                     text=('The worker and forklift were closest at a distance of '+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m), at '
                           +ref(scan,'value.t_s',scan.value['t_s'])+' s'
                           +('' if predicates[0].operator!='lt' else ', less than the requested distance' if final=='SUPPORTED' else ', not less than the requested distance')+'.')
@@ -843,7 +881,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             if cards and lv=='L1':
                 parts.append(street_sentence(cards))
             elif cards:
-                parts.append(compose(aggregate_of([p for c in cards if not abstained(c) for p in c.predicates]),cards,
+                parts.append(compose(counted(stop_reason=='budget_exhausted',cards),cards,
                                      {k:e for k,e in read.items() if e.evidence_level==lv}))
             # a level the special path could not check
             parts += [dict(text=c.text+'. '+c.explain['abstain']['text'],claim_ids=[c.claim_id],cites=[],measure_refs=[])
@@ -904,7 +942,15 @@ def ask(request: Request, body: AskRequest):
             frames.append(frame)
             yield sse(frame)
         status=next((f['data'] for f in frames if f['event']=='status'),None)
-        if status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'}:
+        results=[f['data'] for f in frames if f['event']=='tool_result']
+        unavailable={'vlm_unavailable','sidecar_unavailable','no_detections','detections_mismatch'}
+        complete=(all(r['ok'] and r['envelope']['exec_state']!='failed' and r['envelope']['quality']!='unavailable'
+                      and not any(g[2] in unavailable for g in r['envelope']['gaps'])
+                      and not any(e['method']=='yolo_coco_2d' and e['value'].get('source') is None for e in r['evidence'])
+                      for r in results)
+                  and not any(s.name.startswith('tool.') and s.exec_state=='failed'
+                              for s in store.get_run(frames[0]['data']['run_id']).steps))
+        if status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'} and complete:
             cache.put(store,body.q,body.context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])
     return StreamingResponse(stream(),media_type='text/event-stream',headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
 

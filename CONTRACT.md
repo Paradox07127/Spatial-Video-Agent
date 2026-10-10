@@ -191,7 +191,9 @@ States: `parse → plan → retrieve → inspect → measure → assess → answ
 
 ### 8.2 Predicates and aggregation
 
-Any `contradicted` → CONTRADICTED; all `supported` → SUPPORTED; otherwise UNRESOLVED (`models.aggregate_of`). A Claim records `examined_eids` and `available_eids`. `before`/`after` show the before and after cards. If Cosmos conflicts with CV, mark the conflict and do not accept the Cosmos result.
+Within a claim, any `contradicted` → CONTRADICTED; all `supported` → SUPPORTED; otherwise UNRESOLVED (`models.aggregate_of`). Independent candidate claims use the question's quantifier in both scene and corpus scope and in level answers: existential questions need one supported candidate; contradiction requires all candidates contradicted and complete checking. Explicit all/every/each person questions require every candidate supported and complete checking; one contradicted candidate disproves them. Abstained claims do not count. A Claim records `examined_eids` and `available_eids`. `before`/`after` show the before and after cards. Cosmos descriptions are explanation only; availability does not add proof requirements. A material Cosmos/CV conflict makes the affected requested predicates unknown. Answer sentences cite only the described claim's predicate eids, including its requested event and closest-approach timestamp evidence.
+
+Metric comparisons preserve `gt`, `ge`, `lt` and `le` and use the measurement's sigma interval; overlapping uncertainty leaves the comparison unknown. Point-time questions (`at 5 s`, `at 5 seconds`, `at second 5`) request the half-open one-second interval starting there. Structured measurement capability reasons appear in `explain.abstain` and the answer using §3 texts. Completed tool results are assessed and current claims published before the budget prevents another call. Runs with failed tools or unavailable model/detection evidence are not cached.
 
 ### 8.3 Trace
 
@@ -205,7 +207,7 @@ C1 `{label, reason, uncertainty}`, label ∈ `interaction passing yielding unrel
 
 - Per-card dispatch by `level_of` of the card's scene: an L1 card never reaches `measure`, `visibility`, `speed_limit`, `get_synced_views`, `box_rows` or `store.entities`. Special-path gates (blind spot, closest approach: warehouse; building facade, speeding: fleet) read the scene's workspace, not the context's; in corpus scope they scan the scenes of their workspace, and a level that cannot answer the template gets one abstain sentence built from `ABSTAIN_TEXT`.
 - L1 card: `ui seek` with `scene_key` (no highlight: no entity ids); tool `detections_2d`; predicate `detected` for the asked COCO classes is supported when present in a read frame, otherwise unknown (a YOLO miss is not a contradiction); a spatial predicate (distance, located, speed) is `unknown` with `claim.explain.abstain = {reason: "no_geometry", text}` and no `measure_refs`; captions are model evidence and never the only support; Cosmos C4 on the top L1 card only.
-- `status.final` = `aggregate_of` over the claims without `explain.abstain`; all claims abstained → UNRESOLVED; NO_MATCH only when no level has hits.
+- `status.final` uses the candidate quantifier and coverage rules in §8.2 over claims without `explain.abstain`; level answers use the same rules; all claims abstained → UNRESOLVED; NO_MATCH only when no level has hits.
 
 | Template | L3 SDG | L2 SmartSpaces (metric false) | L2 PIE | L1 street |
 |---|---|---|---|---|

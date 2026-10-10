@@ -76,7 +76,7 @@ def test_vlm_failure_and_numbers(setup, monkeypatch):
     monkeypatch.setattr(vlm, 'situation', fail)
     frames = list(agent.ask_frames(store, agent.AskRequest(q='When did the worker start to dodge the forklift, and how far was it?', context={'workspace':'warehouse'})))
     assert check_sse_sequence(frames)==[]
-    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert frames[-2]['data']['final']=='SUPPORTED'
     assert any(f['event']=='tool_result' and f['data']['envelope']['gaps'] for f in frames)
     from app.core.llm import sanitize_numbers
     assert sanitize_numbers('Distance 99 meters', []) == 'Distance [uncited number] meters'
@@ -367,7 +367,7 @@ def test_failed_semantic_stop_and_nullable_action(setup,monkeypatch):
     original=vlm.situation
     monkeypatch.setattr(vlm,'situation',fail)
     frames=list(agent.ask_frames(store,agent.AskRequest(q='The worker dodged the forklift: how far?',context={'workspace':'warehouse'})))
-    assert frames[-2]['data']['stop_reason']=='no_new_info'
+    assert frames[-2]['data']['stop_reason']=='enough_evidence'
     frames=list(agent.ask_frames(store,agent.AskRequest(q='Find worker',context={'workspace':'warehouse'},budget={'tools':16,'seconds':25})))
     assert frames[-2]['data']['final']=='UNRESOLVED' and frames[-2]['data']['stop_reason']=='no_new_info'
     monkeypatch.setattr(vlm,'situation',original)
@@ -1015,3 +1015,197 @@ def test_special_paths_scan_only_the_scenes_of_the_sources(corpus, q, tool):
     assert all(c['scene_key'] for c in of(frames, 'claim'))
     frames = ask(corpus, q, {**CORPUS,'sources':['fleet','fixed']}, {'tools':16,'seconds':45})
     assert check_sse_sequence(frames)==[] and tool not in [c['name'] for c in of(frames, 'tool_call')]
+
+
+@pytest.mark.parametrize('q', ['How close did the forklift come to a person?',
+    'How close does the worker get to the forklift?', 'How close did the forklift get to the worker from 0 to 4 seconds?'])
+def test_b1_how_close_measures_the_interval_minimum(setup, q):
+    _, store = setup
+    frames = ask(store, q, WH_MAIN['context'])
+    calls = of(frames, 'tool_call')
+    assert [c['name'] for c in calls]==['closest_approach','measure']
+    scan, measured = of(frames, 'tool_result')
+    nearest = scan['envelope']['output']['closest']
+    assert calls[1]['args']['t_ms']==nearest['t_ms']
+    if 'from' not in q:
+        assert nearest['t_ms']==4900 and measured['evidence'][0]['value']==pytest.approx(1.409,abs=.001)
+    else:
+        assert nearest['t_ms']<4000
+    assert frames[-2]['data']['final']=='SUPPORTED' and check_sse_sequence(frames)==[]
+
+
+@pytest.mark.parametrize('relation', ['within 2 meters of', 'over 2 m from', 'at least 2 meters from'])
+def test_b1_metric_units_gate_l1(corpus, relation):
+    frames = ask(corpus, 'Did a car pass '+relation+' a person?', {'workspace':'street','scene_key':L1_KEY})
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert all(c['explain']['abstain']['reason']=='no_geometry' for c in of(frames, 'claim'))
+    assert ABSTAIN_TEXT['no_geometry'] in of(frames, 'answer')[0]['text']
+
+
+@pytest.mark.parametrize('phrase,operator,final', [('greater than','gt','CONTRADICTED'), ('more than','gt','CONTRADICTED'),
+    ('over','gt','CONTRADICTED'), ('at least','ge','CONTRADICTED'), ('farther than','gt','CONTRADICTED'),
+    ('less than','lt','SUPPORTED'), ('under','lt','SUPPORTED'), ('within','lt','SUPPORTED'),
+    ('closer than','lt','SUPPORTED'), ('at most','le','SUPPORTED')])
+@pytest.mark.parametrize('closest', [False,True])
+def test_b1_distance_comparison_direction(setup, phrase, operator, final, closest):
+    _, store = setup
+    q = f'Was the {"minimum " if closest else ""}distance between the worker and forklift {phrase} 3 meters?'
+    frames = ask(store, q, WH_MAIN['context'])
+    p = of(frames, 'claim')[-1]['predicates'][0]
+    assert p['operator']==operator and frames[-2]['data']['final']==final
+
+
+def test_b1_point_time_limits_investigation(setup):
+    _, store = setup
+    frames = ask(store, 'How close did the forklift come to a person at 5 seconds?', WH_MAIN['context'])
+    calls = of(frames, 'tool_call')
+    assert calls[0]['args'].get('t_range')==(5000,6000)
+    assert all(5000<=e['t0_ms']<6000 for r in of(frames, 'tool_result') for e in r['evidence'] if e['method']=='ground_distance')
+
+
+def b1_candidates(store, monkeypatch, values=(1.,3.)):
+    from app.core.models import EntityRef, MomentCard
+    key = 'wh-sdg-fixture-01'
+    cards = [MomentCard(moment_id=f'm_b1_{i}',scene_key=key,t0_ms=4300+i*100,t1_ms=4400+i*100,
+                        cams=['ceiling_04'],primary_cam='ceiling_04',
+                        actor_refs=[EntityRef(scene_key=key,entity_id=f'P{i+1}',kind='person'),
+                                    EntityRef(scene_key=key,entity_id='F1',kind='forklift')],
+                        evidence_ids=[],score=1,why=[],thumb=None) for i in range(len(values))]
+    monkeypatch.setattr(tools, 'search', lambda *a, **kw: tools.result(key,0,10000,{'moments':[m.model_dump() for m in cards]}))
+    def measure(store, key, tm, a, b, kind, *, cam=None):
+        ev = tools.evidence(store,key,cam,tm,tm+1,'measure','ground_distance',values[int(a.entity_id[1:])-1],
+                            sigma=.1,unit='m',params={'a':a.entity_id,'b':b.entity_id})
+        return tools.result(key,tm,tm+1,{'value':ev.value},evidence=[ev],coverage=1)
+    monkeypatch.setattr(tools, 'measure', measure)
+    original = vlm.situation
+    def unverified(*a, **kw):
+        record = original(*a, **kw)
+        return record.model_copy(update={'verification':record.verification.model_copy(update={'status':'unverified'})})
+    monkeypatch.setattr(vlm, 'situation', unverified)
+    return cards
+
+
+@pytest.mark.parametrize('scope', ['scene','corpus'])
+def test_b1_candidates_use_the_same_existential_aggregation(setup, monkeypatch, scope):
+    _, store = setup
+    b1_candidates(store, monkeypatch)
+    frames = ask(store, 'Was anyone at a distance less than 2 meters from the forklift?',
+                 {**WH_MAIN['context'],'scope':scope}, {'tools':16,'seconds':25})
+    assert frames[-2]['data']['final']=='SUPPORTED'
+    assert all('contradicts' not in a['text'] for a in of(frames, 'answer'))
+
+
+@pytest.mark.parametrize('scope', ['scene','corpus'])
+def test_b1_unchecked_candidates_cannot_establish_absence(setup, monkeypatch, scope):
+    _, store = setup
+    b1_candidates(store, monkeypatch, (3.,3.))
+    frames = ask(store, 'Was anyone at a distance less than 2 meters from the forklift?',
+                 {**WH_MAIN['context'],'scope':scope}, {'tools':5,'seconds':25})
+    assert frames[-2]['data']['stop_reason']=='budget_exhausted'
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert all('contradicts' not in a['text'] for a in of(frames, 'answer'))
+
+
+def test_b1_answer_uses_only_the_assessed_claim_eids(setup, monkeypatch):
+    _, store = setup
+    original = tools.search
+    def search(*a, **kw):
+        res = original(*a, **kw)
+        key = 'wh-sdg-fixture-01'
+        wrong = tools.evidence(store,key,None,1000,1001,'measure','event_gt',
+                               {'type':'dodge','t_s':1.,'event_id':key+':discarded'})
+        distance = tools.evidence(store,key,None,1000,1001,'measure','ground_distance',99.,sigma=.1,unit='m')
+        res.evidence[:0] = [wrong,distance]
+        return res
+    monkeypatch.setattr(tools, 'search', search)
+    frames = wh_main(store)
+    claims = {c['claim_id']:c for c in of(frames, 'claim')}
+    for answer in of(frames, 'answer'):
+        allowed = {e for cid in answer['claim_ids'] for p in claims[cid]['predicates'] for e in p['eids']}
+        assert set(answer['cites'])<=allowed
+        assert {r['eid'] for r in answer['measure_refs']}<=allowed
+        assert '99' not in answer['text'] and 'at 1 s' not in answer['text']
+
+
+def test_b1_explicit_model_conflict_is_unresolved(setup, monkeypatch):
+    _, store = setup
+    original = vlm.situation
+    def conflict(*a, **kw):
+        record = original(*a, **kw)
+        return record.model_copy(update={'verification':record.verification.model_copy(update={'status':'conflict'})})
+    monkeypatch.setattr(vlm, 'situation', conflict)
+    frames = wh_main(store)
+    assert of(frames, 'claim')[-1]['explain']['conflict']
+    assert of(frames, 'claim')[-1]['aggregate']=='UNRESOLVED'
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+
+
+def test_b1_optional_description_failure_does_not_veto_distance(setup, monkeypatch):
+    _, store = setup
+    def fail(*a, **kw): raise vlm.VLMUnavailable('offline')
+    monkeypatch.setattr(vlm, 'situation', fail)
+    frames = wh_main(store)
+    assert frames[-2]['data']['final']=='SUPPORTED'
+    claim = of(frames, 'claim')[-1]
+    assert all(p['operator']!='situation' for p in claim['predicates'])
+    assert claim['explain']['note']
+
+
+def test_b1_measurement_capability_reason_reaches_claim_and_answer(setup, monkeypatch):
+    _, store = setup
+    original = store.manifest
+    monkeypatch.setattr(store, 'manifest', lambda key: {**original(key),'metric':False})
+    frames = wh_main(store)
+    claim = of(frames, 'claim')[-1]
+    assert claim['explain']['abstain']=={'reason':'scene_not_metric','text':ABSTAIN_TEXT['scene_not_metric']}
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert ABSTAIN_TEXT['scene_not_metric'] in of(frames, 'answer')[0]['text']
+    assert any(e['kind']=='model' for r in of(frames, 'tool_result') for e in r['evidence'])
+
+
+@pytest.mark.parametrize('failure', ['vlm','detections','action'])
+def test_b1_transient_failures_are_not_cached(corpus, monkeypatch, failure):
+    store = corpus
+    app = FastAPI()
+    app.state.store = store
+    app.include_router(agent.router)
+    if failure=='detections':
+        body = {'q':'Find a person and a car','context':{'workspace':'street','scene_key':L1_KEY}}
+        original = tools.detections_2d
+        def unavailable(store, key, cam, t0, t1, groups):
+            return tools.result(key,t0,t1,{'frames_together':0},gaps=[(t0,t1,'sidecar_unavailable')])
+        monkeypatch.setattr(tools, 'detections_2d', unavailable)
+    else:
+        body = {k:WH_MAIN[k] for k in ['q','context','budget']}
+        original = vlm.situation if failure=='vlm' else tools.trigger
+        def fail(*a, **kw):
+            if failure=='vlm': raise vlm.VLMUnavailable('offline')
+            raise RuntimeError('action offline')
+        monkeypatch.setattr(vlm if failure=='vlm' else tools, 'situation' if failure=='vlm' else 'trigger', fail)
+    with TestClient(app) as client:
+        first = read_frames(client.post('/api/agent/ask',json=body))
+        monkeypatch.setattr(tools if failure=='detections' else vlm if failure=='vlm' else tools,
+                            'detections_2d' if failure=='detections' else 'situation' if failure=='vlm' else 'trigger', original)
+        second = read_frames(client.post('/api/agent/ask',json=body))
+    assert first[-2]['data']['cached'] is False
+    assert second[-2]['data']['cached'] is False
+    assert second[-2]['data']['final']=='SUPPORTED'
+
+
+@pytest.mark.parametrize('boundary', ['deadline','tools'])
+def test_b1_completed_measurement_survives_budget_boundary(setup, monkeypatch, boundary):
+    _, store = setup
+    clock, offset = time.monotonic, [0]
+    original = tools.measure
+    def measure(*a, **kw):
+        res = original(*a, **kw)
+        if res.evidence and boundary=='deadline':
+            offset[0]=30
+        return res
+    monkeypatch.setattr(agent.time, 'monotonic', lambda: clock()+offset[0])
+    monkeypatch.setattr(tools, 'measure', measure)
+    frames = ask(store, WH_MAIN['q'], WH_MAIN['context'], {'tools':6 if boundary=='tools' else 16,'seconds':25})
+    assert any(e['method']=='ground_distance' for r in of(frames, 'tool_result') for e in r['evidence'])
+    assert of(frames, 'claim')[-1]['predicates'][0]['status']=='supported'
+    assert frames[-2]['data']['final']=='SUPPORTED' and frames[-2]['data']['stop_reason']=='budget_exhausted'
+    assert check_sse_sequence(frames)==[]

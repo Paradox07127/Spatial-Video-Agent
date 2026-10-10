@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from app.core.models import Query, scene_key_of
 
-FORBIDDEN = r"\b(who is|who was|who are|who's|identity|name of|intent|purpose|trying to|planning to|wants? to|motive|who caused|deliberately|why|fault|responsib)"
+FORBIDDEN = r"\b(who is|who was|who are|who's|who drove|whose|identity|name of|intent|intend(?:ed|s|ing)?\b|meant to|on purpose|purpose|trying to|planning to|wants? to|motive|who caused|deliberately|why|fault|responsib)"
 
 
 def rule_parse(q: str, ctx: dict) -> Query:
@@ -53,6 +53,11 @@ def rule_parse(q: str, ctx: dict) -> Query:
     interval = re.search(r'(?:from)?\s*(\d+(?:\.\d+)?)\s*(?:to|[-–])\s*(\d+(?:\.\d+)?)\s*(?:s\b|seconds)', text)
     if interval:
         t_range = (int(float(interval[1])*1000), int(float(interval[2])*1000))
+    else:
+        point = re.search(r'\bat\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))',text)
+        if point:
+            t0 = int(float(point[1] or point[2])*1000)
+            t_range = (t0,t0+1000)
     key = ctx.get('scene_key') or (scene_key_of(ctx['scene_id']) if ctx.get('scene_id') else None)
     sources = ctx.get('sources') or None
     # entity ids, a time and a selection are local to one scene, and then the sources are ignored
