@@ -1,4 +1,5 @@
 """Independent regressions for durable job state transitions."""
+import time
 from threading import Event, Thread
 
 from app.core.investigations import Investigations
@@ -99,6 +100,8 @@ def test_application_mirrors_are_queued_transactionally_without_blocking_executi
     assert store.rows(store.app, 'SELECT * FROM mirror_outbox') == pending
     delivered = []
     monkeypatch.setattr(store, 'write_vastdb', lambda rows: delivered.append(rows))
+    later = time.time() + 3600  # past the failed rows' backoff
+    monkeypatch.setattr(time, 'time', lambda: later)
     assert store.retry_mirrors(limit=100) == len(pending)
     assert not store.rows(store.app, 'SELECT * FROM mirror_outbox')
     assert service.session(job['session_id'])['turns'][0]['status'] == 'done'

@@ -1,4 +1,5 @@
 """Recovery and cache regressions from the deployment review; no external services."""
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +21,8 @@ def test_begin_run_survives_remote_failure_and_queues_latest_row(store, monkeypa
     assert len(pending) == 1 and pending[0]['row_key'] == rid
     sent = []
     monkeypatch.setattr(store, 'write_vastdb', lambda tables: sent.append(tables))
+    later = time.time() + 3600  # past the failed row's backoff
+    monkeypatch.setattr(time, 'time', lambda: later)
     assert store.retry_mirrors() == 1
     assert sent[0]['agent_runs']['status'].to_pylist() == ['done']
     assert store.rows(store.app, 'SELECT * FROM mirror_outbox') == []
