@@ -7,7 +7,7 @@ const {mockApi}=require('./mockapi');
 async function realInvestigationApi(page) {
   await mockApi(page);
   await page.route(/\/health$/,route=>route.continue());
-  await page.route(/\/api\/agent\/(?:sessions|jobs|ask)(?:\/|\?|$)/,route=>route.continue());
+  await page.route(/\/api\/agent\/(?:sessions|jobs|runs|ask)(?:\/|\?|$)/,route=>route.continue());
 }
 
 test('fresh browser opens an empty investigation list without an active local session',async({page})=>{
@@ -60,4 +60,40 @@ test('actual v2 backend persists and replays a browser investigation across refr
   await expect(page.locator('#answer .ans-num')).toHaveCount(numericRefs);
   await page.locator('#investigations-btn').click();
   await expect(page.locator(`[data-turn="${history.turns[0].turn_id}"]`)).toContainText(question);
+  await page.goto('#/');await page.reload();
+  await expect(page).toHaveURL(/#\/warehouse\/wh-sdg-fixture-01$/);
+  await expect(page.locator('body')).toHaveAttribute('data-run','done');
+  await expect(page.locator('#answer .ans-num')).toHaveCount(numericRefs);
+});
+
+
+for(const view of ['run','runs','other-source']) test(`explicit Run ${view} route survives refresh with a saved investigation`,async({page})=>{
+  await realInvestigationApi(page);
+  await page.goto('#/warehouse/wh-sdg-fixture-01');
+  await expect(page.locator('.wh')).toBeVisible();
+  const reply=page.waitForResponse(r=>/\/api\/agent\/ask$/.test(r.url()));
+  await page.locator('#ask-input').fill('Where is P1 at 4 seconds?');
+  await page.locator('#ask-input').press('Enter');
+  const headers=(await reply).headers();
+  const endpoint=new URL(`api/agent/sessions/${headers['x-sva-session']}`,page.url()).href;
+  await expect.poll(async()=> (await (await page.request.get(endpoint)).json()).turns[0]?.status).toBe('done');
+  const history=await (await page.request.get(endpoint)).json();
+  const turn=history.turns[0], route=view==='run'?`#/run/${turn.run_id}`:view==='runs'?'#/runs':'#/street/st-fixture_cam_1-clip01';
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('sva.investigation')).job_id)).toBe(turn.job_id);
+  await page.evaluate(hash=>{location.hash=hash;},route);
+  if(view==='other-source') await expect(page.locator('body')).toHaveAttribute('data-ws','street');
+  else await expect(page.locator('#runpage')).toBeVisible();
+  await page.reload();
+  // Let startup HTTP work settle: automatic job replay must not override this
+  // explicit destination after its own Run fetch completes.
+  await page.waitForLoadState('networkidle');
+  expect(new URL(page.url()).hash).toBe(route);
+  if(view==='other-source') {
+    await expect(page.locator('body')).toHaveAttribute('data-ws','street');
+    await expect(page.locator('#runpage')).toBeHidden();
+    return;
+  }
+  await expect(page.locator('#runpage')).toBeVisible();
+  if(view==='run') await expect(page.locator('#runpage .rp-q')).toHaveText(turn.q);
+  else await expect(page.locator(`#runpage .rp-list a[href="#/run/${turn.run_id}"]`)).toBeVisible();
 });

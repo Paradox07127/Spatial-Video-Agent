@@ -73,7 +73,7 @@ export function createInvestigations({ restore, attach, reset }) {
   async function complete() {
     if(current?.session_id) { const id=current.session_id; try {const detail=await session(id);if(current?.session_id!==id)return;current.revision=detail.revision;save();if(opened)await refresh();}catch(e){show(`Answer complete; history refresh failed: ${e.message}`);} }
   }
-  async function resume({ restart=false }={}) {
+  async function resume({ restart=false, canRestore=null }={}) {
     if(!current?.job_id)return;
     clearTimeout(retry);retry=null;const token=++generation, saved={...current};
     try {
@@ -82,6 +82,8 @@ export function createInvestigations({ restore, attach, reset }) {
       if(token!==generation)return;
       const detail=await session(saved.session_id),turn=detail.turns.find(t=>t.turn_id===saved.turn_id);
       if(!turn)throw new Error('Saved turn is unavailable.');
+      if(token!==generation)return;
+      if(canRestore && !canRestore(turn)){show('Saved investigation available in Investigations.');return;}
       const reset=restart || current.attempt!==snapshot.attempt;
       current={...current,revision:detail.revision,attempt:snapshot.attempt};
       if(reset)current.last_seq=Math.max(0,(snapshot.current_attempt_start_seq??1)-1);
@@ -95,7 +97,7 @@ export function createInvestigations({ restore, attach, reset }) {
         complete:()=>complete(),
       });
       attach(active); return active;
-    }catch(e){if(token!==generation)return;show(`Investigation connection unavailable; retrying… ${e.message}`);retry=setTimeout(()=>resume({restart}),3000);}
+    }catch(e){if(token!==generation)return;show(`Investigation connection unavailable; retrying… ${e.message}`);retry=setTimeout(()=>resume({restart,canRestore}),3000);}
   }
   function disconnected(e) { if(!current?.job_id)return false;show(`Connection interrupted; investigation continues. Reconnecting… ${e.message}`);retry=setTimeout(()=>resume(),1500);return true; }
   async function stop() {

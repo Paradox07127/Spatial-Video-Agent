@@ -1335,4 +1335,14 @@ api.get('api/dependencies').then((d) => {
 }).catch(() => {});
 
 initPanelResizer();
-onRoute().then(() => investigations.resume({restart:true}));
+onRoute().then(() => {
+  const destination = parseRoute(location.hash);
+  // Run/history and other explicit destinations take precedence over recovery.
+  if (!destination || !['home','warehouse','fleet','street'].includes(destination.page)) return;
+  investigations.resume({restart:true,canRestore:turn=>{
+    const target = parseRoute(location.hash), context = turn.context ?? {};
+    if (target?.page === 'home') return true;
+    return target && ['warehouse','fleet','street'].includes(target.page) &&
+      target.workspace === context.workspace && (!target.scene_key || target.scene_key === context.scene_key);
+  }});
+});
