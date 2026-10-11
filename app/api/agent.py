@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.api.search import event_types
 from app.core import cache, geo, llm, policy, street, tools, trace
 from app.core.investigation_context import apply_constraints
+from app.core.task_spec import build_task_spec
 from app.core.deadline import DeadlineExceeded, remaining, scope as deadline_scope
 from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
 from app.settings import Settings
@@ -309,6 +310,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         # A condition retained by parsing must either be measured or remain unknown.
         conditions = parsed.constraints if parsed else []
         for condition in conditions:
+            if condition.startswith('requested_action:'):
+                action = condition.split(':',1)[1]
+                kinds = {'dodge':{'dodge'},'crossing':{'ped_crossing'},'braking':{'braking','brake'}}[action]
+                verified = [eid for p in predicates if p.status=='supported' for eid in p.eids
+                            if eid in read and read[eid].kind=='measure' and isinstance(read[eid].value,dict)
+                            and read[eid].value.get('type') in kinds]
+                if verified:
+                    continue  # The existing event predicate already consumes this requirement.
             if not any(p.operator == condition for p in predicates):
                 predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[],
                                             operator=condition,value=None,unit=None,status='unknown',eids=[]))
@@ -409,7 +418,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             quantifier = parsed.quantifier
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
-            t.output(parsed.model_dump(mode='json'))
+            t.output({**parsed.model_dump(mode='json'),'task_spec':build_task_spec(body.q).as_dict()})
         corpus = parsed.scope=='corpus'
         groups, spatial = coco_groups(body.q,parsed.entities), spatial_of(body.q,parsed.template)
         if constraint_reason:
@@ -968,7 +977,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                         valid &= len(clips)>=2 and requested_clips<=clips
                                     else:
                                         valid &= len(observed_cams)>=2
-                                    valid &= all(c['sync_method']!='unknown' for c in manifest['cams'])
+                                    valid &= all(tools.sync_trusted(manifest,c) for c in manifest['cams'] if c['id'] in observed_cams)
                                     predicates[0].operator = 'same_entity'
                                     predicates[0].subject_refs = [EntityRef(scene_key=key,entity_id=e.entity_id,kind=e.kind) for e in matched]
                                     predicates[0].status='supported' if valid else 'unknown'
@@ -1014,7 +1023,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 height_max = max(c['cam2world'][14] for c in manifest['cams'])
                                 candidates = [{'cam':c['id'],'gain':c['cam2world'][14]/height_max if c['id'] in seen and c['id'] in observed else 0,
                                                'reason':'visible floor cell and tracked observation' if c['id'] in seen and c['id'] in observed else 'no additional observation'}
-                                              for c in manifest['cams'] if c['id']!=cam and c['sync_method']!='unknown']
+                                              for c in manifest['cams'] if c['id']!=cam and tools.sync_trusted(manifest,c)]
                             with trace.traced(run,'policy.plan_next',{'aggregate':aggregate_of(predicates),'tools_used':count},state='plan') as t:
                                 yield step_frame(t,'plan','Choose the next evidence by coverage gain')
                                 decision = policy.plan_next({'aggregate':aggregate_of(predicates),'tools_left':body.budget.tools-count,
@@ -1039,8 +1048,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             with trace.traced(run,'assess',{'predicates':[p.model_dump(mode='json') for p in predicates]},state='assess') as t:
                                 yield step_frame(t,'assess','Check the situation and predicate states')
                                 if subjects and not speeding and not (parsed.template=='where_is' and not parsed.place and context.get('t_ms') is not None):
-                                    situation = yield from call(t,'situation','assess',{'scene_key':key,'t_ms':tm,'actor_refs':[s.model_dump() for s in subjects]},
-                                                                lambda:tools.situation(store,key,tm,subjects,run=run,circuit=circuit))
+                                    situation = yield from call(t,'situation','assess',{'scene_key':key,'t_ms':tm,'actor_refs':[s.model_dump() for s in subjects],'cam':cam,'t_range':parsed.t_range},
+                                                                lambda:tools.situation(store,key,tm,subjects,cam=cam,t_range=parsed.t_range,run=run,circuit=circuit))
                                     record = situation.envelope.output.get('record')
                                     expected='yielding' if any(e.type=='dodge' for e in related) else 'crossing' if any(e.type=='ped_crossing' for e in related) else None
                                     conflict=bool(record and (record['verification']['status']=='conflict' or
@@ -1110,8 +1119,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         stop_reason='enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
                     if claims and all(abstained(c) for c in claims) and not cut:
                         stop_reason='abstained'
-                elif final not in {'UNSUPPORTED','NO_MATCH','OUT_OF_RANGE'} and not speeding_q:
-                    final,stop_reason='NO_MATCH','abstained'
+                elif not moments and not speeding_q:
+                    if final=='NO_MATCH' and (any(c.startswith(('unconsumed:','attribute:')) for c in parsed.constraints) or
+                                               spatial and any(c.startswith('requested_action:') for c in parsed.constraints)):
+                        claim_id='c'+str(len(claims)+1)
+                        yield claim_frame([],explain={'note':'No candidate verified every requested condition.'})
+                        final='UNRESOLVED'
+                    stop_reason='abstained'  # Retrieval's missing-evidence verdict must survive.
+
     except (BudgetExhausted, DeadlineExceeded):
         final=counted(True)
         stop_reason='budget_exhausted'

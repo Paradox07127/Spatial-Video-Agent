@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from app.core.task_spec import time_requirements
 from dataclasses import dataclass
 
 ENTITY = re.compile(r'^[PFV]\d+$')
@@ -22,10 +23,7 @@ def resolve_constraints(q, context, parsed):
     if context.get('t_ms') is not None:
         t = context['t_ms']
         ranges.append((t,t+1))
-    text = q.lower()
-    for direction, number in re.findall(r'\b(after|before)\s+(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)',text):
-        t = int(float(number)*1000)
-        ranges.append((t+1,MAX_TIME_MS) if direction=='after' else (0,t))
+    ranges.extend(time_requirements(q)[0])
     if ranges:
         interval = (max(r[0] for r in ranges),min(r[1] for r in ranges))
         if interval[0]>=interval[1]:

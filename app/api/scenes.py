@@ -169,26 +169,27 @@ def model_results(scene_key: str, request: Request, t_ms: int, window_ms: int = 
 def actor_points(store, scene_key, t_ms, actor_ids, t_range=None):
     m = store.manifest(scene_key)
     points = []
+    tolerance=1000/m['fps']/2+1
     if 'tracks' in m['assets']:
         for track in store.asset_json(scene_key, m['assets']['tracks'])['tracks']:
             if track['entity_id'] in actor_ids and track['t0_ms'] <= t_ms < track['t1_ms']:
                 pts = [p for p in track['pts'] if not t_range or t_range[0]<=p[0]<t_range[1]]
                 i = nearest([p[0] for p in pts], t_ms)
-                if i is not None:
+                if i is not None and abs(pts[i][0]-t_ms)<=tolerance:
                     points.append(pts[i][1:3])
     if 'forklift' in m['assets']:
         for f in store.asset_json(scene_key, m['assets']['forklift'])['forklifts']:
             if f['entity_id'] in actor_ids:
                 pts = [p for p in f['track'] if not t_range or t_range[0]<=p['t_ms']<t_range[1]]
                 i = nearest([r['t_ms'] for r in pts], t_ms)
-                if i is not None:
+                if i is not None and abs(pts[i]['t_ms']-t_ms)<=tolerance:
                     p = pts[i]
                     points.append([p['x'], p['y']])
     if 'ego_dir' in m['assets']:
         frames = store.asset_json(scene_key, f"{m['assets']['ego_dir']}/{t_ms // 10000:05d}.json")['frames']
         frames = [f for f in frames if not t_range or t_range[0]<=f['t_ms']<t_range[1]]
         i = nearest([f['t_ms'] for f in frames], t_ms)
-        if i is not None:
+        if i is not None and abs(frames[i]['t_ms']-t_ms)<=tolerance:
             points.extend([p['x'], p['y']] for p in frames[i]['peds'] + frames[i]['vehs'] if p['entity_id'] in actor_ids)
     return points
 

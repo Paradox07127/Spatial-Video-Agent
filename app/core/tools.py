@@ -43,6 +43,13 @@ def thumbnail(store, scene_key, cam, t_ms):
     return store.asset_url(scene_key,path) if path and store.asset_exists(scene_key,path) else None
 
 
+def sync_trusted(manifest, camera):
+    residual=camera.get('sync_residual_ms')
+    return (camera.get('sync_method') not in {None,'unknown'} and
+            isinstance(residual,(int,float)) and math.isfinite(residual) and
+            0<=residual<=1000/manifest['fps']/2)
+
+
 def get_synced_views(store, scene_key, t_ms, *, cam=None):
     from app.api.search import box_rows
     started = time.monotonic()
@@ -50,6 +57,9 @@ def get_synced_views(store, scene_key, t_ms, *, cam=None):
     cams = [c for c in m['cams'] if cam is None or c['id']==cam]
     frames, obs, gaps = [], [], []
     for c in cams:
+        if not sync_trusted(m,c):
+            gaps.append((t_ms,t_ms+1,'unsynchronized'))
+            continue
         rows = box_rows(store,scene_key,c['id'],t_ms,t_ms+1)
         lane = store.asset_json(scene_key,m['assets']['timeline'])['lanes'][c['id']]
         no_video = any(a<=t_ms<b and state=='no_video' for a,b,state in lane)
@@ -60,7 +70,8 @@ def get_synced_views(store, scene_key, t_ms, *, cam=None):
         if url is None:
             gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
         frames.append({'id':c['id'],'frame_url':url,
-                       'media_pts_ms':t_ms-c['offset_ms'],'boxes':rows})
+                       'media_pts_ms':t_ms-c['offset_ms'],'offset_ms':c['offset_ms'],
+                       'sync_method':c['sync_method'],'sync_residual_ms':c['sync_residual_ms'],'boxes':rows})
         obs.extend(ObservationRef(scene_key=scene_key,cam_id=c['id'],local_track_id=r[1],t_ms=r[0]) for r in rows)
     ev = evidence(store,scene_key,cam,t_ms,t_ms+1,'measure','synced_views',{'cams':frames},observations=obs)
     return result(scene_key,t_ms,t_ms+1,{'cams':frames},cam=cam,evidence=[ev],pts_read=len(frames),
@@ -150,8 +161,8 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms, *, selection=None, zone=
             continue
         seen = [c for c,state in states.items() if state=='visible']
         runs = spans.setdefault(eid,[])
-        if runs and eid not in interrupted and t-runs[-1]['t1_ms']<=1:
-            runs[-1]['seen_by'] = [c for c in data['cam_bit_order'] if c in seen or c in runs[-1]['seen_by']]
+        if runs and eid not in interrupted and t-runs[-1]['t1_ms']<=1 and runs[-1]['seen_by']==seen:
+            pass
         else:
             runs.append({'entity_id':eid,'t0_ms':t,'seen_by':seen})
         runs[-1]['t1_ms'] = end
@@ -241,6 +252,9 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
         if entity.entity_id not in [a.entity_id, getattr(b,'entity_id',None)]:
             continue
         for observation in entity.observations:
+            camera=next((c for c in m['cams'] if c['id']==observation['cam_id']),None)
+            if camera is None or not sync_trusted(m,camera):
+                continue
             if not observation['t0_ms']<=t_ms<observation['t1_ms']:
                 continue
             # Association intervals alone do not establish an observed frame.
@@ -564,6 +578,12 @@ def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
         if circuit['failures']>=2:
             raise vlm.VLMUnavailable('circuit_open')
         record = getattr(vlm,task)(scene_key,**args,run=run)
+        hard_range = args.get('t_range')
+        requested_cam = args.get('cam')
+        if hard_range and (not record.input_frame_refs or any(not hard_range[0]<=f.t_ms<hard_range[1] for f in record.input_frame_refs)):
+            raise vlm.VLMUnavailable('invalid_model_time_scope')
+        if requested_cam is not None and (record.cam_id!=requested_cam or any(f.cam_id!=requested_cam for f in record.input_frame_refs)):
+            raise vlm.VLMUnavailable('invalid_model_camera_scope')
         if prefix and (not record.prefix_only or not record.input_frame_refs or
                        any(not t0<=f.t_ms<t_ms for f in record.input_frame_refs) or
                        record.payload['max_frame_ms'] != max(f.t_ms for f in record.input_frame_refs)):
@@ -585,8 +605,9 @@ def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
                   exec_state=state,started=started)
 
 
-def situation(store, scene_key, t_ms, actor_refs, *, run=None, circuit=None):
-    return cosmos(store,'situation',scene_key,t_ms,{'t_ms':t_ms,'actor_refs':actor_refs},run=run,circuit=circuit)
+def situation(store, scene_key, t_ms, actor_refs, *, cam=None, t_range=None, run=None, circuit=None):
+    return cosmos(store,'situation',scene_key,t_ms,{'t_ms':t_ms,'actor_refs':actor_refs,
+                  **({'cam':cam} if cam is not None else {}),**({'t_range':t_range} if t_range else {})},run=run,circuit=circuit)
 
 
 def predict_next(store, scene_key, t_ms, actor_ref, horizon_s=2, *, run=None, circuit=None):

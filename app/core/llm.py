@@ -9,6 +9,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.core.models import Query, scene_key_of
+from app.core.task_spec import build_task_spec
 
 FORBIDDEN = r"\b(who is|who was|who are|who's|who drove|whose|identity|name of|intent|intend(?:ed|s|ing)?\b|meant to|on purpose|purpose|trying to|planning to|wants? to|motive|who caused|deliberately|why|fault|responsib)"
 
@@ -62,7 +63,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         point = re.search(r'\bat\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))',text)
         if point:
             t0 = int(float(point[1] or point[2])*1000)
-            t_range = (t0,t0+1000)
+            t_range = (t0,t0+1)
     # Keep conditions that the deterministic tools cannot verify as unknown predicates.
     constraints = []
     negated = re.search(r"\b(?:not|never|no|none|nobody|no one|without)\b|n['’]t\b", text)
@@ -114,6 +115,12 @@ def rule_parse(q: str, ctx: dict) -> Query:
         if bound:
             ms = int(float(bound[2] or bound[3]) * 1000)
             t_range = (0, ms) if bound[1] == 'before' else (ms + 1, 2**53 - 1)
+    spec = build_task_spec(q)
+    if spec.time_ranges:
+        ranges = [*spec.time_ranges, *([ctx['t_range']] if ctx.get('t_range') else [])]
+        t_range = (max(r[0] for r in ranges),min(r[1] for r in ranges))
+    constraints.extend('unconsumed:'+r.span for r in spec.requirements if r.kind=='unconsumed')
+    constraints.extend('requested_'+r.kind for r in spec.requirements if r.kind.startswith('action:'))
     key = ctx.get('scene_key') or (scene_key_of(ctx['scene_id']) if ctx.get('scene_id') else None)
     sources = ctx.get('sources') or None
     # entity ids, a time and a selection are local to one scene, and then the sources are ignored
