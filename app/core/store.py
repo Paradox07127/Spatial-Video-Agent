@@ -153,7 +153,9 @@ class Store:
     def _connect_vastdb(self):
         import vastdb
         s = self.settings
-        return vastdb.connect(endpoint=s.vdb_endpoint, access=s.access_key, secret=s.secret_key, ssl_verify=s.vdb_verify)
+        config = getattr(vastdb, 'config', None)
+        retry = {'backoff_config':config.BackoffConfig(max_tries=1,max_time=10)} if config is not None else {}
+        return vastdb.connect(endpoint=s.vdb_endpoint, access=s.access_key, secret=s.secret_key, ssl_verify=s.vdb_verify, timeout=(3,5), **retry)
 
     def _load_vastdb(self):
         with self._connect_vastdb().transaction() as tx:
@@ -261,12 +263,17 @@ class Store:
                 self.app.execute('DELETE FROM mirror_outbox WHERE table_name=? AND row_key=? AND generation=?', [name, key, pending[0]])
             return True
 
-    def retry_mirrors(self, limit=100):
+    def retry_mirrors(self, limit=100, *, should_stop=None):
         """Retry durable pending rows, reading their latest local state rather than stale payloads."""
         if self.backend != 'vastdb':
             return 0
         pending = self.rows(self.app, 'SELECT table_name,row_key FROM mirror_outbox ORDER BY table_name,row_key LIMIT ?', [limit])
-        return sum(self._deliver_mirror(r['table_name'], r['row_key']) for r in pending)
+        delivered = 0
+        for row in pending:
+            if should_stop is not None and should_stop():
+                break
+            delivered += bool(self._deliver_mirror(row['table_name'],row['row_key']))
+        return delivered
 
     def search_clips(self, filters: SearchFilters, qvec_txt: list[float] | None, qvec_vis: list[float] | None) -> list[Clip]:
         where, args = ['workspace=?'], [filters.workspace]
@@ -415,7 +422,7 @@ class Store:
         import boto3
         from botocore.config import Config
         s = self.settings
-        return boto3.client('s3', endpoint_url=s.s3_endpoint, aws_access_key_id=s.access_key, aws_secret_access_key=s.secret_key, config=Config(signature_version='s3v4'), verify=s.s3_verify)
+        return boto3.client('s3', endpoint_url=s.s3_endpoint, aws_access_key_id=s.access_key, aws_secret_access_key=s.secret_key, config=Config(signature_version='s3v4',connect_timeout=3,read_timeout=5,retries={'max_attempts':1,'mode':'standard'}), verify=s.s3_verify)
 
     def asset_exists(self, scene_key, relpath):
         if self.asset_dir is not None:
@@ -630,12 +637,14 @@ class Store:
                                  [uri,str(path.resolve()),sha,len(raw),uuid4().hex])
         return BlobRef(uri=uri, sha256=sha, size=len(raw))
 
-    def retry_blobs(self, limit=100):
+    def retry_blobs(self, limit=100, *, should_stop=None):
         """Bounded background drain. Network I/O occurs outside the Store lock."""
         delivered = 0
         with self._blob_lock:
             rows = self.rows(self.app, 'SELECT * FROM blob_outbox WHERE next_retry<=? ORDER BY uri LIMIT ?', [time.time(),limit])
             for row in rows:
+                if should_stop is not None and should_stop():
+                    break
                 try:
                     raw = Path(row['local_path']).read_bytes()
                     if len(raw)!=row['size'] or hashlib.sha256(raw).hexdigest()!=row['sha256']:

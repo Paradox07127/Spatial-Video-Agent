@@ -219,8 +219,13 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
                       validator=lambda r: _validate_record(r, bounds, expected_cam, manifest))
         state = cache_source[0] if cache_source else "precomputed"
         if rec is None:
-            rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
-                               region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
+            try:
+                rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
+                                   region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
+            except VLMUnavailable as exc:
+                if st is not None and hasattr(exc, 'raw'):
+                    st.output({'validation_error':str(exc),'raw':exc.raw})
+                raise
             p = _cache_dir() / f"{rid}.json"
             p.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=p.parent, suffix='.tmp', delete=False) as f:
@@ -371,15 +376,33 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
     if errs:
         raise VLMUnavailable(f"{task} output fails cosmos.json: {errs[0][:200]}")
     record = CosmosRecord.model_validate(rec)
-    _validate_record(record, (lo, hi), cam, m)
+    try:
+        _validate_record(record, (lo, hi), cam, m)
+    except VLMUnavailable as exc:
+        exc.raw = out
+        raise
     return record
 
 
 def _validate_record(record, window, cam, manifest):
     """One validator for decoded, local-cache and published model receipts."""
+    errors = [e.message for e in _record_validator().iter_errors(record.model_dump(mode='json'))]
+    if errors:
+        code = 'invalid_model_localization' if record.task=='C4' else 'invalid_model_grounding' if record.task=='C3' else 'invalid_model_record'
+        raise VLMUnavailable(f'{code}: {errors[0][:160]}')
     frames = record.input_frame_refs
     if not frames or record.cam_id != cam or any(f.cam_id != cam or not window[0] <= f.t_ms < window[1] for f in frames):
         raise VLMUnavailable("invalid_model_scope: frame camera/PTS outside requested window")
+    if record.task in ('C1','C2') and isinstance(record.raw,dict):
+        intervals=record.raw.get('source_intervals',[])
+        if not isinstance(intervals,list):
+            raise VLMUnavailable('invalid_model_localization: invalid source intervals')
+        for interval in intervals:
+            if not isinstance(interval,(list,tuple)) or len(interval)!=2 or not all(type(v) in (int,float) and math.isfinite(v) for v in interval):
+                raise VLMUnavailable('invalid_model_localization: invalid source interval')
+            a,b=interval
+            if a < 0 or b < a or a*1000 < min(f.t_ms for f in frames) or b*1000 > min(window[1],max(f.t_ms for f in frames)+STEP_MS):
+                raise VLMUnavailable('invalid_model_localization: source interval outside read window')
     if record.task == "C4":
         # Localized times must be within actually read coverage (one sampling interval
         # after the last frame is allowed, never beyond the hard requested window).
@@ -650,7 +673,7 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
         raise VLMUnavailable(f'{scene_key}/{cam}: no video frames in [{lo}, {hi})')
     frame_refs = [{'cam_id':cam,'t_ms':ms} for ms,_ in frames]
     settings = Settings()
-    revision = 'observation-1'
+    revision = 'observation-2'
     image_hashes = [hashlib.sha256(img.tobytes()+str((img.mode,img.size)).encode()).hexdigest() for _,img in frames]
     identity = {'scene':scene_key,'cam':cam,'window':[lo,hi],'actors':ids,'frames':frame_refs,
                 'pixels':image_hashes,'material':_cache_identity(scene_key),'model':settings.vlm_model,

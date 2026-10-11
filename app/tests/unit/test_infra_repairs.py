@@ -120,3 +120,49 @@ def test_legacy_signed_assets_hydrate_to_stable_identity(store):
     value={'url':'https://storage.example/bucket/sva/wh-example/video/eye.mp4?X-Amz-Signature=expired'}
     assert store._stable_assets(value)=={'url':'/api/assets/wh-example/video/eye.mp4'}
     assert store._stable_assets('https://other.example/bucket/sva/a')=='https://other.example/bucket/sva/a'
+
+
+def test_vastdb_composite_upsert_does_not_overwrite_other_channel(store,monkeypatch):
+    from contextlib import contextmanager
+    remote=pa.table({'action_id':['a','a'],'channel':['wandb_alert','webhook'],'status':['sent','failed'],'updated':[now(),now()]})
+    class Column:
+        def __init__(self,name):self.name=name
+        def isin(self,values):return self.name,values
+    class Table:
+        def __getitem__(self,name):return Column(name)
+        def select(self,columns=None,predicate=None,internal_row_id=False):
+            rows=remote
+            if internal_row_id:rows=rows.append_column('$row_id',pa.array(range(rows.num_rows),type=pa.uint64()))
+            if predicate:
+                name,values=predicate
+                rows=rows.take(pa.array([i for i,v in enumerate(rows[name].to_pylist()) if v in values],type=pa.int64()))
+            if columns:rows=rows.select(columns+(['$row_id'] if internal_row_id else []))
+            return SimpleNamespace(read_all=lambda:rows)
+        def update(self,rows):
+            nonlocal remote
+            values=remote.to_pylist()
+            for row in rows.to_pylist():values[row.pop('$row_id')]=row
+            remote=pa.Table.from_pylist(values,schema=remote.schema)
+        def insert(self,rows):
+            nonlocal remote
+            remote=pa.concat_tables([remote,rows])
+    @contextmanager
+    def transaction():
+        yield SimpleNamespace(bucket=lambda name:SimpleNamespace(schema=lambda name:SimpleNamespace(table=lambda *a,**kw:Table())))
+    monkeypatch.setattr(store,'_connect_vastdb',lambda:SimpleNamespace(transaction=transaction))
+    update=pa.table({'action_id':['a'],'channel':['webhook'],'status':['sent'],'updated':[now()]})
+    assert store.write_vastdb({'action_deliveries':update})=={'action_deliveries':1}
+    assert remote['channel'].to_pylist()==['wandb_alert','webhook'] and remote['status'].to_pylist()==['sent','sent']
+
+
+def test_outbox_stop_keeps_pending_rows_without_network(store,monkeypatch):
+    store.settings.mode='site';store.settings.asset_bucket='bucket'
+    store.write_blob('r_stop',0,{'large':'x'*9000})
+    monkeypatch.setattr(store,'s3',lambda:pytest.fail('stop must prevent new network work'))
+    assert store.retry_blobs(should_stop=lambda:True)==0
+    assert store.rows(store.app,'SELECT count(*) n FROM blob_outbox')[0]['n']==1
+    store.backend='vastdb'
+    store.queue_mirror('action_deliveries',('a','webhook'))
+    monkeypatch.setattr(store,'write_vastdb',lambda *a:pytest.fail('stop must prevent mirror work'))
+    assert store.retry_mirrors(should_stop=lambda:True)==0
+    assert store.rows(store.app,'SELECT count(*) n FROM mirror_outbox')[0]['n']==1
