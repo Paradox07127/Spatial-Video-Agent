@@ -82,9 +82,13 @@ def test_search_model_parse_is_live_even_without_candidates(tmp_path, monkeypatc
     assert res.envelope.exec_state=='live'
 
 
-@pytest.mark.parametrize('q,values', [('Was anyone at a distance less than 2 meters from the forklift?',(3.,3.)),
-                                    ('Was every worker at a distance less than 2 meters from the forklift?',(1.,1.))])
-def test_moment_cap_does_not_decide_unchecked_quantifiers(tmp_path, monkeypatch, q, values):
+MOMENT_CAP_CASES = [
+    ('Was anyone at a distance less than 2 meters from the forklift?',(3.,3.)),
+    ('Was every worker at a distance less than 2 meters from the forklift?',(1.,1.)),
+]
+
+
+def moment_cap_run(tmp_path,monkeypatch,q,values):
     from app.tests.unit.test_agent import b1_candidates
     s = corpus_store(tmp_path)
     install_trace(monkeypatch)
@@ -101,4 +105,25 @@ def test_moment_cap_does_not_decide_unchecked_quantifiers(tmp_path, monkeypatch,
                                                     budget={'tools':16})))
     assert len(s.get_run(frames[0]['data']['run_id']).claims)==3
     assert frames[-2]['data']['final']=='UNRESOLVED'
+    return frames
+
+
+@pytest.mark.parametrize('q,values',MOMENT_CAP_CASES)
+def test_moment_cap_keeps_unchecked_quantifiers_unresolved_with_full_policy(tmp_path,monkeypatch,q,values):
+    frames = moment_cap_run(tmp_path,monkeypatch,q,values)
+    if 'every worker' in q:
+        # Unknown universal coverage prompts extra camera inspections. These
+        # consume all 16 tool calls before the cap alone can end the investigation.
+        assert sum(f['event']=='tool_call' for f in frames)==16
+        assert frames[-2]['data']['stop_reason']=='budget_exhausted'
+    else:
+        assert frames[-2]['data']['stop_reason']=='no_new_info'
+
+
+@pytest.mark.parametrize('q,values',MOMENT_CAP_CASES)
+def test_moment_cap_stops_with_no_new_info_without_extra_policy_views(tmp_path,monkeypatch,q,values):
+    # Isolate MAX_MOMENTS from the independent adaptive-camera/tool-budget policy.
+    monkeypatch.setattr(agent.policy,'plan_next',lambda state:{'candidates':state['candidates'],'stop_reason':'no_new_info'})
+    frames = moment_cap_run(tmp_path,monkeypatch,q,values)
+    assert sum(f['event']=='tool_call' for f in frames)<16
     assert frames[-2]['data']['stop_reason']=='no_new_info'
