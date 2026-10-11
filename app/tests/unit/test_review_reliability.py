@@ -70,3 +70,27 @@ def test_cache_expiration_and_missing_source_are_safe(store, monkeypatch):
     assert cache.replay(store, 'old', {}) is None
     store.cache_put(cache.key(store, 'missing', {}), 'missing', {}, {'frames': []}, 'duckdb', 'r_missing')
     assert cache.replay(store, 'missing', {}) is None
+
+
+def test_cache_replay_frames_name_only_persisted_steps(store):
+    import json
+    from app.core.models import AgentRun
+    from app.tests.unit.test_store import SVA
+    frames = json.loads((SVA / 'fixtures/asks.json').read_text())['asks'][0]['events']
+    original = AgentRun.model_validate(json.loads((SVA / 'fixtures/runs/r_fixturewh0001.json').read_text()))
+    rid = store.begin_run(original.q, original.context)
+    store.finalize_run(rid, 'done', original.claims, final=original.final)
+    cache.put(store, original.q, original.context, frames, 'duckdb', rid)
+    run, replayed = cache.replay(store, original.q, original.context)
+    refs = set()
+    def walk(v):
+        if isinstance(v, dict):
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+        elif isinstance(v, str) and v.startswith(run.run_id + '.'):
+            refs.add(v)
+    walk(replayed)
+    assert refs and refs <= {s.step_id for s in run.steps}

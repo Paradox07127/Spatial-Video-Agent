@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
+import logging
+import os
 from pathlib import Path
 from threading import RLock, Thread
 import time
@@ -13,6 +15,7 @@ from app.core.models import AgentState, Claim, ExecState, Final, RunStep
 from app.core.store import dumps
 from app.settings import Settings
 
+logger = logging.getLogger(__name__)
 INLINE_LIMIT_BYTES = 8192  # CONTRACT §6.1: larger inputs/outputs are stored in step_<i>.json
 _OUTBOX_LOCK = RLock()
 
@@ -63,6 +66,16 @@ def _url(call):
     return url() if callable(url) else url
 
 
+def _rows(text):
+    rows = []
+    for n, line in enumerate(text.splitlines(), 1):
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            logger.warning('Skipping unreadable Weave outbox line %d', n)
+    return rows
+
+
 def _queue(run):
     path = run.store.runs_dir / 'outbox.jsonl'
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,10 +83,12 @@ def _queue(run):
            'app_path': str(run.store.app_path.resolve()), 'asset_dir': str(run.store.asset_dir) if run.store.asset_dir else None,
            'backend': run.store.backend}
     with _OUTBOX_LOCK:
-        rows = [json.loads(s) for s in path.read_text().splitlines()] if path.exists() else []
-        if not any(r['run_id'] == run.run_id for r in rows):
+        text = path.read_text() if path.exists() else ''
+        if not any(r['run_id'] == run.run_id for r in _rows(text)):
             with path.open('a') as f:
-                f.write(dumps(row) + '\n')
+                # end a cut-off last line first, or the new row would merge into it
+                f.write(('\n' if text and not text.endswith('\n') else '') + dumps(row) + '\n')
+                f.flush()
 
 
 def _failed(run):
@@ -157,15 +172,19 @@ def traced(run: RunHandle, name: str, inputs: dict, *, state: AgentState,
                 run.store.update_step(run.run_id, _stored_step(run, step))
 
 
-def _deliver(run, status, final, claims, elapsed):
-    url = None
-    if run.weave_root is not None:
-        try:
-            run.weave_client.finish_call(run.weave_root, output={'status': status, 'final': final, 'claims': [c.model_dump(mode='json') for c in claims]})
-            run.weave_client.flush()
-            url = _url(run.weave_root)
-        except Exception:
-            _failed(run)
+def _send(run, status, final, claims):
+    if run.weave_root is None:
+        return None
+    try:
+        run.weave_client.finish_call(run.weave_root, output={'status': status, 'final': final, 'claims': [c.model_dump(mode='json') for c in claims]})
+        run.weave_client.flush()
+        return _url(run.weave_root)
+    except Exception:
+        _failed(run)
+        return None
+
+
+def _record(run, status, final, claims, elapsed, url):
     if run.weave_failed:
         # one lock over read and rewrite, so a step the request thread updates meanwhile is not overwritten with a stale copy
         with run.store.lock:
@@ -176,11 +195,21 @@ def _deliver(run, status, final, claims, elapsed):
     return url
 
 
+def _deliver(run, status, final, claims, elapsed):
+    url = _send(run, status, final, claims)
+    # Store.close takes the same lock, so a late delivery never writes to a closed store
+    with run.store.lock:
+        if run.store.closed:
+            _queue(run)
+        else:
+            _record(run, status, final, claims, elapsed, url)
+
+
 def finish_run(run: RunHandle, status: Literal['done', 'error', 'aborted'], *, final: Final | None,
                claims: list[Claim]) -> str | None:
     elapsed = int(time.monotonic() * 1000 - run.t0_monotonic_ms)
     if run.weave_root is None:
-        return _deliver(run, status, final, claims, elapsed)
+        return _record(run, status, final, claims, elapsed, None)
     try:
         url = _url(run.weave_root)  # built from project and call id, no network
     except Exception:
@@ -199,7 +228,7 @@ def flush_outbox(max_items: int = 100) -> int:
         return 0
     delivered = 0
     with _OUTBOX_LOCK:
-        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows = _rows(path.read_text())
         remaining = []
         for i, row in enumerate(rows):
             if i >= max_items:
@@ -224,7 +253,7 @@ def flush_outbox(max_items: int = 100) -> int:
                         inputs, output = step.input, step.output
                     call = client.create_call(step.name, inputs, parent=calls.get(step.parent_step_id, root))
                     calls[step.step_id] = call
-                    client.finish_call(call, output=output)
+                    client.finish_call(call, output=output, exception=RuntimeError(step.note) if step.exec_state == 'failed' else None)
                     step.weave_call_id = call.id
                 client.finish_call(root, output={'status': run.status, 'final': run.final, 'claims': [c.model_dump(mode='json') for c in run.claims]})
                 client.flush()
@@ -238,5 +267,7 @@ def flush_outbox(max_items: int = 100) -> int:
             finally:
                 if store:
                     store.close()
-        path.write_text(''.join(dumps(row) + '\n' for row in remaining))
+        tmp = path.with_name(path.name + '.tmp')
+        tmp.write_text(''.join(dumps(row) + '\n' for row in remaining))
+        os.replace(tmp, path)
     return delivered

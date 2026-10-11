@@ -212,3 +212,79 @@ def test_site_blob_uploaded_and_read_after_restart(store, monkeypatch):
     ref = store.get_run(run.run_id).steps[0].blob_ref
     assert ref.uri.startswith('s3://test-bucket/sva/runs/')
     assert json.loads(store.read_blob(ref))['output'] == 'z' * 9000
+
+
+def _weave_client(monkeypatch, flush, record=None):
+    monkeypatch.setenv('WANDB_API_KEY', 'test-only')
+    monkeypatch.setenv('WEAVE_PROJECT', 'test/project')
+    class Client:
+        def create_call(self, name, inputs, parent=None):
+            return SimpleNamespace(id=name, name=name, ui_url='https://example.test/call')
+        def finish_call(self, call, output=None, exception=None):
+            if record is not None:
+                record[call.name] = exception
+        def flush(self):
+            flush()
+    monkeypatch.setitem(sys.modules, 'weave', SimpleNamespace(init=lambda *a, **k: Client()))
+
+
+def _offline_weave(monkeypatch):
+    monkeypatch.setenv('WANDB_API_KEY', 'test-only')
+    monkeypatch.setenv('WEAVE_PROJECT', 'test/project')
+    def fail(*args, **kwargs):
+        raise RuntimeError('offline')
+    monkeypatch.setitem(sys.modules, 'weave', SimpleNamespace(init=fail))
+
+
+def _close_with_pending_delivery(store, monkeypatch, flush):
+    import threading
+    errors = []
+    monkeypatch.setattr(threading, 'excepthook', lambda args: errors.append(args.exc_value))
+    _weave_client(monkeypatch, flush)
+    before = set(threading.enumerate())
+    run = trace.start_run(store, 'q', {})
+    with trace.traced(run, 'parse', {}, state='parse') as t:
+        t.output({'ok': True})
+    trace.finish_run(run, 'done', final='NO_MATCH', claims=[])
+    store.close()
+    return run, errors, set(threading.enumerate()) - before
+
+
+def test_delivery_after_store_close_goes_to_outbox(store, monkeypatch):
+    import threading
+    release = threading.Event()
+    run, errors, threads = _close_with_pending_delivery(store, monkeypatch, lambda: release.wait(10))
+    release.set()
+    for th in threads:
+        th.join(10)
+    assert errors == []
+    rows = (store.runs_dir / 'outbox.jsonl').read_text().splitlines()
+    assert [json.loads(r)['run_id'] for r in rows] == [run.run_id]
+
+
+def test_outbox_skips_partial_line(store, monkeypatch):
+    path = store.runs_dir / 'outbox.jsonl'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"run_id": "r_cut", "index')
+    _offline_weave(monkeypatch)
+    run = trace.start_run(store, 'q', {})
+    with trace.traced(run, 'parse', {}, state='parse'):
+        pass
+    trace.finish_run(run, 'done', final='NO_MATCH', claims=[])
+    assert json.loads(path.read_text().splitlines()[-1])['run_id'] == run.run_id
+    _weave_client(monkeypatch, lambda: None)
+    assert trace.flush_outbox() == 1
+    assert path.read_text() == ''
+
+
+def test_outbox_replay_passes_step_error(store, monkeypatch):
+    _offline_weave(monkeypatch)
+    run = trace.start_run(store, 'q', {})
+    with pytest.raises(ValueError):
+        with trace.traced(run, 'parse', {}, state='parse'):
+            raise ValueError('bad')
+    trace.finish_run(run, 'error', final=None, claims=[])
+    record = {}
+    _weave_client(monkeypatch, lambda: None, record)
+    assert trace.flush_outbox() == 1
+    assert isinstance(record['parse'], Exception) and 'ValueError' in str(record['parse'])

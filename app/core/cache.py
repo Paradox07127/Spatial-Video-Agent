@@ -58,13 +58,15 @@ def replay(store, q, context):
             return [replace(v) for v in value]
         if isinstance(value, str):
             for old in ids:
-                if value == old or value.startswith(old + '.s'):
-                    return run.run_id + value[len(old):]
+                if value == old:
+                    return run.run_id
+                if value.startswith(old + '.s'):
+                    return t.step_id  # only the cache_replay step is persisted
         return value
-    frames = replace(frames)
     with trace.traced(run, 'cache_replay', {'source_run_id': source.run_id}, state='parse') as t:
         t.exec_state('cached')
         t.evidence([e.eid for e in source.evidence])
+        frames = replace(frames)
         t.output({'frames': len(frames)})
     store.add_evidence(run.run_id, source.evidence)
     store.set_hits(run.run_id, [m.model_copy(update={'exec_state':'cached'}) for m in source.hits])

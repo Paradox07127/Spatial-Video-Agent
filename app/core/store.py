@@ -138,11 +138,12 @@ class Store:
             raise
 
     def close(self):
-        if not self.closed:
-            if self.index is not None:
-                self.index.close()
-            self.app.close()
-            self.closed = True
+        with self.lock:
+            if not self.closed:
+                if self.index is not None:
+                    self.index.close()
+                self.app.close()
+                self.closed = True
 
     def rows(self, db, sql, params=()):
         with self.lock:
