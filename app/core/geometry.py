@@ -6,7 +6,7 @@ import math
 
 import cv2
 import numpy as np
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon, box
 
 
 def intrinsic(K):
@@ -55,8 +55,11 @@ def coverage(cams, zone, occluders):
     lo_x, lo_y, hi_x, hi_y = polygon.bounds
     # 0.2 m cells and standing-body heights follow the D3 coverage calculation.
     step = .2
-    pts = np.array([(x, y) for x in np.arange(lo_x+step/2, hi_x, step)
-                    for y in np.arange(lo_y+step/2, hi_y, step) if polygon.covers(Point(x, y))]).reshape(-1, 2)
+    cells = [polygon.intersection(box(x,y,min(x+step,hi_x),min(y+step,hi_y)))
+             for x in np.arange(lo_x,hi_x,step) for y in np.arange(lo_y,hi_y,step)]
+    cells = [c for c in cells if c.area>0]
+    pts = np.array([c.representative_point().coords[0] for c in cells]).reshape(-1,2)
+    weights = np.array([c.area for c in cells])
     per_cam, visible, geometric = {}, [], []
     for cam in cams:
         matrix = np.asarray(cam['cam2world'], float).reshape(4, 4, order='F')
@@ -76,16 +79,31 @@ def coverage(cams, zone, occluders):
             hidden = np.ones(len(pts), bool)
             for height in (1., 1.5):
                 end = np.c_[pts, np.full(len(pts), height)]
-                rays = center+np.linspace(.02,.98,40)[None,:,None]*(end[:,None,:]-center)
-                radial = np.linalg.norm(rays[:,:,:2]-obstacle['xy'], axis=2)
-                hidden &= ((radial < obstacle['radius_m']) & (rays[:,:,2]<obstacle['height_m'])).any(axis=1)
+                delta = end-center
+                offset = center[:2]-obstacle['xy']
+                a = (delta[:,:2]**2).sum(axis=1)
+                b = delta[:,:2] @ offset
+                c = offset @ offset-obstacle['radius_m']**2
+                disc = b*b-a*c
+                root = np.sqrt(np.maximum(disc,0))
+                lo = np.divide(-b-root,a,out=np.zeros(len(pts)),where=a>0)
+                hi = np.divide(-b+root,a,out=np.ones(len(pts)),where=a>0)
+                dz = delta[:,2]
+                z0 = np.divide(-center[2],dz,out=np.full(len(pts),-np.inf),where=dz!=0)
+                z1 = np.divide(obstacle['height_m']-center[2],dz,out=np.full(len(pts),np.inf),where=dz!=0)
+                # Intersect the radial and height intervals with the camera-to-body segment.
+                lo = np.maximum(np.maximum(lo,np.minimum(z0,z1)),0)
+                hi = np.minimum(np.minimum(hi,np.maximum(z0,z1)),1)
+                radial = (disc>=0)&((a>0)|(c<=0))
+                vertical = (dz!=0)|((center[2]>=0)&(center[2]<=obstacle['height_m']))
+                hidden &= radial & vertical & (lo<hi)
             seen &= ~hidden
-        per_cam[cam['id']] = float(geo.mean()) if len(pts) else 0.
+        per_cam[cam['id']] = float(weights[geo].sum()/weights.sum()) if len(pts) else 0.
         geometric.append(geo); visible.append(seen)
     any_geo = np.any(geometric, axis=0) if cams else np.zeros(len(pts),bool)
     any_vis = np.any(visible, axis=0) if cams else np.zeros(len(pts),bool)
     under = np.zeros(len(pts), bool)
     for obstacle in occluders:
         under |= np.linalg.norm(pts-obstacle['xy'], axis=1)<obstacle.get('body_radius_m', .8)
-    return {'area': polygon.area, 'blind_m2': round(float((~any_geo).sum())*step**2,2),
-            'occluded_m2': round(float((any_geo & ~any_vis & ~under).sum())*step**2,2), 'per_cam': per_cam}
+    return {'area': polygon.area, 'blind_m2': float(weights[~any_geo].sum()),
+            'occluded_m2': float(weights[any_geo & ~any_vis & ~under].sum()), 'per_cam': per_cam}

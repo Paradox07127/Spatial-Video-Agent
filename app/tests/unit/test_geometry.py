@@ -44,6 +44,36 @@ def test_visibility_encoding_and_coverage():
     assert cov['occluded_m2'] > 0
 
 
+def test_thin_pole_occludes_the_line_of_sight():
+    cam = dict(id='top', K=[100,100,400,100], w=800, h=200,
+               cam2world=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,10,1])
+    zone = [[29.9,-.1],[30.1,-.1],[30.1,.1],[29.9,.1]]
+    pole = dict(xy=[15,0], radius_m=.2, height_m=6)
+    assert geometry.coverage([cam], zone, [pole])['occluded_m2']==pytest.approx(.04)
+    for xy, radius, height in [([15,1],.2,6), ([15,0],.2,5), ([40,0],.2,6), ([0,0],.2,6), ([30,0],.2,.5)]:
+        obstacle = dict(xy=xy, radius_m=radius, height_m=height, body_radius_m=0)
+        assert geometry.coverage([cam], zone, [obstacle])['occluded_m2']==0
+    assert geometry.coverage([cam], zone, [dict(pole, radius_m=1)])['occluded_m2']==pytest.approx(.04)
+
+
+def test_blind_area_includes_small_and_partial_cells():
+    for zone, area in [([[0,0],[.1,0],[.1,.1],[0,.1]],.01),
+                       ([[0,0],[.01,0],[.01,.01],[0,.01]],.0001),
+                       ([[0,0],[.3,0],[.3,.3],[0,.3]],.09),
+                       ([[0,0],[.3,0],[0,.3]],.045)]:
+        cov = geometry.coverage([], zone, [])
+        assert cov['area']==pytest.approx(area)
+        assert cov['blind_m2']==pytest.approx(area)
+    cam = dict(id='top', K=[100,100,100,100], w=200, h=200,
+               cam2world=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,10,1])
+    cov = geometry.coverage([cam], [[0,0],[.1,0],[.1,.1],[0,.1]], [])
+    assert cov['blind_m2']==0 and cov['per_cam']=={'top':1.}
+    cam['K'] = [1000,1000,100,100]
+    cov = geometry.coverage([cam], [[0,0],[1.1,0],[1.1,.2],[0,.2]], [])
+    assert cov['blind_m2']==pytest.approx(.02)
+    assert cov['per_cam']['top']==pytest.approx(10/11)
+
+
 def test_geo_tables_facades_and_limit(tmp_path):
     from app.tests.unit.a5_fakes import fixture_store
     s = fixture_store(tmp_path)

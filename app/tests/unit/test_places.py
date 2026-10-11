@@ -172,6 +172,39 @@ def test_geocode_two_street_parts_resolve_to_the_junction(name, place_id):
     assert (geo.geocode(fake, name) or {}).get('place_id')==place_id
 
 
+def test_geocode_requires_two_distinct_matching_streets():
+    place = dict(place_id='pine_oak', kind='junction', name='Pine Street & Oak Street', aliases=[], lat=0, lon=0)
+    fake = SimpleNamespace(index=None, rows=lambda *a: [place])
+    assert geo.geocode(fake, 'Elm Street & Oak Street') is None
+    assert geo.geocode(fake, 'Pine Street & Pine Street') is None
+    for name in ('Oak St and Pine St', 'Oak St / Pine St', 'Oak St at Pine St'):
+        assert geo.geocode(fake, name)['place_id']=='pine_oak'
+    for suffix, short in [('Avenue','Ave'), ('Road','Rd'), ('Boulevard','Blvd'), ('Drive','Dr'), ('Lane','Ln'), ('Court','Ct')]:
+        place['name'] = f'Pine {suffix} & Oak Street'
+        assert geo.geocode(fake, f'Oak St & Pine {short}')['score']==1.
+
+
+def test_geocode_abstains_when_junction_scores_are_close():
+    places = [dict(place_id=str(i), kind='junction', name=f'{street} Street & Oak Street', aliases=[], lat=0, lon=0)
+              for i, street in enumerate(('Cedar Grove', 'Cedar Groves'))]
+    fake = SimpleNamespace(index=None, rows=lambda *a: places)
+    assert geo.geocode(fake, 'Cedar Grove St & Oak St') is None
+
+
+def test_speed_limit_sorts_samples_and_rejects_stale_points():
+    samples = [dict(t_ms=t, state='observed', maxspeed_kmh=limit, speed=10.)
+               for t, limit in [(1000,50.), (0,40.), (500,30.)]]
+    fake = SimpleNamespace(manifest=lambda *a: {'assets':{'trip':'trip.geojson'}},
+                           asset_json=lambda *a: {'features':[{'properties':{}}, *[{'properties':s} for s in samples]]})
+    assert geo.speed_limit(fake, 'trip', 10000)=={'status':'UNRESOLVED','reason':'missing_speed_limit'}
+    assert geo.speed_limit(fake, 'trip', 1250)['value']==50.
+    assert geo.speed_limit(fake, 'trip', 1500)['t_ms']==1000
+    assert geo.speed_limit(fake, 'trip', 1501)['status']=='UNRESOLVED'
+    assert geo.speed_limit(fake, 'trip', -1)['status']=='UNRESOLVED'
+    samples[:] = [samples[1]]
+    assert geo.speed_limit(fake, 'trip', 10000)['status']=='UNRESOLVED'
+
+
 def test_building_on_the_right_is_read_from_facades(store, monkeypatch):
     def no_vlm(*a, **kw): raise AssertionError('VLM called')
     monkeypatch.setattr(vlm, 'situation', no_vlm)

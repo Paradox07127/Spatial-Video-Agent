@@ -4,10 +4,14 @@ from __future__ import annotations
 import math
 import re
 
-from rapidfuzz.fuzz import WRatio, partial_ratio
+from rapidfuzz.fuzz import WRatio
 
 NEAR_M = 100  # "near" a place: any bearing within this radius
-JOIN = r'\s*(?:&|/|\band\b)\s*'
+JOIN = r'\s*(?:&|/|\band\b|\bat\b)\s*'
+GEOCODE_MARGIN = 5  # Near-tied names do not identify a unique place.
+STREET_SUFFIXES = {'street':'st', 'avenue':'ave', 'road':'rd', 'boulevard':'blvd', 'drive':'dr',
+                   'lane':'ln', 'court':'ct', 'crescent':'cres', 'circle':'cir', 'terrace':'ter',
+                   'place':'pl', 'parkway':'pkwy', 'highway':'hwy'}
 
 
 def d2_to_ego(right, forward):
@@ -16,17 +20,28 @@ def d2_to_ego(right, forward):
 
 def geocode(store, name):
     places = store.rows(store.index, 'SELECT place_id, kind, name, aliases, lat, lon FROM places')
-    parts = [p.casefold() for p in re.split(JOIN, name, flags=re.I) if p]
+    def streets(n):
+        return [' '.join(STREET_SUFFIXES.get(w,w) for w in re.findall(r'\w+',p.casefold()))
+                for p in re.split(JOIN, n, flags=re.I) if p.strip()]
+    parts = streets(name)
     if len(parts) == 2:
-        # a junction name holding both streets; the whole-name ratio only breaks ties
-        scored = [(max((min(partial_ratio(a, n.casefold()) for a in parts), WRatio(name.casefold(), n.casefold()))
-                       for n in [p['name'], *(p['aliases'] or [])]), p) for p in places if p['name'] and p['kind'] == 'junction']
+        scored = []
+        for p in places:
+            if not p['name'] or p['kind'] != 'junction':
+                continue
+            score = 0.
+            for n in [p['name'], *(p['aliases'] or [])]:
+                components = streets(n)
+                score = max(score, max((min(WRatio(parts[0],a), WRatio(parts[1],b))
+                            for i,a in enumerate(components) for j,b in enumerate(components) if i != j), default=0.))
+            scored.append((score,p))
     else:
-        scored = [((max(WRatio(name.casefold(), n.casefold()) for n in [p['name'], *(p['aliases'] or [])]),), p) for p in places if p['name']]
+        scored = [(max(WRatio(name.casefold(), n.casefold()) for n in [p['name'], *(p['aliases'] or [])]), p) for p in places if p['name']]
     if not scored:
         return None
-    (score, *_), place = max(scored, key=lambda p: p[0])
-    if score < 80:
+    scored.sort(key=lambda p: p[0], reverse=True)
+    score, place = scored[0]
+    if score < 80 or (len(scored)>1 and score-scored[1][0]<=GEOCODE_MARGIN):
         return None
     return {k:place[k] for k in ['place_id','lat','lon','kind']} | {'score': score/100}
 
@@ -109,9 +124,10 @@ def facades(store, scene_key, t_ms):
 
 def speed_limit(store, scene_key, t_ms):
     trip = store.asset_json(scene_key, store.manifest(scene_key)['assets']['trip'])
-    samples = [f['properties'] for f in trip['features'][1:] if f['properties']['t_ms']<=t_ms]
+    samples = sorted((f['properties'] for f in trip['features'][1:] if f['properties']['t_ms']<=t_ms),
+                     key=lambda p: p['t_ms'])
     point = samples[-1] if samples else None
-    if point is None or point['state'] not in {'observed','interpolated'}:
+    if point is None or t_ms-point['t_ms']>500 or point['state'] not in {'observed','interpolated'}:
         return {'status':'UNRESOLVED','reason':'missing_speed_limit'}
     status = {'status':'SUPPORTED'} if point['maxspeed_kmh'] is not None else {'status':'UNRESOLVED','reason':'missing_speed_limit'}
     return {**status,'value':point['maxspeed_kmh'],'speed_kmh':point['speed']*3.6,'unit':'km/h','t_ms':point['t_ms']}
