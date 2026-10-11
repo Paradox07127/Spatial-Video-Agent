@@ -1084,8 +1084,9 @@ def test_b1_point_time_limits_investigation(setup):
     _, store = setup
     frames = ask(store, 'How close did the forklift come to a person at 5 seconds?', WH_MAIN['context'])
     calls = of(frames, 'tool_call')
-    assert calls[0]['args'].get('t_range')==(5000,6000)
-    assert all(5000<=e['t0_ms']<6000 for r in of(frames, 'tool_result') for e in r['evidence'] if e['method']=='ground_distance')
+    assert calls[0]['args'].get('t_range')==(5000,5001)
+    measured=[e for r in of(frames,'tool_result') for e in r['evidence'] if e['method']=='ground_distance']
+    assert measured and all((e['t0_ms'],e['t1_ms'])==(5000,5001) for e in measured)
 
 
 def b1_candidates(store, monkeypatch, values=(1.,3.)):
