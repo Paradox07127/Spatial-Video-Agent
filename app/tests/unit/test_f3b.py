@@ -77,6 +77,7 @@ def test_search_model_parse_is_live_even_without_candidates(tmp_path, monkeypatc
     monkeypatch.delenv('EMBED_URL',raising=False)
     monkeypatch.setenv('LLM_URL','http://llm.test')
     monkeypatch.setattr(llm,'complete_json',lambda *a,**kw:{'template':'unsupported','entities':[]})
+    monkeypatch.setattr(s,'search_clips',lambda *a,**kw:[])
     _, res = retrieve(s,SearchRequest(q='Could you evaluate this scene?',workspace='warehouse'))
     assert res.envelope.output['moments']==[]
     assert res.envelope.exec_state=='live'
