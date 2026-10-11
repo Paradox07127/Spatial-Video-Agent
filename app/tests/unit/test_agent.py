@@ -1077,7 +1077,9 @@ def test_b1_distance_comparison_direction(setup, phrase, operator, final, closes
     q = f'Was the {"minimum " if closest else ""}distance between the worker and forklift {phrase} 3 meters?'
     frames = ask(store, q, WH_MAIN['context'])
     p = of(frames, 'claim')[-1]['predicates'][0]
-    assert p['operator']==operator and frames[-2]['data']['final']==final
+    # without "minimum" or a time, "greater" holds at some other time (5.69 m at 2 s), so one sample cannot contradict it
+    expected = 'UNRESOLVED' if not closest and operator in ('gt','ge') else final
+    assert p['operator']==operator and frames[-2]['data']['final']==expected
 
 
 def test_b1_point_time_limits_investigation(setup):
