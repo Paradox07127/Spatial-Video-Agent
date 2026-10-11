@@ -137,7 +137,6 @@ def test_moment_card_is_clipped_to_place_pass(tmp_path,monkeypatch):
     assert all(m['t1_ms']<=4050 for m in r.envelope.output['moments'])
 
 
-@pytest.mark.xfail(strict=True, reason='agent.py must aggregate claims across same-time cards first')
 def test_simultaneous_actor_event_candidates_stay_distinct(tmp_path,monkeypatch):
     s=fixture_store(tmp_path)
     original=s.events_in

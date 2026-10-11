@@ -277,7 +277,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                                                         't_s':related.t0_ms/1000,'source':related.source,'actor_ids':related.actor_ids,'params':related.params,
                                                         **({'distance_to':'forklift_footprint','distance_from':'person_root'} if related.type=='near_miss' else {})})
                     evidence.append(related_ev); eids.append(related_ev.eid)
-            group_key = (clip.scene_key,t_ms)
+            group_key = (clip.scene_key,t_ms,tuple(sorted(bound)),event.event_id if event else None)
             if group_key in grouped:
                 card = grouped[group_key]
                 card.cams = list(dict.fromkeys([*card.cams,clip.cam_id]))
@@ -291,7 +291,8 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             end = min(t_ms+1000,t1)
             if windows is not None:
                 end = min(end,max(b for trip,a,b in windows if trip==clip.scene_key and a<=t_ms<b))
-            grouped[group_key] = MomentCard(moment_id=f'm_{clip.scene_key}_{t_ms}',scene_key=clip.scene_key,t0_ms=t_ms,
+            candidate_hash = hashlib.sha256(repr(group_key[2:]).encode()).hexdigest()[:12]
+            grouped[group_key] = MomentCard(moment_id=f'm_{clip.scene_key}_{t_ms}_{candidate_hash}',scene_key=clip.scene_key,t0_ms=t_ms,
                                             t1_ms=end,cams=[clip.cam_id],primary_cam=primary,
                                             actor_refs=actors,evidence_ids=eids,score=rank_score,
                                             why=[f'caption rank {clip.rank_text}; visual rank {clip.rank_visual}',

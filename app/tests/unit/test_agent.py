@@ -432,6 +432,8 @@ def test_run_list_limit_is_capped(setup):
     with TestClient(app) as client:
         assert client.get('/api/agent/runs?limit=201').status_code == 422
         assert client.get('/api/agent/runs?limit=200').status_code == 200
+        assert client.get('/api/agent/runs?limit=-1').status_code == 422
+        assert client.get('/api/agent/runs?limit=0').status_code == 422
 
 
 WH_MAIN = next(a for a in json.loads((FIXTURES/'asks.json').read_text())['asks'] if a['ask_id']=='wh-main')
@@ -1077,8 +1079,8 @@ def test_b1_distance_comparison_direction(setup, phrase, operator, final, closes
     q = f'Was the {"minimum " if closest else ""}distance between the worker and forklift {phrase} 3 meters?'
     frames = ask(store, q, WH_MAIN['context'])
     p = of(frames, 'claim')[-1]['predicates'][0]
-    # without "minimum" or a time, "greater" holds at some other time (5.69 m at 2 s), so one sample cannot contradict it
-    expected = 'UNRESOLVED' if not closest and operator in ('gt','ge') else final
+    # without "minimum", "greater" is judged at the largest sampled distance (P1-F1 reaches 9.055 m at 0 s)
+    expected = 'SUPPORTED' if not closest and operator in ('gt','ge') else final
     assert p['operator']==operator and frames[-2]['data']['final']==expected
 
 
@@ -1372,3 +1374,112 @@ def test_model_conflict_keeps_independent_numeric_distance_but_not_event_proof(s
     value=evidence[distance['eids'][0]]['value']
     assert format(value,'.4g') in answer['text'] and '±' in answer['text'] and 'forklift center' in answer['text']
     assert 'actions.trigger' not in [f['data']['name'] for f in frames if f['event']=='tool_call']
+
+
+FL_FIXTURE = {'workspace':'fleet','scene_key':'fl-pie-fixture-01'}
+
+
+def test_ever_greater_is_judged_at_the_largest_sampled_distance(setup):
+    _, store = setup
+    frames = ask(store, 'Was P1 ever more than 3 meters from F1?', WH_MAIN['context'])
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']!='CONTRADICTED'
+    p = of(frames,'claim')[-1]['predicates'][0]
+    ev = {e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}[p['eids'][0]]
+    assert (p['operator'],p['status'],ev['method'],ev['t0_ms'])==('gt','supported','ground_distance',0) and round(ev['value'],3)==9.055
+
+
+def test_bound_ego_minimum_cannot_contradict_a_greater_comparison(setup):
+    _, store = setup
+    frames = ask(store, 'Was P1 more than 10 meters from the recording car between 3 and 8 s?', FL_FIXTURE)
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='UNRESOLVED'
+    assert of(frames,'claim')[-1]['predicates'][0]['status']=='unknown'
+
+
+def test_each_distance_bound_binds_to_its_own_clause(setup):
+    _, store = setup
+    assert agent.distance_comparisons('less than 2 meters and greater than 1 meter')==[('lt',2.),('gt',1.)]
+    assert agent.distance_comparisons('Was it 3 m or more, at least?')==[('ge',3.)]
+    frames = ask(store, 'Was P1 less than 2 meters and greater than 1 meter from F1 at second 4.9?', WH_MAIN['context'])
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    bounds = {(p['operator'],p['value']):p['status'] for p in of(frames,'claim')[-1]['predicates']}
+    assert bounds[('lt',2.)]==bounds[('gt',1.)]=='supported'
+
+
+def test_auto_actions_ignore_model_events(setup, monkeypatch):
+    _, store = setup
+    original = store.events_in
+    def events(key, t0, t1):
+        found = original(key, t0, t1)
+        return [*found, *(e.model_copy(update={'event_id':key+':M9','source':'model'}) for e in found if e.type=='near_miss')]
+    monkeypatch.setattr(store, 'events_in', events)
+    frames = wh_main(store)
+    triggered = [c['args']['event_id'] for c in of(frames,'tool_call') if c['name']=='actions.trigger']
+    assert triggered and not any(t.endswith(':M9') for t in triggered)
+
+
+def test_unrelated_actor_event_does_not_set_the_expected_situation(setup, monkeypatch):
+    _, store = setup
+    original = store.events_in
+    def events(key, t0, t1):
+        found = original(key, t0, t1)
+        crossing = [e.model_copy(update={'event_id':key+':X','type':'ped_crossing','actor_ids':['P2'],'source':'rule'})
+                    for e in found if e.type=='near_miss' and t1-t0==1]
+        return [*found, *crossing]
+    monkeypatch.setattr(store, 'events_in', events)
+    frames = ask(store, 'Was the distance between the worker and forklift less than 3 meters?', WH_MAIN['context'])
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    assert not any(p['operator']=='model_conflict' for c in of(frames,'claim') for p in c['predicates'])
+
+
+def test_recording_vehicle_braking_uses_the_ego_event(setup):
+    _, store = setup
+    frames = ask(store, 'Did the recording vehicle brake between 4 and 7 seconds?', FL_FIXTURE)
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    read = {e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}
+    claim = of(frames,'claim')[-1]
+    assert any(isinstance(read[e]['value'],dict) and read[e]['value'].get('type')=='hard_brake' for p in claim['predicates'] for e in p['eids'])
+
+
+def test_ego_distance_stays_inside_the_requested_window(setup, monkeypatch):
+    _, store = setup
+    search_ = tools.search
+    def wide(*a, **kw):
+        res = search_(*a, **kw)
+        for m in res.envelope.output['moments']:
+            m['t1_ms'] = m['t0_ms']+1000
+        return res
+    monkeypatch.setattr(tools, 'search', wide)
+    frames = ask(store, 'Did the pedestrian cross at 4 seconds?', FL_FIXTURE)
+    calls = [c['args'] for c in of(frames,'tool_call') if c['name']=='ego_distance']
+    assert calls and all(4000<=c['t0_ms']<c['t1_ms']<=4001 for c in calls)
+
+
+def test_same_time_card_without_evidence_keeps_the_measured_verdict(setup, monkeypatch):
+    from app.core.models import EntityRef, MomentCard
+    _, store = setup
+    key = 'wh-sdg-fixture-01'
+    def card(i, actors):
+        return MomentCard(moment_id=f'm_agg_{i}',scene_key=key,t0_ms=4600,t1_ms=4700,cams=['ceiling_04'],primary_cam='ceiling_04',
+                          actor_refs=[EntityRef(scene_key=key,entity_id=e,kind='forklift' if e.startswith('F') else 'person') for e in actors],
+                          evidence_ids=[],score=1,why=[],thumb=None)
+    cards = [card(1,['P1','F1']),card(2,['P2'])]
+    monkeypatch.setattr(tools, 'search', lambda *a, **kw: tools.result(key,0,10000,{'moments':[m.model_dump() for m in cards]}))
+    frames = ask(store, 'Was the worker more than 3 meters from the forklift when dodging?', WH_MAIN['context'], {'tools':16,'seconds':25})
+    assert {c['moment_id'] for c in of(frames,'claim')}=={'m_agg_1','m_agg_2'}
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='CONTRADICTED'
+
+
+def test_site_comparison_is_skipped_when_the_pool_is_saturated():
+    import threading
+    release, started = threading.Event(), []
+    def search(q, top_k, filters):
+        started.append(q)
+        release.wait(10)
+        return {'hits':[],'sql_query':None}
+    vss = SimpleNamespace(search=search)
+    try:
+        waits = [agent.native_search(vss, f'q{i}') for i in range(agent.NATIVE_WORKERS+1)]
+        assert all(waits[:-1]) and waits[-1] is None
+    finally:
+        release.set()
+    assert waits[0](5)['status']=='ok' and len(started)==agent.NATIVE_WORKERS

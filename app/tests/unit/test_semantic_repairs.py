@@ -294,3 +294,35 @@ def test_camera_free_gps_only_locates_the_recording_vehicle(store,monkeypatch,q,
     assert final(frames)==expected
     calls = [f['data']['name'] for f in frames if f['event']=='tool_call']
     assert calls==(['gps_position'] if expected=='SUPPORTED' else [])
+
+
+def test_a_tool_that_ignores_the_deadline_still_exhausts_the_budget(store,monkeypatch):
+    import time
+    original = street.people_statistics
+    def slow(*a,**kw):
+        result = original(*a,**kw)
+        time.sleep(1.2)
+        return result
+    monkeypatch.setattr(street,'people_statistics',slow)
+    frames = list(agent.ask_frames(store,agent.AskRequest(q='How many people?',context={'workspace':'street','scene_key':L1_KEY},
+                                                          budget={'tools':16,'seconds':1})))
+    assert check_sse_sequence(frames)==[]
+    # the completed count is kept, but the run reports that it overran its budget
+    status = next(f['data'] for f in frames if f['event']=='status')
+    assert (status['final'],status['stop_reason'])==('SUPPORTED','budget_exhausted')
+    assert any(f['event']=='tool_result' and f['data']['evidence'] for f in frames)
+
+
+def test_moving_needs_a_finite_speed_uncertainty(store,monkeypatch):
+    from app.core import tools
+    original = tools.measure
+    def uncertain_speed(s,key,t,a,b,kind,**kw):
+        result = original(s,key,t,a,b,kind,**kw)
+        if kind=='speed':
+            result.evidence = [e.model_copy(update={'value':10.,'sigma':None}) for e in result.evidence]
+        return result
+    monkeypatch.setattr(tools,'measure',uncertain_speed)
+    frames = ask(store,'When did the worker dodge the moving forklift, and how far was it?')
+    moving = [p for f in frames if f['event']=='claim' for p in f['data']['predicates'] if p['operator']=='action_modifier:moving']
+    assert moving and all(p['status']=='unknown' for p in moving)
+    assert final(frames)=='UNRESOLVED'

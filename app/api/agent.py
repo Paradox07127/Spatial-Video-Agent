@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+import bisect
+import concurrent.futures
 import functools
 import html
 import json
@@ -15,9 +17,10 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from shapely.geometry import Point, Polygon
 
 from app.api.search import event_types
-from app.core import cache, geo, llm, policy, street, tools, trace
+from app.core import cache, geo, geometry, llm, policy, street, tools, trace
 from app.core.investigation_context import apply_constraints
 from app.core.task_spec import build_task_spec
 from app.core.deadline import DeadlineExceeded, remaining, scope as deadline_scope
@@ -43,10 +46,16 @@ COCO = ('person','bicycle','car','motorcycle','airplane','bus','train','truck','
         'laptop','mouse','remote','keyboard','cell phone','microwave','oven','toaster','sink','refrigerator','book','clock','vase',
         'scissors','teddy bear','hair drier','toothbrush')
 VEHICLES = ['bicycle','bus','car','motorcycle','truck']
+NATIVE_WORKERS = 4
+NATIVE_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=NATIVE_WORKERS,thread_name_prefix='vss-native')
+NATIVE_SLOTS = threading.BoundedSemaphore(NATIVE_WORKERS)
 
 
 def native_search(vss, q):
-    """Start VSS /search in the background; the returned function waits at most its argument for the vss_native data."""
+    """Start VSS /search in the background; the returned function waits at most its argument for the vss_native data.
+    None when every comparison worker is busy: the comparison is skipped."""
+    if not NATIVE_SLOTS.acquire(blocking=False):
+        return None
     started = time.monotonic()
     box = []
     def search():
@@ -56,11 +65,15 @@ def native_search(vss, q):
         except Exception:
             logger.exception('VSS /search failed')
             data = {'status':'error','sql_query':None,'hits':[]}
+        finally:
+            NATIVE_SLOTS.release()
         box.append({'elapsed_ms':round((time.monotonic()-started)*1000),**data})
-    worker = threading.Thread(target=search,daemon=True)
-    worker.start()
+    worker = NATIVE_POOL.submit(search)
     def wait(seconds):
-        worker.join(seconds)
+        try:
+            worker.result(seconds)
+        except concurrent.futures.TimeoutError:
+            pass
         if box:
             return box[0]
         return {'elapsed_ms':round((time.monotonic()-started)*1000),'status':'timeout','sql_query':None,'hits':[]}
@@ -97,15 +110,63 @@ def coco_groups(q, entities):
     return groups
 
 
+def comparison_of(text):
+    text = text.lower()
+    return ('ge' if re.search(r'\bat least\b',text) else 'le' if re.search(r'\bat most\b',text) else
+            'gt' if re.search(r'\b(greater than|more than|over|farther than)\b',text) else 'lt')
+
+
+def distance_comparisons(q):
+    """(operator, value) of each distance threshold; with several, each reads the words of its own clause."""
+    matches = list(re.finditer(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',q,re.I))
+    if len(matches)==1:
+        return [(comparison_of(q),float(matches[0][1]))]
+    return [(comparison_of(q[before.end() if before else 0:m.start()]),float(m[1])) for before, m in zip([None,*matches],matches)]
+
+
+def farthest_sample(store, scenes, t_range=None, zone=None, *, selection=None):
+    """The largest person-forklift ground distance at the skeleton sample times closest_approach scans; picks a time only."""
+    area = Polygon(zone) if zone else None
+    selected = set(selection or [])
+    best, seen = None, set()
+    for m in scenes:
+        key, assets = m['scene_key'], m['assets']
+        t0, t1 = (max(m['t0_ms'],t_range[0]),min(m['t1_ms'],t_range[1])) if t_range else (m['t0_ms'],m['t1_ms'])
+        if not capabilities(m)['distance']['ok']:
+            continue
+        persons = store.asset_json(key,assets['skeleton']).get('persons',{}) if 'skeleton' in assets else {}
+        tracks = store.asset_json(key,assets['forklift'])['forklifts'] if 'forklift' in assets else []
+        samples = [(t,eid,root,s) for eid,p in persons.items() for t,root,s in zip(p['t_ms'],p['root_world'],p['root_sigma_m'])
+                   if t0<=t<t1 and root and (not {x for x in selected if x.startswith('P')} or eid in selected) and (area is None or area.covers(Point(root[0],root[1])))]
+        tracks = [(f['entity_id'],f['track'],[r['t_ms'] for r in f['track']]) for f in tracks
+                  if (not {x for x in selected if x.startswith('F')} or f['entity_id'] in selected) and f['track']]
+        seen |= {'person'} if samples else set()
+        seen |= {'forklift'} if tracks else set()
+        for t, eid, root, s in samples:
+            remaining(30)
+            for fid, track, times in tracks:
+                if not times[0]<=t<=times[-1]:
+                    continue
+                i = bisect.bisect_left(times,t)
+                i = i-1 if i>0 and t-times[i-1]<=times[i]-t else i
+                if abs(times[i]-t)>1000/m['fps']/2+1:
+                    continue
+                value, _ = geometry.distance({'x':root[0],'y':root[1],'sigma_m':s},track[i])
+                if best is None or (-value,t)<(-best['value'],best['t_ms']):
+                    best = {'scene_key':key,'t_ms':t,'a':eid,'b':fid,'value':value}
+    key = best['scene_key'] if best else scenes[0]['scene_key'] if scenes else 'all'
+    t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
+    return tools.result(key,t0,t1,{'farthest':best,'missing':[k for k in ('person','forklift') if k not in seen]})
+
+
 def spatial_of(q, template):
     """(capability, operator, value, unit) of the spatial predicate the question needs, or None."""
     text = q.lower()
     threshold = re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',q,re.I)
     if threshold or any(w in text for w in DISTANCE_WORDS) or re.search(r'\b(closest|nearest|minimum|beside|adjacent)\b|\bnear (?:a|an|the) (?:person|worker|pedestrian|forklift|car|vehicle)\b',text):
         if threshold:
-            operator = ('ge' if re.search(r'\bat least\b',text) else 'le' if re.search(r'\bat most\b',text) else
-                        'gt' if re.search(r'\b(greater than|more than|over|farther than)\b',text) else 'lt')
-            return 'distance',operator,float(threshold[1]),'m'
+            operator, value = distance_comparisons(q)[0]
+            return 'distance',operator,value,'m'
         return ('distance','lt',2.,'m') if 'near miss' in text else ('distance','measured',None,'m')
     if re.search(r"can'?t see|cannot see|blind",q,re.I):
         return 'blind_spot','present_in_blind_zone',None,None
@@ -134,6 +195,10 @@ def moving_target(q, subjects, vehicle=None):
                 (s.entity_id.lower()==token if re.fullmatch(r'[fv]\d+',token) else
                  s.kind=='forklift' if token=='forklift' else s.kind=='vehicle' if token=='car' else True)]
     return matching[0] if len(matching)==1 else None
+
+
+def finite_sigma(ev):
+    return isinstance(ev.sigma,(float,int)) and math.isfinite(ev.sigma) and ev.sigma>=0
 
 
 def abstained(claim):
@@ -287,6 +352,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     observations = []
     ego_measurement = None
     place_verified = False
+    late = False
 
     def frame(event, **data):
         f = {'event':event,'data':{'run_id':run.run_id,**data}}
@@ -329,7 +395,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             raise LevelBudget
 
     def call(parent, name, state, args, fn):
-        nonlocal count
+        nonlocal count, late
         check_budget()
         count += 1
         with trace.traced(run,'tool.'+name,args,state=state,parent_step_id=parent.step_id) as t:
@@ -358,13 +424,28 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             if isinstance(res.envelope.output,dict) and 'record' in res.envelope.output:
                 record = res.envelope.output['record']
                 yield frame('model_result',scene_key=res.envelope.input_range.scene_key,t_ms=record['t_ms'],results=[record])
-            return res
+        # a tool that overran the deadline keeps its evidence for this step; the run then stops as budget-exhausted
+        late = late or time.monotonic()>=run.deadline
+        return res
 
     def claim_frame(predicates, before=None, explain=None, *, key=None, moment=None, lv=None, text='Spatial and event evidence check'):
         # A condition retained by parsing must either be measured or remain unknown.
         if parsed and parsed.place and not place_verified and not any(p.operator=='place_constraint' for p in predicates):
             predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[],
                                         operator='place_constraint',value=parsed.place,unit=None,status='unknown',eids=[]))
+        if spatial and spatial[0]=='distance' and spatial[2] is not None:
+            # A further threshold holds only where the primary comparison's own distance sample satisfies it too.
+            primary = next((p for p in predicates if (p.operator,p.value)==spatial[1:3]),None)
+            sample = next((read[e] for e in (primary.eids if primary and primary.status!='unknown' else [])
+                           if read[e].kind=='measure' and read[e].method in {'ground_distance','bound_ego_distance'}),None)
+            for operator, value in distance_comparisons(body.q)[1:]:
+                bound = next((p for p in predicates if p is not primary and (p.operator,p.value)==(operator,value)),None)
+                if bound is None:
+                    bound = Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=primary.subject_refs if primary else [],
+                                      operator=operator,value=value,unit='m',status='unknown',eids=[])
+                    predicates.append(bound)
+                supported = distance_status(sample,operator,value)=='supported'
+                bound.status, bound.eids = ('supported',[sample.eid]) if supported else ('unknown',[])
         conditions = parsed.constraints if parsed else []
         for condition in conditions:
             if condition.startswith('requested_action:'):
@@ -394,6 +475,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     def counted(exhausted=False, group=None):
         """Candidate quantifiers apply to claims; predicates inside a claim remain conjunctive."""
         kept = [c for c in (claims if group is None else group) if not abstained(c)]
+        # a same-time candidate card that consumed no evidence cannot undo a verdict measured at that time
+        at = {m.moment_id:(m.scene_key,m.t0_ms) for m in moments}
+        decided = {at[c.moment_id] for c in kept if c.moment_id in at and c.aggregate in {'SUPPORTED','CONTRADICTED'}}
+        kept = [c for c in kept if not (c.aggregate=='UNRESOLVED' and c.moment_id in at and at[c.moment_id] in decided
+                                        and not any(p.eids for p in c.predicates))]
         aggregates = [c.aggregate for c in kept]
         if quantifier in {'all','none'}:
             # Retrieval candidates are not a certificate of full entity/time coverage.
@@ -569,6 +655,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                          and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
                               or re.search(r'\bhow close\b.*\b(come|came|comes|coming|get|got|gets|getting)\b',body.q,re.I))
                          and re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I))
+            minimum_q=bool(re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I))
+            # "ever greater" needs the largest sampled distance; the minimum only answers less-than comparisons
+            farthest_q=bool(warehouse and spatial and spatial[0]=='distance' and spatial[1] in {'gt','ge'} and quantifier=='any'
+                            and {'person','forklift'}<=requested_kinds and not minimum_q
+                            and not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|brak\w*|near miss|footprint|clearance|edge)\b',body.q,re.I))
             if not scoped or (parsed.t_range and (parsed.t_range[0]>=parsed.t_range[1] or
                     not any(store.manifest(s['scene_key'])['t0_ms']<parsed.t_range[1] and
                             store.manifest(s['scene_key'])['t1_ms']>parsed.t_range[0] for s in scoped))):
@@ -660,6 +751,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         ev=res.evidence[0] if res.evidence else None
                         _,operator,value,unit=spatial
                         status='supported' if ev and ego_scalar_q else distance_status(ev,operator,value)
+                        if not ego_scalar_q and operator in {'gt','ge'} and status=='contradicted' and not minimum_q:
+                            status='unknown'  # the minimum sample cannot show that no sample was farther
                         yield claim_frame([Predicate(predicate_id='p1',subject_refs=[] if ego_scalar_q else [target],
                             operator='measured_speed' if ego_scalar_q else operator,value=value,
                             unit='km/h' if ego_scalar_q else unit,status=status,eids=[ev.eid] if ev else [])],key=key,
@@ -749,7 +842,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                             lambda:tools.measure(store,key,requested_time,target,None,'speed',cam=hard_cam) if scalar_speed_q
                                             else tools.ground_position(store,key,requested_time,target,zone=parsed.zone))
                         ev=next((e for e in res.evidence if e.kind=='measure' and e.method==('track_speed' if scalar_speed_q else 'ground_position')),None)
-                        missing_uncertainty=bool(ev and (not isinstance(ev.sigma,(float,int)) or not math.isfinite(ev.sigma) or ev.sigma<0))
+                        missing_uncertainty=bool(ev and not finite_sigma(ev))
                         if ev and scalar_speed_q and (not isinstance(ev.value,(int,float)) or not math.isfinite(ev.value)):
                             ev=None
                         predicates[0].subject_refs=[target]
@@ -902,6 +995,41 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 stop_reason = 'budget_exhausted' if exhausted else 'enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
                 if corpus:
                     yield from abstain_levels('blind_spot','warehouse')
+            elif farthest_q:
+                _, operator, value, unit = spatial
+                predicates = [Predicate(predicate_id='p1',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[])]
+                hit = None
+                with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
+                    yield step_frame(t,'measure','Scan worker and forklift tracks for the largest sampled distance')
+                    scan = yield from call(t,'farthest_sample','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
+                                           lambda:farthest_sample(store,[s for s in warehouse if not hard_cam or any(c['id']==hard_cam for c in s['cams'])],
+                                                                  parsed.t_range,parsed.zone,selection=selection or None))
+                    farthest = scan.envelope.output['farthest']
+                    if farthest:
+                        key, tm = farthest['scene_key'], farthest['t_ms']
+                        person = EntityRef(scene_key=key,entity_id=farthest['a'],kind='person')
+                        vehicle = EntityRef(scene_key=key,entity_id=farthest['b'],kind='forklift')
+                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':hard_cam},
+                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=hard_cam))
+                        ev = res.evidence[0] if res.evidence else None
+                        predicates[0] = predicates[0].model_copy(update={'subject_refs':[person,vehicle],'status':distance_status(ev,operator,value),
+                                                                         'eids':[e.eid for e in res.evidence]})
+                    t.output({'predicates':[p.model_dump(mode='json') for p in predicates],'missing':scan.envelope.output['missing']})
+                if farthest:
+                    cam = next(c['id'] for s in warehouse if s['scene_key']==key for c in s['cams'] if not hard_cam or c['id']==hard_cam)
+                    hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam],primary_cam=cam,
+                                     actor_refs=[person,vehicle],evidence_ids=[e.eid for e in res.evidence],score=1,
+                                     why=['largest sampled distance'],thumb=tools.thumbnail(store,key,cam,tm),
+                                     backend=getattr(store,'backend','duckdb'),exec_state=scan.envelope.exec_state)
+                    yield hits([hit],special=True)
+                    yield from ui('seek',{'t_ms':tm,'scene_key':key},key)
+                    yield from ui('highlight',{'ids':[person.entity_id,vehicle.entity_id],'mode':'outline'},key)
+                yield claim_frame(predicates,explain=None if farthest else {'note':'No worker and forklift pair was sampled in the requested range.'},
+                                  key=hit.scene_key if hit else None,moment=hit.moment_id if hit else None)
+                final = claims[-1].aggregate
+                stop_reason = 'enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
+                if corpus and farthest:
+                    yield from abstain_levels('distance','warehouse')
             elif closest_q:
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
                     yield step_frame(t,'plan','Choose the closest approach path across the full interval')
@@ -1133,12 +1261,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             predicates = [Predicate(predicate_id='p1',subject_refs=[] if speeding else subjects,operator=operator,
                                                     value=value,unit=unit,status='unknown',eids=[])]
                             wanted = event_types(body.q)
+                            # a fleet event without actors is the recording vehicle's own (hard_brake)
                             event_ids = {e.event_id for e in related if e.source!='model' and wanted and e.type in wanted and
-                                         {s.entity_id for s in subjects if s.kind=='person'}<=set(e.actor_ids)}
+                                         (not e.actor_ids and manifest['workspace']=='fleet' or
+                                          {s.entity_id for s in subjects if s.kind=='person'}<=set(e.actor_ids))}
                             event_eids = [eid for eid in card.evidence_ids if read[eid].kind=='measure' and
                                           isinstance(read[eid].value,dict) and read[eid].value.get('event_id') in event_ids]
-                            if not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|near miss)\b',body.q,re.I):
-                                event_eids = []
+                            # the measured events of this claim: the consumed ones and those of its own subjects
+                            own = [e for e in related if e.source!='model' and (e.event_id in event_ids or set(e.actor_ids)&{s.entity_id for s in subjects})]
                             def assess_distance(ev):
                                 if mismatched_clearance:
                                     # Keep the user's comparison, but do not judge clearance with a center measurement.
@@ -1158,12 +1288,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 if manifest['cams']:
                                     yield from call(t,'get_synced_views','inspect',{'scene_key':key,'t_ms':tm,'cam':cam},
                                                     lambda:tools.get_synced_views(store,key,tm,cam=cam))
+                                lo, hi = (max(tm,parsed.t_range[0]),min(card.t1_ms,parsed.t_range[1])) if parsed.t_range else (tm,card.t1_ms)
                                 # Scene scope only: corpus keeps its tools for the level reserve.
                                 if (not corpus and manifest['workspace']=='fleet' and not ego_measured and not selection and not parsed.zone
-                                    and any(a.kind=='person' for a in card.actor_refs)):
+                                    and any(a.kind=='person' for a in card.actor_refs) and lo<hi):
                                     ego_measured = True
-                                    yield from call(t,'ego_distance','measure',{'scene_key':key,'cam':cam,'t0_ms':tm,'t1_ms':card.t1_ms},
-                                                    lambda:tools.ego_distance(store,key,cam,tm,card.t1_ms,rows=site_rows() if vss is not None else []))
+                                    yield from call(t,'ego_distance','measure',{'scene_key':key,'cam':cam,'t0_ms':lo,'t1_ms':hi},
+                                                    lambda:tools.ego_distance(store,key,cam,lo,hi,rows=site_rows() if vss is not None else []))
                                 person = next((s for s in subjects if s.kind=='person'),None)
                                 vis = None
                                 if manifest['workspace']=='warehouse' and person:
@@ -1244,7 +1375,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                         move_ev = next((e for e in movement.evidence if e.kind=='measure' and e.method=='track_speed'),None)
                                         predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[moving_vehicle],
                                                                     operator='action_modifier:moving',value='moving',unit=None,
-                                                                    status='supported' if move_ev and move_ev.value>(move_ev.sigma or 0) else 'unknown',
+                                                                    status='supported' if move_ev and finite_sigma(move_ev) and isinstance(move_ev.value,(int,float))
+                                                                    and math.isfinite(move_ev.value) and move_ev.value>move_ev.sigma else 'unknown',
                                                                     eids=[move_ev.eid] if move_ev else []))
                                 if has_distance and wanted and re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|near miss)\b',body.q,re.I):
                                     predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=subjects,
@@ -1290,7 +1422,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                     situation = yield from call(t,'situation','assess',{'scene_key':key,'t_ms':tm,'actor_refs':[s.model_dump() for s in subjects],'cam':cam,'t_range':parsed.t_range},
                                                                 lambda:tools.situation(store,key,tm,subjects,cam=cam,t_range=parsed.t_range,run=run,circuit=circuit))
                                     record = situation.envelope.output.get('record')
-                                    expected='yielding' if any(e.type=='dodge' for e in related) else 'crossing' if any(e.type=='ped_crossing' for e in related) else None
+                                    expected='yielding' if any(e.type=='dodge' for e in own) else 'crossing' if any(e.type=='ped_crossing' for e in own) else None
                                     conflict=bool(record and (record['verification']['status']=='conflict' or
                                                               expected and record['payload']['label']!=expected))
                                     if conflict:
@@ -1316,8 +1448,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 t.output({'before':before,'after':final,'explain':explain})
                                 distance = predicates[0].operator in {'lt','le','measured'} and any(read[e].method=='ground_distance' for e in predicates[0].eids)
                                 if final=='SUPPORTED' and distance and not explain.get('conflict'):
-                                    for event in related:
-                                        if event.severity>=2 and {person.entity_id,vehicle.entity_id}<=set(event.actor_ids):
+                                    card_events = {read[e].value.get('event_id') for e in card.evidence_ids if read[e].kind=='measure' and isinstance(read[e].value,dict)}
+                                    for event in own:
+                                        if event.severity>=2 and {person.entity_id,vehicle.entity_id}<=set(event.actor_ids) and event.event_id in card_events:
                                             req = TriggerRequest(scene_key=key,event_id=event.event_id,run_id=run.run_id,claim_id=claim_id,auto=True,
                                                                  actions=['create_review_task','hazard_zone','wandb_alert'])
                                             try:
@@ -1365,6 +1498,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         yield claim_frame([],explain={'note':'No candidate verified every requested condition.'})
                         final='UNRESOLVED'
                     stop_reason='abstained'  # Retrieval's missing-evidence verdict must survive.
+        if late:
+            raise BudgetExhausted
 
     except (BudgetExhausted, DeadlineExceeded):
         final=counted(True)
@@ -1755,7 +1890,7 @@ def get_run(request: Request, run_id: str):
 
 
 @router.get('/api/agent/runs')
-def list_runs(request: Request, scene_key: str | None = None, limit: int = Query(20, le=200)):
+def list_runs(request: Request, scene_key: str | None = None, limit: int = Query(20, ge=1, le=200)):
     return request.app.state.store.list_runs(scene_key,limit)
 
 
