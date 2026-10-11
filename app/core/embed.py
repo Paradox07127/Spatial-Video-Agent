@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.core.deadline import remaining
+from app.settings import Settings
 
 
 def validate_vector(vector):
@@ -15,10 +16,17 @@ def validate_vector(vector):
 
 
 def embed_text(q: str, *, client=None, deadline=None) -> list[float]:
-    url = os.environ['EMBED_URL'].rstrip('/')
-    ws = urlsplit(url).port == 8103
+    s = Settings()
+    if not s.embed_url:
+        raise KeyError('EMBED_URL')
+    url = s.embed_url.rstrip('/')
+    # EMBED_PROTOCOL: 'vh' (/embed/text) or 'openai' (/v1/embeddings); unset keeps port 8103 as the VH service
+    protocol = os.environ.get('EMBED_PROTOCOL', '')
+    if protocol not in ('', 'vh', 'openai'):
+        raise ValueError('EMBED_PROTOCOL must be vh or openai')
+    ws = protocol == 'vh' if protocol else urlsplit(url).port == 8103
     body = {'texts': [q]} if ws else {'input': q,
-                                    'model': os.environ.get('EMBED_MODEL', 'nvidia/cosmos-embed1-224p'),
+                                    'model': s.embed_model or 'nvidia/cosmos-embed1-224p',
                                     'request_type': 'query', 'encoding_format': 'float'}
     if ws:
         url += '/embed/text'

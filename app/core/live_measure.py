@@ -5,7 +5,6 @@ Sidecar boxes -> scene t_ms -> ByteTrack -> box bottom-centres on the ground (ma
 """
 from __future__ import annotations
 
-import functools
 import gzip
 import json
 import math
@@ -89,9 +88,23 @@ def fleet_sigma_m(d: float, h: float) -> float:
     return math.hypot(d / h * SIGMA_H_M, h / math.sin(a) ** 2 * SIGMA_PITCH_RAD)
 
 
-@functools.cache
 def _s3(store):
-    return store.s3()
+    if getattr(store, '_live_measure_s3', None) is None:
+        store._live_measure_s3 = store.s3()
+    return store._live_measure_s3
+
+
+def normalised(sidecar: dict, cam: dict) -> dict:
+    """The sidecar with fps and video_shape validated and its boxes scaled to the camera's source pixels."""
+    fps, shape = sidecar.get('fps'), sidecar.get('video_shape')
+    if not isinstance(fps, (int, float)) or not math.isfinite(fps) or fps <= 0:
+        raise ValueError(f'sidecar fps {fps!r} is not a positive number')
+    if not isinstance(shape, list) or len(shape) < 2 or not all(isinstance(v, int) and v > 0 for v in shape[:2]):
+        raise ValueError(f'sidecar video_shape {shape!r} is not [h, w, ...]')
+    sx, sy = cam['w'] / shape[1], cam['h'] / shape[0]
+    frames = [{**f, 'detections': [{**d, 'bbox': [d['bbox'][0] * sx, d['bbox'][1] * sy, d['bbox'][2] * sx, d['bbox'][3] * sy]}
+                                   for d in f['detections']]} for f in sidecar['frames']]
+    return {**sidecar, 'video_shape': [cam['h'], cam['w']], 'frames': frames}
 
 
 def _closest_fleet(people, p_xy, cam):
@@ -149,7 +162,7 @@ def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('p
     segs = covering_rows(rows, scene_key, cam_id, t0_ms, t1_ms)
     uris = [sidecar_uri(r['source']) for r in segs]
     lap('rows')
-    sidecars = [fetch_sidecar(_s3(store), u) for u in uris]
+    sidecars = [normalised(fetch_sidecar(_s3(store), u), cam) for u in uris]
     lap('sidecar')
     frames = merged_frames(segs, sidecars, t0_ms, t1_ms)
     other = set() if fleet else VEHICLE_LABELS
@@ -159,10 +172,10 @@ def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('p
     if not segs:
         result['reason'] = f'no live segment of {scene_key}/{cam_id} covers [{t0_ms}, {t1_ms})'
     else:
-        fps, (h, w) = sidecars[0]['fps'], sidecars[0]['video_shape'][:2]
+        fps = max(s['fps'] for s in sidecars)
         people, others = track(frames, fps, {pair[0]}), track(frames, fps, other)
         lap('track')
-        xy = ground(cam, np.array([[(r[3] + r[5]) / 2, r[6]] for r in people + others], float).reshape(-1, 2), (w, h))
+        xy = ground(cam, np.array([[(r[3] + r[5]) / 2, r[6]] for r in people + others], float).reshape(-1, 2), (cam['w'], cam['h']))
         lap('project')
         p_xy, o_xy = xy[:len(people)], xy[len(people):]
         best = _closest_fleet(people, p_xy, cam) if fleet else _closest_pair(people, p_xy, others, o_xy)

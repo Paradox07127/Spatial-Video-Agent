@@ -11,7 +11,8 @@ class DeadlineExceeded(TimeoutError):
 
 
 def remaining(default, deadline=None):
-    end = deadline if deadline is not None else _current.get()
+    inherited = _current.get()
+    end = inherited if deadline is None else deadline if inherited is None else min(deadline,inherited)
     value = default if end is None else min(default,end-time.monotonic())
     if value<=0:
         raise DeadlineExceeded('Investigation budget exhausted')
