@@ -311,3 +311,83 @@ def test_run_mirrors_at_begin_and_finalize_outside_the_lock(store):
     store.finalize_run(rid, 'done', [], final='NO_MATCH')
     assert log == [(['running'], False), (['done'], False)]
     assert store.get_run(rid).evidence == fixture.evidence
+
+
+def test_write_blob_fsyncs_the_run_dir_and_its_parent(store, monkeypatch):
+    import os
+    synced = []
+    fsync = os.fsync
+    monkeypatch.setattr(os, 'fsync', lambda fd: synced.append(os.fstat(fd).st_ino) or fsync(fd))
+    ref = store.write_blob('r_sync', 0, {'x': 1})
+    path = Path(ref.uri)
+    assert {path.parent.stat().st_ino, store.runs_dir.stat().st_ino, path.stat().st_ino} <= set(synced)
+
+
+def test_retry_mirrors_backs_off_failures_so_later_rows_are_reached(store):
+    store.backend = 'vastdb'
+    tried = []
+    def write(tables):
+        name, = tables
+        tried.append(name)
+        if name == 'agent_runs':
+            raise RuntimeError('persistent')
+    store.write_vastdb = write
+    for rid in ('r_a', 'r_b'):
+        store.queue_mirror('agent_runs', rid)
+    store.queue_mirror('query_cache', 'q_c')
+    assert store.retry_mirrors(limit=2) == 0 and tried == ['agent_runs', 'agent_runs']
+    assert store.retry_mirrors(limit=2) == 1 and tried[2:] == ['query_cache']
+    assert {r['row_key'] for r in store.rows(store.app, 'SELECT row_key FROM mirror_outbox')} == {'r_a', 'r_b'}
+
+
+def test_superseded_step_blob_is_removed(store):
+    store.settings.mode, store.settings.asset_bucket = 'site', 'bucket'
+    fixture = AgentRun.model_validate(json.loads((SVA / 'fixtures/runs/r_fixturewh0001.json').read_text()))
+    rid = store.begin_run('q', {'scene_key': WH})
+    old = store.write_blob(rid, 0, {'input': 1, 'output': None})
+    step = fixture.steps[0].model_copy(update={'step_id': rid + '.s0', 'i': 0, 'blob_ref': old})
+    store.append_step(rid, step)
+    new = store.write_blob(rid, 0, {'input': 1, 'output': 2})
+    store.update_step(rid, step.model_copy(update={'blob_ref': new}))
+    assert [p.name for p in (store.runs_dir / rid).iterdir()] == [new.uri.rsplit('/', 1)[1]]
+    assert [r['uri'] for r in store.rows(store.app, 'SELECT uri FROM blob_outbox')] == [new.uri]
+    assert store.get_run(rid).steps[0].output == 2
+
+
+def test_live_vectors_with_wrong_dimension_or_nan_are_skipped(store, monkeypatch):
+    import pyarrow as pa
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    rows = store.index.execute('SELECT clip_id,cam_id,t0_ms,v_txt FROM clips WHERE scene_key=? ORDER BY clip_id', [WH]).fetchall()
+    q = list(rows[0][3])
+    hits = {f's3://seg/{i}.mp4': {'scene_key': WH, 'cam_id': r[1], 't_ms': r[2], 'clip_id': r[0]} for i, r in enumerate(rows[:3])}
+    live = pa.table({'source': list(hits), 'original_video': ['v'] * 3, 'segment_start_sec': [0.0] * 3, 'segment_end_sec': [5.0] * 3,
+                     'reasoning_content': [None] * 3, 'object_counts': [None] * 3, 'camera_id': ['c'] * 3, 'location': ['l'] * 3,
+                     'vectors': [q, q[:255], [float('nan')] * 256], 'vectors_visual': [None] * 3})
+    @contextmanager
+    def transaction():
+        table = SimpleNamespace(select=lambda columns: SimpleNamespace(read_all=lambda: live.select(columns)))
+        yield SimpleNamespace(bucket=lambda b: SimpleNamespace(schema=lambda x: SimpleNamespace(table=lambda t: table)))
+    monkeypatch.setitem(sys.modules, 'vastdb', SimpleNamespace(connect=lambda **kw: SimpleNamespace(transaction=transaction)))
+    store.load_vss_collection((hits, {}))
+    assert store.live['text'][0] == [rows[0][0]]
+
+
+def test_add_evidence_refuses_a_conflicting_value_for_one_eid(store):
+    fixture = AgentRun.model_validate(json.loads((SVA / 'fixtures/runs/r_fixturewh0001.json').read_text()))
+    rid = store.begin_run('q', {'scene_key': WH})
+    store.add_evidence(rid, fixture.evidence)
+    store.add_evidence(rid, fixture.evidence)
+    changed = fixture.evidence[0].model_copy(update={'value': 'other'})
+    with pytest.raises(ValueError):
+        store.add_evidence(rid, [changed])
+    assert store.get_run(rid).evidence == fixture.evidence
+
+
+def test_add_evidence_accepts_a_later_evidence_level_for_one_eid(store):
+    fixture = AgentRun.model_validate(json.loads((SVA / 'fixtures/runs/r_fixturewh0001.json').read_text()))
+    rid = store.begin_run('q', {'scene_key': WH})
+    first = fixture.evidence[0].model_copy(update={'evidence_level': None})
+    store.add_evidence(rid, [first])
+    store.add_evidence(rid, [first.model_copy(update={'evidence_level': 'L3'})])
+    assert store.get_run(rid).evidence[0].evidence_level == 'L3'

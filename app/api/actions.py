@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request
 from shapely.geometry import MultiPoint
 
 from app.api.scenes import actor_points
-from app.core.models import Action, TriggerRequest, TriggerResult, Zone
+from app.core.models import Action, TriggerRequest, TriggerResult, Zone, capabilities
 from app.core.store import now
 
 router = APIRouter()
@@ -17,20 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 def deliver_notifications(store, action):
-    """Claim channels locally, send after commit without the DB lock, and retain retryable failures."""
+    """Claim channels locally, send after commit without the DB lock, and retain retryable failures.
+
+    Receipts are only queued for mirroring; maintenance delivers them, so no remote write brackets a send."""
     channels = [c for c in action.actions if c in ('wandb_alert', 'webhook')]
-    delivered = bool(channels)
     for channel in channels:
         with store.lock:
             row = store.app.execute('SELECT status,updated FROM action_deliveries WHERE action_id=? AND channel=?', [action.action_id,channel]).fetchone()
             if row and row[0] == 'sent':
                 continue
             if row and row[0] == 'sending' and row[1] > datetime.now(timezone.utc).replace(tzinfo=None)-timedelta(seconds=60):
-                delivered = False
                 continue
             store._commit_write('INSERT OR REPLACE INTO action_deliveries VALUES (?,?,?,?)',
                                 [action.action_id,channel,'sending',now()], [('action_deliveries',(action.action_id,channel))])
-        store._mirror('action_deliveries',(action.action_id,channel))
         ok = False
         try:
             if channel == 'wandb_alert':
@@ -54,10 +53,12 @@ def deliver_notifications(store, action):
         with store.lock:
             store._commit_write('UPDATE action_deliveries SET status=?,updated=? WHERE action_id=? AND channel=?',
                                 ['sent' if ok else 'failed',now(),action.action_id,channel], [('action_deliveries',(action.action_id,channel))])
-        store._mirror('action_deliveries',(action.action_id,channel))
-        delivered = delivered and ok
     with store.lock:
-        current=store.app.execute('SELECT delivered FROM actions WHERE action_id=?',[action.action_id]).fetchone()
+        # Another trigger may have added channels since this snapshot; the stored row decides.
+        current=store.app.execute('SELECT delivered,actions FROM actions WHERE action_id=?',[action.action_id]).fetchone()
+        wanted={c for c in (current[1] if current else action.actions) if c in ('wandb_alert', 'webhook')}
+        sent={r[0] for r in store.app.execute("SELECT channel FROM action_deliveries WHERE action_id=? AND status='sent'",[action.action_id]).fetchall()}
+        delivered=bool(wanted) and wanted<=sent
         if current is not None and bool(current[0]) != delivered:
             store._commit_write('UPDATE actions SET delivered=? WHERE action_id=?',[delivered,action.action_id], [('actions',action.action_id)])
     return delivered
@@ -67,13 +68,13 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
     event_id = (req.event_id if ':' in req.event_id else f'{req.scene_key}:{req.event_id}') if req.event_id else None
     with store.lock:
         existing = store.find_action(req.scene_key, event_id) if event_id else None
-        if existing and existing.delivered:
+        if existing and existing.delivered and not store.app.execute('SELECT 1 FROM action_deliveries WHERE action_id=?', [existing.action_id]).fetchone():
             # Older releases and remote snapshots predate per-channel delivery rows.
             # Their successful channels must not be sent again during migration.
             for channel in existing.actions:
                 if channel in ('wandb_alert','webhook'):
-                    store.app.execute('INSERT INTO action_deliveries VALUES (?,?,?,?) ON CONFLICT DO NOTHING',
-                                      [existing.action_id,channel,'sent',now()])
+                    store._commit_write('INSERT INTO action_deliveries VALUES (?,?,?,?) ON CONFLICT DO NOTHING',
+                                        [existing.action_id,channel,'sent',now()], [('action_deliveries',(existing.action_id,channel))])
         m = store.manifest(req.scene_key)
         event = next((e for e in store.events_in(req.scene_key, m['t0_ms'], m['t1_ms']) if e.event_id == event_id), None)
         if event_id and event is None:
@@ -85,10 +86,13 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
         if 'hazard_zone' in requested and not zone_id:
             if event is None:
                 raise ValueError('hazard_zone requires an event_id')
+            if not capabilities(m)['distance']['ok']:
+                raise ValueError('hazard_zone requires a metric scene')
             t = event.params.get('t_min_ms', event.params.get('near_t0_ms', event.t0_ms))
             positions = actor_points(store, req.scene_key, t, event.actor_ids)
-            if not positions:
-                raise ValueError('Event has no participant positions')
+            # actor_points returns no ids, so a missing actor shows only as a short list.
+            if len(positions) < len(set(event.actor_ids)):
+                raise ValueError('Event lacks positions for some participants')
             polygon = MultiPoint(positions).convex_hull.buffer(3)
             zone_id = 'z_' + uuid4().hex
             zone = Zone(zone_id=zone_id, scene_key=req.scene_key, kind='hazard', polygon_world=list(polygon.exterior.coords),
@@ -121,10 +125,6 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
         except BaseException:
             store.app.execute('ROLLBACK')
             raise
-    if existing and existing.delivered:
-        for channel in existing.actions:
-            if channel in ('wandb_alert','webhook'):
-                store._mirror('action_deliveries',(existing.action_id,channel))
     delivered = deliver_notifications(store, action)
     store._mirror('actions', action_id)
     if zone:

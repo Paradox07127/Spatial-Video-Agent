@@ -75,3 +75,57 @@ def test_trigger_wandb_alert_failure_is_undelivered(store, alerts):
     sys.modules['wandb'].alert = fail
     result = trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['wandb_alert']))
     assert result.delivered is False
+
+
+def test_notification_receipts_are_queued_not_mirrored_inline(store):
+    store.backend = 'vastdb'
+    log = []
+    store.write_vastdb = lambda tables: log.extend(tables)
+    trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['wandb_alert']))
+    assert 'action_deliveries' not in log
+    assert store.rows(store.app, "SELECT count(*) n FROM mirror_outbox WHERE table_name='action_deliveries'")[0]['n'] == 1
+    assert store.retry_mirrors() == 1 and 'action_deliveries' in log
+
+
+def test_delivered_flag_reads_channels_committed_during_send(store, alerts):
+    first = trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['create_review_task']))
+    action = store.list_actions(WH)[0].model_copy(update={'actions': ['create_review_task', 'wandb_alert']})
+    store.app.execute('UPDATE actions SET actions=? WHERE action_id=?', [action.actions, first.action_id])
+    def alert(**kw):
+        store.app.execute('UPDATE actions SET actions=? WHERE action_id=?', [action.actions + ['webhook'], first.action_id])
+    sys.modules['wandb'].alert = alert
+    from app.api.actions import deliver_notifications
+    assert deliver_notifications(store, action) is False
+    assert store.list_actions(WH)[0].delivered is False
+
+
+def test_legacy_sent_migration_skips_actions_with_channel_rows(store, monkeypatch):
+    posts = []
+    class Client:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def post(self, url, **kw):
+            posts.append(url)
+            return types.SimpleNamespace(raise_for_status=lambda: None)
+    monkeypatch.setitem(sys.modules, 'httpx', types.SimpleNamespace(Client=Client))
+    store.settings.webhook_url = 'https://hook.example'
+    first = trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['wandb_alert']))
+    store.app.execute("UPDATE actions SET actions=['wandb_alert','webhook'],delivered=true WHERE action_id=?", [first.action_id])
+    trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['webhook']))
+    assert posts == ['https://hook.example']
+
+
+def test_hazard_zone_requires_a_metric_scene(store):
+    store._manifests[WH] = {**store.manifest(WH), 'metric': False}
+    with pytest.raises(ValueError):
+        trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['hazard_zone']))
+    assert store.list_zones(WH) == [] and store.list_actions(WH) == []
+
+
+def test_hazard_zone_requires_every_event_actor(store, monkeypatch):
+    from app.api import actions
+    monkeypatch.setattr(actions, 'actor_points', lambda *a, **kw: [[1.0, 2.0]])
+    with pytest.raises(ValueError):
+        trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['hazard_zone']))
+    assert store.list_zones(WH) == []

@@ -72,6 +72,14 @@ def nearest(times, t):
     return min(range(len(times)), key=lambda i: abs(times[i] - t)) if times else None
 
 
+def fsync_dir(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 class Store:
     # {'rows': n, 'text' | 'visual': (clip_ids, unit vectors), 'caption': {clip_id: text},
     #  'counts': {clip_id: {label: max boxes in one frame}}} of the live vss-collection; None until loaded
@@ -90,6 +98,8 @@ class Store:
         self.app = duckdb.connect(str(self.app_path))
         self.app.execute((SCHEMAS_DIR / 'app.sql').read_text())
         self.app.execute('CREATE TABLE IF NOT EXISTS mirror_outbox(table_name TEXT, row_key TEXT, generation TEXT, PRIMARY KEY(table_name,row_key))')
+        # Kept apart from mirror_outbox so its three-column rows stay valid.
+        self.app.execute('CREATE TABLE IF NOT EXISTS mirror_retry(table_name TEXT, row_key TEXT, attempts INTEGER, next_retry DOUBLE, PRIMARY KEY(table_name,row_key))')
         self.app.execute('CREATE TABLE IF NOT EXISTS blob_outbox(uri TEXT PRIMARY KEY, local_path TEXT, sha256 TEXT, size BIGINT, attempts INTEGER, next_retry DOUBLE, generation TEXT)')
         self._blob_lock = RLock()
         self.app.execute('CREATE TABLE IF NOT EXISTS action_deliveries(action_id TEXT, channel TEXT, status TEXT, updated TIMESTAMP, PRIMARY KEY(action_id,channel))')
@@ -219,7 +229,7 @@ class Store:
         live = {'rows': len(rows)}
         for branch, column in [('text', 'vectors'), ('visual', 'vectors_visual')]:
             vectors = [(key, np.asarray(r[column], dtype=float)) for key, r in rows if r[column] is not None]
-            vectors = [(key, v / np.linalg.norm(v)) for key, v in vectors if np.linalg.norm(v)]
+            vectors = [(key, v / n) for key, v in vectors if v.shape == (256,) and np.isfinite(n := np.linalg.norm(v)) and n]
             live[branch] = ([key for key, _ in vectors], np.array([v for _, v in vectors]).reshape(len(vectors), 256))
         live['caption'], live['counts'] = {}, {}
         for key, r in rows:
@@ -259,16 +269,22 @@ class Store:
                 self.write_vastdb({name: arrow})
             except Exception:
                 logger.warning('VastDB mirror deferred for %s/%s', name, key)
+                with self.lock:
+                    attempts = (self.app.execute('SELECT attempts FROM mirror_retry WHERE table_name=? AND row_key=?', [name, key]).fetchone() or [0])[0] + 1
+                    self.app.execute('INSERT OR REPLACE INTO mirror_retry VALUES (?,?,?,?)', [name, key, attempts, time.time()+min(300,2**min(attempts,8))])
                 return False
             with self.lock:
                 self.app.execute('DELETE FROM mirror_outbox WHERE table_name=? AND row_key=? AND generation=?', [name, key, pending[0]])
+                self.app.execute('DELETE FROM mirror_retry WHERE table_name=? AND row_key=?', [name, key])
             return True
 
     def retry_mirrors(self, limit=100, *, should_stop=None):
         """Retry durable pending rows, reading their latest local state rather than stale payloads."""
         if self.backend != 'vastdb':
             return 0
-        pending = self.rows(self.app, 'SELECT table_name,row_key FROM mirror_outbox ORDER BY table_name,row_key LIMIT ?', [limit])
+        pending = self.rows(self.app, '''SELECT o.table_name,o.row_key FROM mirror_outbox o
+            LEFT JOIN mirror_retry r USING (table_name,row_key) WHERE coalesce(r.next_retry,0)<=?
+            ORDER BY coalesce(r.next_retry,0),o.table_name,o.row_key LIMIT ?''', [time.time(), limit])
         delivered = 0
         for row in pending:
             if should_stop is not None and should_stop():
@@ -514,6 +530,13 @@ class Store:
             columns = ','.join(f'{name}=?' for name in changes)
             self._commit_write(f'UPDATE agent_runs SET {columns} WHERE run_id=?',
                                [dumps(v) if k in JSON_COLUMNS else v for k, v in changes.items()] + [run_id], [('agent_runs',run_id)])
+            # Only after the new refs commit: other versions of a step's blob are then unreachable.
+            current = {Path(s['blob_ref']['uri']).name for s in changes.get('steps', []) if s['blob_ref']}
+            for name in current:
+                for old in (self.runs_dir / run_id).glob(name.rsplit('_', 1)[0] + '_*.json'):
+                    if old.name not in current:
+                        self.app.execute('DELETE FROM blob_outbox WHERE local_path=?', [str(old.resolve())])
+                        old.unlink(missing_ok=True)
 
     def _steps(self, run_id):
         raw = self.app.execute('SELECT steps FROM agent_runs WHERE run_id=?', [run_id]).fetchone()[0]
@@ -536,7 +559,12 @@ class Store:
             by_id = {e['eid']: e for e in json.loads(raw)}
             for e in evidence:
                 data = e.model_dump(mode='json') if hasattr(e, 'model_dump') else e
-                by_id[data['eid']] = data
+                stored = by_id.setdefault(data['eid'], data)
+                # evidence_level is not part of the eid: a later, more specific level may be attached
+                if {**stored, 'evidence_level': None} != {**data, 'evidence_level': None}:
+                    raise ValueError(f"Evidence {data['eid']} conflicts with a stored value")
+                if data.get('evidence_level') is not None:
+                    by_id[data['eid']] = data
             self._set_run(run_id, evidence=list(by_id.values()))
 
     def set_hits(self, run_id: str, hits: list[MomentCard]) -> None:
@@ -620,7 +648,9 @@ class Store:
         sha = hashlib.sha256(raw).hexdigest()
         relative = Path(run_id) / f'step_{i}_{sha}.json'
         path = self.runs_dir / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.parent.is_dir():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fsync_dir(self.runs_dir)
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as pending:
             tmp = Path(pending.name)
             pending.write(raw)
@@ -628,6 +658,7 @@ class Store:
             os.fsync(pending.fileno())
         try:
             tmp.replace(path)
+            fsync_dir(path.parent)
         finally:
             tmp.unlink(missing_ok=True)
         uri = str(path.resolve())
