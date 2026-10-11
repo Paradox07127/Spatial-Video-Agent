@@ -34,6 +34,7 @@ M_PER_DEG = 111320.0  # metres per degree of latitude
 MAX_GAP_MS = 2000  # CONTRACT §3 max_interpolation_gap_ms
 GPS_SIGMA_M = 3.0  # horizontal error of a fresh fix of a consumer GPS; without a fix it grows by the distance driven
 STOPPED_KMH = 1.0  # below this an unchanged fix is the car standing still, not a receiver without a new fix
+GATE_SIGMAS = 3.0  # a fix farther than distance driven + this many sigma from the last fix is a glitch
 HARD_BRAKE_MPS2 = -3.0  # about 0.3 g, the usual telematics harsh-braking threshold
 
 
@@ -108,18 +109,25 @@ def t1_ms(vid: str) -> int:
 
 def gps_at(o: dict[str, np.ndarray], frames) -> list[dict]:
     """GPS state at each frame (CONTRACT §3). A fix is a valid position that changed since the previous frame, or any
-    valid position while the car stands still. Between fixes at most MAX_GAP_MS apart the position is interpolated;
-    in a longer gap it stays at the last fix (last_known); before the first fix it is the first fix (unknown).
-    sigma_m = GPS_SIGMA_M + metres driven since (or until) the fix the position comes from."""
+    valid position while the car stands still, and lies within GATE_SIGMAS sigma plus the distance driven of the last
+    fix. Between fixes at most MAX_GAP_MS apart the position is interpolated; in a longer gap it stays at the last fix
+    (last_known); before the first fix it is the first fix (unknown).
+    sigma_m = GPS_SIGMA_M + metres driven since (or until) the nearest fix the position comes from."""
     lat, lon, spd = o["lat"], o["lon"], o["speed_kmh"]
     n = len(lat)
     valid = (np.abs(lat - CENTRE[0]) <= MAX_OFF_DEG) & (np.abs(lon - CENTRE[1]) <= MAX_OFF_DEG)
     moved = np.r_[True, (lat[1:] != lat[:-1]) | (lon[1:] != lon[:-1])]
-    fix = valid & (moved | (spd < STOPPED_KMH))
+    driven = np.r_[0.0, np.cumsum(spd / 3.6 / FPS)]  # metres at the start of each frame
+    x, y = xy(lat, lon)
+    fix, ref = np.zeros(n, bool), -1
+    for i in np.flatnonzero(valid & (moved | (spd < STOPPED_KMH))):
+        d = driven[i] - driven[ref]
+        if ref >= 0 and math.hypot(x[i] - x[ref], y[i] - y[ref]) > d + GATE_SIGMAS * (GPS_SIGMA_M + d):
+            continue  # a jump the car cannot have driven: a glitch, and not the reference for the next candidate
+        fix[i], ref = True, i
     idx = np.arange(n)
     last = np.maximum.accumulate(np.where(fix, idx, -1))
     nxt = np.minimum.accumulate(np.where(fix, idx, n)[::-1])[::-1]
-    driven = np.r_[0.0, np.cumsum(spd / 3.6 / FPS)]  # metres at the start of each frame
     out = []
     for f in frames:
         lf, nf = int(last[f]), int(nxt[f])
@@ -129,7 +137,8 @@ def gps_at(o: dict[str, np.ndarray], frames) -> list[dict]:
             state, src, la, lo, gap = "unknown", nf, lat[nf], lon[nf], 0
         elif nf < n and t_ms(nf) - t_ms(lf) <= MAX_GAP_MS:
             w = (f - lf) / (nf - lf)
-            state, src, gap = "interpolated", f, t_ms(f) - t_ms(lf)
+            state, gap = "interpolated", t_ms(f) - t_ms(lf)
+            src = lf if driven[f] - driven[lf] <= driven[nf] - driven[f] else nf
             la, lo = lat[lf] + w * (lat[nf] - lat[lf]), lon[lf] + w * (lon[nf] - lon[lf])
         else:
             state, src, la, lo, gap = "last_known", lf, lat[lf], lon[lf], t_ms(f) - t_ms(lf)
