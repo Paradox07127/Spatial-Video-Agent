@@ -173,7 +173,8 @@ def test_building_on_the_right_is_read_from_facades(store, monkeypatch):
     assert 'situation' not in [c['name'] for c in calls(frames)] and 'search' not in [c['name'] for c in calls(frames)]
     assert frames[-2]['data']['final']=='SUPPORTED'
     answer = answer_of(frames)
-    assert answer['text']=='The building on the right at Queen & Spadina is Fixture Block B.', answer['text']
+    assert answer['text']==('The mapped facade on the right at Queen & Spadina has building name Fixture Block B. '
+                            'This map association does not verify the camera-visible building name or sign.'), answer['text']
     read = {e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data']['evidence']}
     assert [(read[e]['kind'],read[e]['method'],read[e]['value']['bid']) for e in answer['cites']]==[('map','osm_facade','w1002')]
     ui = [f['data'] for f in frames if f['event']=='ui']
@@ -232,9 +233,19 @@ def test_building_label_falls_back_to_poi_then_address(store, monkeypatch):
             return doc
         return asset_json
     monkeypatch.setattr(store, 'asset_json', unnamed([{'name':'Fixture Cafe','kind':'cafe'}], '388 Queen St W'))
-    assert answer_of(ask(store, BUILDING_Q))['text']=='The building on the right at Queen & Spadina is Fixture Cafe.'
+    frames = ask(store, BUILDING_Q)
+    assert answer_of(frames)['text']==('The mapped facade on the right at Queen & Spadina has POI label Fixture Cafe. '
+                                       'This map association does not verify the camera-visible building name or sign.')
+    mapped = next(e for f in frames if f['event']=='tool_result' for e in f['data']['evidence'] if e['method']=='osm_facade')
+    assert mapped['kind']=='map' and mapped['value']['name'] is None
+    assert mapped['value']['pois']==[{'name':'Fixture Cafe','kind':'cafe'}] and mapped['value']['addr']=='388 Queen St W'
     monkeypatch.setattr(store, 'asset_json', unnamed([], '388 Queen St W'))
-    assert answer_of(ask(store, BUILDING_Q))['text']=='The building on the right at Queen & Spadina is 388 Queen St W.'
+    frames = ask(store, BUILDING_Q)
+    assert answer_of(frames)['text']==('The mapped facade on the right at Queen & Spadina has address 388 Queen St W. '
+                                       'This map association does not verify the camera-visible building name or sign.')
+    mapped = next(e for f in frames if f['event']=='tool_result' for e in f['data']['evidence'] if e['method']=='osm_facade')
+    assert mapped['kind']=='map' and mapped['value']['name'] is None
+    assert mapped['value']['pois']==[] and mapped['value']['addr']=='388 Queen St W'
 
 
 def test_building_without_a_facade_on_that_side_is_unresolved(store):
