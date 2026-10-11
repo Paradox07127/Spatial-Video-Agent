@@ -22,7 +22,7 @@ def model(monkeypatch,tmp_path):
     monkeypatch.setattr(vlm,'_json',lambda *a:None)
     monkeypatch.setattr(vlm,'_pick_cam',lambda *a:'ceiling')
     frames=[]
-    monkeypatch.setattr(vlm,'_frames',lambda *a:frames)
+    monkeypatch.setattr(vlm,'_frames',lambda *a,**kw:frames)
     output={'label':'passing','reason':'observed','uncertainty':.2}
     monkeypatch.setattr(vlm,'_chat',lambda *a:output.copy())
     return frames,output
@@ -80,6 +80,9 @@ def test_observe_window_cites_actual_frames_and_cache(model,monkeypatch):
     frames,out=model
     frames.extend([(1000,Image.new('RGB',(2,2))),(1250,Image.new('RGB',(2,2)))])
     out.clear();out['facts']=[{'subject_ids':['P1'],'text':'P1 faces the aisle.','frame_indices':[1],'uncertainty':.2}]
+    monkeypatch.setattr(vlm,'_boxes',lambda *a:{1:[[1000,1,'person',1,1,2,2,.9],[1250,1,'person',1,1,2,2,.9]]})
+    monkeypatch.setattr(vlm,'_observations',lambda *a:[('P1','eye',1,1000,1500)])
+    monkeypatch.setattr(vlm,'_manifest',lambda key:{'workspace':'warehouse','t0_ms':0,'t1_ms':10000,'fps':30,'cams':[{'id':'eye','w':4,'h':4},{'id':'ceiling','w':4,'h':4}], 'assets':{}})
     actor=EntityRef(scene_key=K,entity_id='P1',kind='person')
     a=vlm.observe_window(K,'eye',(1000,1500),[actor])
     assert a['exec_state']=='live' and a['facts'][0]['frame_refs']==[{'cam_id':'eye','t_ms':1250}]

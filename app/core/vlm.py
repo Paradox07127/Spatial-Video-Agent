@@ -542,7 +542,7 @@ def _bands(scene_key: str, m: dict, bid: str, lo: int, hi: int) -> list[tuple[in
 
 
 def _frames(scene_key: str, m: dict, cam: str, targets: list[int], actors: set[str],
-            region: str | None) -> list[tuple[int, Image.Image]]:
+            region: str | None, *, hard_window: tuple[int, int] | None = None) -> list[tuple[int, Image.Image]]:
     """(scene_ms, annotated frame) for the first decoded frame at or after each target time; targets without video are
     skipped. Frames get the SoM boxes of every tracked entity (actors drawn thicker), the column band of a building
     region, and the scene time at the bottom."""
@@ -595,7 +595,8 @@ def _frames(scene_key: str, m: dict, cam: str, targets: list[int], actors: set[s
                 while i < len(targets) and targets[i] <= ms:
                     i += 1
                 if ms - targets[i - 1] < STEP_MS:  # a gap in the video skips the target rather than shifting it
-                    out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands])))
+                    out.append((ms, _annotate(bgr, ms, c, rows, obs, actors, [(region, b) for b in bands],
+                                             window=hard_window, max_age_ms=_sample_age(m) if hard_window else BOX_MATCH_MS)))
         finally:
             cap.release()
             if temporary is not None:
@@ -615,7 +616,49 @@ def _chunk(scene_key: str, uri: str) -> str:
     return _s3().generate_presigned_url("get_object", ExpiresIn=3600, Params={"Bucket": bucket, "Key": key})
 
 
-def _annotate(bgr, ms: int, cam: dict, rows: dict[int, list], obs: list, actors: set[str], bands: list) -> Image.Image:
+def _sample_age(manifest: dict) -> float:
+    fps = manifest.get('fps')
+    return min(BOX_MATCH_MS, 500 / fps) if type(fps) in (int, float) and math.isfinite(fps) and fps > 0 else 0
+
+
+def _frame_bindings(ms: int, cam: dict, rows: dict[int, list], obs: list,
+                    *, window=None, max_age_ms=BOX_MATCH_MS) -> dict:
+    """Only unique, current entity-to-box ownership may produce a SoM label."""
+    bindings = {}
+    for ltid, samples in rows.items():
+        owners = [o for o in obs if o[1] == cam['id'] and o[2] == ltid and o[3] <= ms < o[4]]
+        if len(owners) != 1:
+            continue
+        owner = owners[0]
+        legal = []
+        for row in samples:
+            if len(row) != 8 or row[1] != ltid:
+                continue
+            t = row[0]
+            if type(t) not in (int, float) or not math.isfinite(t) or abs(t-ms) > max_age_ms:
+                continue
+            if window is not None and not window[0] <= t < window[1]:
+                continue
+            sampled_owners = [o for o in obs if o[1] == cam['id'] and o[2] == ltid and o[3] <= t < o[4]]
+            if len(sampled_owners) != 1 or sampled_owners[0] != owner:
+                continue
+            if any(type(v) not in (int,float) or not math.isfinite(v) for v in row[3:8]):
+                continue
+            x1,y1,x2,y2,conf = row[3:8]
+            if not (0 <= x1 < x2 <= cam['w'] and 0 <= y1 < y2 <= cam['h'] and 0 <= conf <= 1):
+                continue
+            legal.append(row)
+        if legal:
+            # Conflicting equally close boxes are not a unique visual binding.
+            distance = min(abs(row[0]-ms) for row in legal)
+            nearest = [row for row in legal if abs(row[0]-ms) == distance]
+            if len({tuple(row) for row in nearest}) == 1:
+                bindings[ltid] = (owner[0], nearest[0])
+    return bindings
+
+
+def _annotate(bgr, ms: int, cam: dict, rows: dict[int, list], obs: list, actors: set[str], bands: list,
+              *, window=None, max_age_ms=BOX_MATCH_MS) -> Image.Image:
     im = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
     im = im.resize((FRAME_W, round(im.height * FRAME_W / im.width)))
     s = FRAME_W / cam["w"]  # boxes are in source pixels
@@ -626,11 +669,7 @@ def _annotate(bgr, ms: int, cam: dict, rows: dict[int, list], obs: list, actors:
         bid, (_, u0, u1) = min(near, key=lambda b: abs(b[1][0] - ms))
         d.rectangle((u0 * s, 0, u1 * s, im.height - 1), outline=(0, 200, 255), width=3)
         d.text((u0 * s + 4, 4), bid, fill=(0, 200, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
-    for ltid, rs in rows.items():
-        r = min(rs, key=lambda r: abs(r[0] - ms))
-        eid = next((o[0] for o in obs if o[2] == ltid and o[3] <= ms <= o[4]), None)
-        if eid is None or abs(r[0] - ms) > BOX_MATCH_MS:
-            continue
+    for eid, r in _frame_bindings(ms, cam, rows, obs, window=window, max_age_ms=max_age_ms).values():
         x1, y1, x2, y2 = (v * s for v in r[3:7])
         d.rectangle((x1, y1, x2, y2), outline=(255, 220, 0), width=3 if eid in actors else 1)
         d.text((x1 + 2, max(0, y1 - 18)), eid, fill=(255, 220, 0), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
@@ -668,15 +707,20 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
     n = min(24,max(1,(hi-lo+STEP_MS-1)//STEP_MS))
     targets = sorted({lo+(hi-lo-1)*i//max(1,n-1) for i in range(n)})
     ids = sorted({a.entity_id for a in actor_refs})
-    frames = [f for f in _frames(scene_key,manifest,cam,targets,set(ids),None) if lo <= f[0] < hi][:24]
+    frames = [f for f in _frames(scene_key,manifest,cam,targets,set(ids),None,hard_window=(lo,hi)) if lo <= f[0] < hi][:24]
     if not frames:
         raise VLMUnavailable(f'{scene_key}/{cam}: no video frames in [{lo}, {hi})')
     frame_refs = [{'cam_id':cam,'t_ms':ms} for ms,_ in frames]
     settings = Settings()
-    revision = 'observation-2'
+    revision = 'observation-3'
+    camera = next(c for c in manifest['cams'] if c['id'] == cam)
+    boxes = _boxes(scene_key,manifest,cam,lo,hi) if manifest['workspace'] != 'street' else {}
+    observations = _observations(scene_key,manifest) if manifest['workspace'] != 'street' else []
+    bound_ids = [sorted({eid for eid,_ in _frame_bindings(ms,camera,boxes,observations,
+                    window=(lo,hi),max_age_ms=_sample_age(manifest)).values()} & set(ids)) for ms,_ in frames]
     image_hashes = [hashlib.sha256(img.tobytes()+str((img.mode,img.size)).encode()).hexdigest() for _,img in frames]
     identity = {'scene':scene_key,'cam':cam,'window':[lo,hi],'actors':ids,'frames':frame_refs,
-                'pixels':image_hashes,'material':_cache_identity(scene_key),'model':settings.vlm_model,
+                'pixels':image_hashes,'bound_subjects':bound_ids,'material':_cache_identity(scene_key),'model':settings.vlm_model,
                 'endpoint':settings.vlm_url,'prompt':revision}
     digest = hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     cache = _cache_dir() / ('observation_'+digest+'.json')
@@ -694,6 +738,10 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
                 raise VLMUnavailable('invalid_model_observation: invalid text')
             if not isinstance(indices,list) or not indices or any(type(v) is not int or not 0 <= v < len(frames) for v in indices):
                 raise VLMUnavailable('invalid_model_observation: invalid frame index')
+            if any(subject not in bound_ids[i] for subject in subjects for i in indices):
+                raise VLMUnavailable('invalid_model_observation: subject lacks a unique current visual binding')
+            if any(subject not in subjects for subject in re.findall(r'\b[PFV]\d+\b',text)):
+                raise VLMUnavailable('invalid_model_observation: text subject is not bound')
             if type(u) not in (int,float) or not math.isfinite(u) or not 0 <= u <= 1:
                 raise VLMUnavailable('invalid_model_observation: invalid uncertainty')
             # The model may describe visible motion, never smuggle metric claims
@@ -724,7 +772,9 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
             'frame_indices':{'type':'array','items':{'type':'integer','minimum':0,'maximum':len(frames)-1},'minItems':1,'maxItems':24},
             'uncertainty':{'type':'number','minimum':0,'maximum':1}})}})
         prompt=(f'Observe only the visible state, motion and interaction in these {len(frames)} frames from camera {cam}. '
-                f'Allowed tracked subjects are {ids}; use an empty subject_ids list for a scene observation. '
+                f'Requested tracked subjects are {ids}. The visible bound subjects per frame_index are {bound_ids}. '
+                'A subject_ids reference must be bound in every cited frame. Never name an unbound subject in text. '
+                'Use an empty subject_ids list and anonymous descriptions for scene observations or unseen requested actors. '
                 'Provide at most six atomic facts, each citing frame_index integers printed on actual input frames. '
                 'Describe what is visible, not inferred intent, blame, hidden objects, numeric distance, count, speed or time. Use non-quantified singular or plural descriptions; do not spell out counts such as one person, two vehicles, several people, or many cars. '
                 'An overlay ID is a reference, not proof of real-world identity. Empty facts is valid when evidence is insufficient. '
