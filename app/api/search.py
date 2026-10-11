@@ -1,17 +1,19 @@
 """POST /api/search: semantic candidates refined to detection timestamps."""
 from __future__ import annotations
 
-import os
+import hashlib
 import re
 import time
 from typing import Annotated, get_args
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from shapely.geometry import Polygon
 
 from app.core import embed, geo, llm, street
 from app.core.investigation_context import apply_constraints
 from app.core.models import EntityRef, Evidence, MomentCard, ObservationRef, Scope, SearchFilters, Tag, Workspace, level_of, tag_of
+from app.settings import Settings
 
 router = APIRouter()
 LEVEL_QUOTA = 4
@@ -21,35 +23,64 @@ class SearchRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     q: str = Field(min_length=1)
     workspace: Workspace | None = None
-    scene_id: str | None = Field(default=None, pattern=r'^(wh|fl|st)/[a-z0-9_]+/[a-z0-9_-]+$')
+    scene_id: str | None = Field(default=None, pattern=r'^((wh|fl)/[a-z0-9_]+/[a-z0-9_-]+|st/[a-z0-9_]+/[A-Za-z0-9_-]+)$')
     scene_key: str | None = Field(default=None, pattern=r'^[a-z0-9_-]+$')
-    t_range: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] | None = None
-    t_ms: Annotated[int, Field(ge=0)] | None = None
+    t_range: tuple[Annotated[int, Field(strict=True,ge=0)], Annotated[int, Field(strict=True,ge=0)]] | None = None
+    t_ms: Annotated[int, Field(strict=True,ge=0)] | None = None
     cam_id: Annotated[str,Field(strict=True,min_length=1,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')] | None = None
     selection: list[str] | None = None
     place: str | None = None
-    zone: list[tuple[float, float]] | None = Field(default=None, min_length=3)
-    k: int = Field(default=10, ge=1, le=50)
+    zone: list[tuple[Annotated[float, Field(strict=True,allow_inf_nan=False)], Annotated[float, Field(strict=True,allow_inf_nan=False)]]] | None = Field(default=None,min_length=3)
+    k: int = Field(default=10, strict=True, ge=1, le=50)
     # corpus searches every workspace and ignores workspace and scene; at most min(LEVEL_QUOTA, k) moments per level
     scope: Scope = 'scene'
-    sources: list[Tag] | None = None
+    sources: list[Tag] | None = Field(default=None,min_length=1)
 
     @model_validator(mode='after')
     def workspace_for_scene_scope(self):
         if self.scope == 'scene' and self.workspace is None and not self.sources:
             raise ValueError('workspace is required unless scope is corpus')
+        if self.t_range and self.t_range[0]>=self.t_range[1]:
+            raise ValueError('t_range must have increasing bounds')
+        if self.scene_key and self.scene_id and self.scene_key!=self.scene_id.replace('/','-').lower():
+            raise ValueError('scene_key must match scene_id')
+        if self.sources and len(set(self.sources))!=len(self.sources):
+            raise ValueError('sources must be unique')
+        if self.zone:
+            polygon=Polygon(self.zone)
+            if not polygon.is_valid or polygon.area<=0:
+                raise ValueError('zone must be a valid polygon with positive area')
         return self
 
 
 def event_types(q):
     text = q.lower()
-    for needles, types in [(['dodge','yield','give way','step back'], {'dodge'}),
-                           (['cross'], {'ped_crossing'}),
-                           (['brake','braking'], {'hard_brake'}),
-                           (['near miss','how far','how close','how many meters','distance','gap'], {'near_miss'})]:
-        if any(n in text for n in needles):
+    for pattern, types in [(r'\b(dodg(?:e[sd]?|ing)|yield(?:s|ed|ing)?|give way|step back)\b', {'dodge'}),
+                           (r'\bcross(?:es|ed|ings?)?\b', {'ped_crossing'}),
+                           (r'\bbrak(?:e[sd]?|ing)\b', {'hard_brake'}),
+                           (r'\bnear miss\b', {'near_miss'})]:
+        if re.search(pattern,text):
             return types
     return None
+
+
+def bind_sources(store, q, parsed, *, sources=None):
+    named=set(re.findall(r'(?<![A-Za-z0-9_])(?:wh|fl|st)-[a-z0-9_]+(?:-[a-z0-9_]+)*(?![A-Za-z0-9_])',q.lower()))
+    if not named:
+        return parsed,None
+    if len(named)!=1 or parsed.scene_key and named!={parsed.scene_key}:
+        return parsed,'conflicting_source_constraints'
+    key=next(iter(named))
+    try:
+        manifest=store.manifest(key)
+    except FileNotFoundError:
+        return parsed,'unknown_source_constraint'
+    if manifest['workspace']!=parsed.workspace:
+        return parsed,'conflicting_workspace_constraints'
+    tags=sources if sources is not None else parsed.sources
+    if tags and tag_of(manifest) not in tags:
+        return parsed,'conflicting_source_constraints'
+    return parsed.model_copy(update={'scene_key':key,'scope':'scene'}),None
 
 
 def box_rows(store, key, cam, t0, t1, chunks=None):
@@ -79,7 +110,9 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         context.setdefault('workspace','warehouse')
     exec_state = ('live' if parsed is None and llm.needs_llm(request.q,llm.rule_parse(request.q,context)) else 'precomputed')
     parsed = parsed or llm.parse(request.q, context)
+    parsed, source_reason = bind_sources(store,request.q,parsed,sources=request.sources)
     parsed, constraint_reason = apply_constraints(request.q,context,parsed)
+    constraint_reason = constraint_reason or source_reason
     corpus = parsed.scope=='corpus'
     if corpus:
         parsed = parsed.model_copy(update={'scope':'corpus'})
@@ -116,7 +149,9 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         filters.scene_keys = list(dict.fromkeys(w[0] for w in windows))
     # site (vss given) always embeds; without an embedding service (local dev) the search is unranked over the filtered clips.
     # VSS /search is never awaited here: the store ranks our clips and the live rows directly
-    vectors = embed.embed_text(request.q) if vss is not None or os.environ.get('EMBED_URL') else None
+    query = ' '.join(request.q.lower().split())
+    query_hash = hashlib.sha256(query.encode()).hexdigest()
+    vectors = embed.embed_text(query) if vss is not None or Settings().embed_url else None
     if vectors is not None:
         exec_state = 'live'
     ranking_state = exec_state
@@ -187,6 +222,10 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 continue
             entities = store.entities(clip.scene_key)
             bound = explicit or (event.actor_ids if event else [])
+            if not bound and event is None:
+                bound = [e.entity_id for e in entities if e.kind in parsed.entities and
+                         any(o['cam_id']==clip.cam_id and o['local_track_id']==r[1] and o['t0_ms']<=r[0]<o['t1_ms']
+                             for o in e.observations for r in rows if r[0]==candidate_t)]
             participant_rows = [r for r in rows if not bound or any(e.entity_id in bound and
                                 any(o['cam_id']==clip.cam_id and o['local_track_id']==r[1] and o['t0_ms']<=r[0]<o['t1_ms']
                                     for o in e.observations) for e in entities)]
@@ -199,7 +238,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             actors = [EntityRef(scene_key=clip.scene_key,entity_id=e.entity_id,kind=e.kind) for e in entities
                       if e.entity_id in bound]
             if parsed.zone:
-                from shapely.geometry import Point, Polygon
+                from shapely.geometry import Point
                 moment = store.moment(clip.scene_key,t_ms)
                 points = [p.root_world for p in moment.persons if not bound or p.entity_id in bound]
                 points += [(f.x,f.y) for f in moment.forklift if not bound or f.entity_id in bound]
@@ -209,7 +248,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             rank_score = sum(1/(60+r) for r in [clip.rank_text,clip.rank_visual,*live.values()] if r is not None)
             ev = Evidence.create(scene_key=clip.scene_key,cam_id=clip.cam_id,t0_ms=t0,t1_ms=t1,observation_ids=[],
                                  analysis_rev=manifest['analysis_rev'],kind='model',method='caption_embed1_rrf',
-                                 params={'clip_id':clip.clip_id},value={'rank_text':clip.rank_text,'rank_visual':clip.rank_visual,
+                                 params={'clip_id':clip.clip_id,'query_hash':query_hash},value={'rank_text':clip.rank_text,'rank_visual':clip.rank_visual,
                                                                       **live,'rrf':rank_score})
             evidence.append(ev)
             eids = [ev.eid]
@@ -238,7 +277,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                                                         't_s':related.t0_ms/1000,'source':related.source,'actor_ids':related.actor_ids,'params':related.params,
                                                         **({'distance_to':'forklift_footprint','distance_from':'person_root'} if related.type=='near_miss' else {})})
                     evidence.append(related_ev); eids.append(related_ev.eid)
-            group_key = (clip.scene_key,t_ms)
+            group_key = (clip.scene_key,t_ms,tuple(sorted(bound)),event.event_id if event else None)
             if group_key in grouped:
                 card = grouped[group_key]
                 card.cams = list(dict.fromkeys([*card.cams,clip.cam_id]))
@@ -249,8 +288,12 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             thumb = thumbnail(store,clip.scene_key,primary,t_ms)
             if thumb is None:
                 gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
-            grouped[group_key] = MomentCard(moment_id=f'm_{clip.scene_key}_{t_ms}',scene_key=clip.scene_key,t0_ms=t_ms,
-                                            t1_ms=min(t_ms+1000,manifest['t1_ms']),cams=[clip.cam_id],primary_cam=primary,
+            end = min(t_ms+1000,t1)
+            if windows is not None:
+                end = min(end,max(b for trip,a,b in windows if trip==clip.scene_key and a<=t_ms<b))
+            candidate_hash = hashlib.sha256(repr(group_key[2:]).encode()).hexdigest()[:12]
+            grouped[group_key] = MomentCard(moment_id=f'm_{clip.scene_key}_{t_ms}_{candidate_hash}',scene_key=clip.scene_key,t0_ms=t_ms,
+                                            t1_ms=end,cams=[clip.cam_id],primary_cam=primary,
                                             actor_refs=actors,evidence_ids=eids,score=rank_score,
                                             why=[f'caption rank {clip.rank_text}; visual rank {clip.rank_visual}',
                                                  'detection timestamp verified'],
@@ -264,7 +307,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         for clip in sorted(street_clips,key=lambda c:(-street.rrf(c),c.clip_id)):
             if len(street_cards)==quota:
                 break
-            card, card_evidence = street.moment(store,clip,backend=backend,vss=vss)
+            card, card_evidence = street.moment(store,clip,backend=backend,vss=vss,query_hash=query_hash)
             if ranking_state=='live':
                 card.exec_state = 'live'
             if card.exec_state=='live':

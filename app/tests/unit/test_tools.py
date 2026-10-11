@@ -17,6 +17,124 @@ def test_metric_and_tools(tmp_path, monkeypatch):
     assert r.envelope.output == {'status': 'UNRESOLVED', 'reason': 'scene_not_metric'}
 
 
+def test_bound_ego_distance_clamps_before_reading_chunks(tmp_path, monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.asset_json
+    reads=[]
+    def asset(key,path):
+        if path.startswith('ego/'):
+            reads.append(path)
+            assert path=='ego/00000.json', 'Read beyond the manifest interval'
+        return original(key,path)
+    monkeypatch.setattr(s,'asset_json',asset)
+    target=EntityRef(scene_key=FL,entity_id='P1',kind='person')
+    r=tools.bound_ego_distance(s,FL,(3001,2**53-1),target)
+    assert reads==['ego/00000.json']
+    assert r.envelope.input_range.t1_ms==10000 and r.envelope.output['t_ms']==7900
+    assert r.envelope.output['value']==pytest.approx(5.67,abs=.01)
+
+
+@pytest.mark.parametrize('interval',[(10000,2**53-1),(0,0)])
+def test_bound_ego_distance_empty_interval_reads_no_chunks(tmp_path,monkeypatch,interval):
+    s=fixture_store(tmp_path)
+    def read(*a): raise AssertionError('Empty interval must not scan')
+    monkeypatch.setattr(tools,'remaining',read)
+    r=tools.bound_ego_distance(s,FL,interval,EntityRef(scene_key=FL,entity_id='P1',kind='person'))
+    assert not r.evidence and r.envelope.output['status']=='UNRESOLVED'
+
+
+def test_bound_ego_distance_without_directory_does_not_scan(tmp_path,monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.manifest
+    monkeypatch.setattr(s,'manifest',lambda k:{**original(k),'assets':{}})
+    def scan(*a): raise AssertionError('Missing directory must not scan')
+    monkeypatch.setattr(tools,'remaining',scan)
+    r=tools.bound_ego_distance(s,FL,(3001,2**53-1),EntityRef(scene_key=FL,entity_id='P1',kind='person'))
+    assert not r.evidence and r.envelope.output['status']=='UNRESOLVED'
+
+
+def test_visibility_eids_bind_sample_time_and_point(tmp_path):
+    s=fixture_store(tmp_path)
+    a=tools.visibility(s,WH,0,'P1').evidence[0]
+    b=tools.visibility(s,WH,200,'P1').evidence[0]
+    assert a.value!=b.value and a.eid!=b.eid
+    c=tools.visibility(s,WH,0,(1.,1.)).evidence[0]
+    d=tools.visibility(s,WH,0,(2.,1.)).evidence[0]
+    assert c.eid!=d.eid
+    assert a.eid==tools.visibility(s,WH,0,'P1').evidence[0].eid
+
+
+def test_events_eids_bind_zone(tmp_path,monkeypatch):
+    from app.api import scenes
+    s=fixture_store(tmp_path)
+    monkeypatch.setattr(scenes,'event_zone_time',lambda s,k,e,t0,t1,zone:4600 if zone.bounds[0]==0 else 4700)
+    a=tools.events(s,WH,4300,5900,[(0,0),(10,0),(10,10),(0,10)])
+    b=tools.events(s,WH,4300,5900,[(1,0),(10,0),(10,10),(1,10)])
+    assert a.evidence and b.evidence
+    assert {e.eid for e in a.evidence}.isdisjoint(e.eid for e in b.evidence)
+
+
+def test_visibility_unknown_states_reduce_coverage(tmp_path):
+    s=fixture_store(tmp_path)
+    r=tools.visibility(s,WH,200,(100.,100.))
+    assert r.envelope.coverage==0 and r.envelope.quality!='ok'
+    assert {g[2] for g in r.envelope.gaps}=={'unknown'}
+    r=tools.visibility(s,WH,6500,(1.,1.),cam='eye_00')
+    assert r.envelope.coverage==0 and {g[2] for g in r.envelope.gaps}=={'no_video'}
+
+
+@pytest.mark.parametrize('operand,change',[('a',{'scene_key':'wh-other'}),('b',{'scene_key':'wh-other'}),
+                                         ('a',{'kind':'vehicle'}),('b',{'kind':'person'})])
+def test_measure_rejects_wrong_scene_and_kind(tmp_path,operand,change):
+    s=fixture_store(tmp_path)
+    a=EntityRef(scene_key=WH,entity_id='P1',kind='person')
+    b=EntityRef(scene_key=WH,entity_id='F1',kind='forklift')
+    if operand=='a': a=a.model_copy(update=change)
+    else: b=b.model_copy(update=change)
+    r=tools.measure(s,WH,5000,a,b,'distance')
+    assert not r.evidence and r.envelope.output['status']=='UNRESOLVED'
+
+
+def test_measure_requires_both_operands_in_requested_camera(tmp_path,monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.asset_json
+    def asset(key,path):
+        d=original(key,path)
+        if path.startswith('boxes/ceiling_04/'):
+            d['rows']=[r for r in d['rows'] if r[1]!=6]
+        return d
+    monkeypatch.setattr(s,'asset_json',asset)
+    a=EntityRef(scene_key=WH,entity_id='P1',kind='person')
+    b=EntityRef(scene_key=WH,entity_id='F1',kind='forklift')
+    r=tools.measure(s,WH,5000,a,b,'distance',cam='ceiling_04')
+    assert not r.evidence and r.envelope.output['status']=='UNRESOLVED'
+    assert tools.measure(s,WH,5000,a,b,'distance').evidence
+
+
+def test_ego_fallback_has_no_camera_binding(tmp_path,monkeypatch):
+    s=fixture_store(tmp_path)
+    monkeypatch.setattr(tools.live_measure,'measure',lambda *a,**kw:{'value_m':None,'reason':'offline'})
+    r=tools.ego_distance(s,FL,'dashcam',3000,4000,rows=[])
+    assert r.evidence[0].cam_id is None
+
+
+def test_synced_thumbnail_reports_its_own_time(tmp_path):
+    s=fixture_store(tmp_path)
+    r=tools.get_synced_views(s,WH,4600,cam='ceiling_04')
+    frame,=r.envelope.output['cams']
+    assert frame['frame_url'].endswith('/00004.jpg') and frame['media_pts_ms']==4000-frame['offset_ms']
+    assert r.envelope.pts_read==1
+
+
+def test_ground_position_capability_matches_tool_requirements(tmp_path):
+    from app.core.models import capabilities
+    s=fixture_store(tmp_path)
+    m=s.manifest(WH)
+    assert capabilities(m)['ground_position']['ok']
+    assert capabilities({**m,'metric':False})['ground_position']['reason']=='scene_not_metric'
+    assert not capabilities(s.manifest(FL))['ground_position']['ok']
+
+
 def test_c2_prefix_and_circuit(tmp_path, monkeypatch):
     s = fixture_store(tmp_path)
     install_vlm(monkeypatch)

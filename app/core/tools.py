@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import bisect
+import hashlib
+import json
 import logging
 import math
 import time
@@ -70,7 +72,7 @@ def get_synced_views(store, scene_key, t_ms, *, cam=None):
         if url is None:
             gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
         frames.append({'id':c['id'],'frame_url':url,
-                       'media_pts_ms':t_ms-c['offset_ms'],'offset_ms':c['offset_ms'],
+                       'media_pts_ms':max(0,t_ms//1000*1000-c['offset_ms']) if url else None,'offset_ms':c['offset_ms'],
                        'sync_method':c['sync_method'],'sync_residual_ms':c['sync_residual_ms'],'boxes':rows})
         obs.extend(ObservationRef(scene_key=scene_key,cam_id=c['id'],local_track_id=r[1],t_ms=r[0]) for r in rows)
     ev = evidence(store,scene_key,cam,t_ms,t_ms+1,'measure','synced_views',{'cams':frames},observations=obs)
@@ -118,8 +120,13 @@ def visibility(store, scene_key, t_ms, target, *, cam=None):
     if person:
         output['person'] = {'observed_in':person.observed_in,'geometric':[c for c,s in states.items() if s=='visible']}
     t0 = t_ms//1000*1000
-    ev = evidence(store,scene_key,cam,t0,t0+1000,'measure','floor_cell_visibility',output,params={'target':target})
-    return result(scene_key,t0,t0+1000,output,cam=cam,evidence=[ev],pts_read=1,coverage=1)
+    ev = evidence(store,scene_key,cam,t0,t0+1000,'measure','floor_cell_visibility',output,
+                  params={'target':target,'t_ms':t_ms,'point':point})
+    sampled = [states.get(cam,'unknown')] if cam else list(states.values())
+    gaps = [(t0,t0+1000,s) for s in dict.fromkeys(sampled) if s not in {'visible','occluded'}]
+    coverage = sum(s in {'visible','occluded'} for s in sampled)/len(sampled) if sampled else 0
+    return result(scene_key,t0,t0+1000,output,cam=cam,evidence=[ev],pts_read=1,coverage=coverage,
+                  gaps=gaps,quality='ok' if coverage==1 else 'partial' if coverage else 'unknown')
 
 
 def blind_presence(store, scene_key, cam, t0_ms, t1_ms, *, selection=None, zone=None):
@@ -208,10 +215,18 @@ def blind_presence(store, scene_key, cam, t0_ms, t1_ms, *, selection=None, zone=
 
 def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     m = store.manifest(scene_key)
+    operands = [a,b] if kind=='distance' else [a]
+    if any(not hasattr(e,'entity_id') or e.scene_key!=scene_key or
+           not e.entity_id.startswith({'person':'P','forklift':'F','vehicle':'V'}[e.kind]) for e in operands):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'invalid_entity_ref'},cam=cam)
     if m['workspace']=='street':
         return no_capability(m,{'distance':'distance','in_zone':'ground_position'}.get(kind,'speed'),t_ms)
     if not m['metric']:
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'scene_not_metric'})
+    entities = store.entities(scene_key)
+    known = {e.entity_id:e.kind for e in entities}
+    if any(known.get(e.entity_id)!=e.kind for e in operands):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'invalid_entity_ref'},cam=cam)
     points = {}
     if m['workspace']=='warehouse':
         moment = store.moment(scene_key,t_ms)
@@ -228,7 +243,9 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     pb = points.get(b.entity_id) if hasattr(b,'entity_id') else None
     if pa is None or (kind=='distance' and pb is None):
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_measurement'},gaps=[(t_ms,t_ms+1,'missing_measurement')])
-    if cam and capabilities(m)['blind_spot']['ok'] and pa.get('seen_by') is not None and (cam not in pa['seen_by'] or cam not in pa['observed_in']):
+    if cam and capabilities(m)['blind_spot']['ok'] and any(
+            p.get('seen_by') is not None and (cam not in p['seen_by'] or cam not in p['observed_in'])
+            for p in ([pa,pb] if kind=='distance' else [pa])):
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'occluded'},cam=cam,gaps=[(t_ms,t_ms+1,'occluded')])
     if kind=='distance':
         value, sigma = geometry.distance(pa,pb); unit = 'm'; method = 'ground_distance'
@@ -246,9 +263,10 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     else:
         return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_speed'})
     observations = []
+    camera_bound = set()
     from app.api.search import box_rows
     tolerance = round(1000/m['fps']/2)+1
-    for entity in store.entities(scene_key):
+    for entity in entities:
         if entity.entity_id not in [a.entity_id, getattr(b,'entity_id',None)]:
             continue
         for observation in entity.observations:
@@ -265,6 +283,11 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
                 row = min(matches,key=lambda r:abs(r[0]-t_ms))
                 observations.append(ObservationRef(scene_key=scene_key,cam_id=observation['cam_id'],
                                     local_track_id=observation['local_track_id'],t_ms=row[0]))
+                if observation['cam_id']==cam:
+                    camera_bound.add(entity.entity_id)
+    if cam and any(e.entity_id not in camera_bound for e in operands):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'occluded'},cam=cam,
+                      gaps=[(t_ms,t_ms+1,'occluded')])
     ev = evidence(store,scene_key,cam,t_ms,t_ms+1,'measure',method,value,observations=observations,
                   unit=unit,sigma=sigma,params={'a':a.entity_id,'b':getattr(b,'entity_id',b),'kind':kind,'observation_role':'aligned_detection_not_position_inputs',
                   **({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point',
@@ -343,7 +366,7 @@ def ego_distance(store, scene_key, cam, t0_ms, t1_ms, *, rows):
         return result(scene_key,t0_ms,t1_ms,{**output,'status':'UNRESOLVED','reason':live['reason']},cam=cam,
                       gaps=[(t0_ms,t1_ms,'missing_measurement')],started=started)
     t = precomputed['t_ms']
-    ev = evidence(store,scene_key,cam,t,t+1,'measure','ego_distance',precomputed['value_m'],unit='m',sigma=precomputed['sigma_m'],
+    ev = evidence(store,scene_key,None,t,t+1,'measure','ego_distance',precomputed['value_m'],unit='m',sigma=precomputed['sigma_m'],
                   params={'source':'ego_frames','entity_id':precomputed['entity_id']})
     return result(scene_key,t0_ms,t1_ms,{**output,'value':precomputed['value_m'],'sigma':precomputed['sigma_m'],'t_ms':t,
                                           'reason':live['reason']},cam=cam,evidence=[ev],pts_read=len(peds),coverage=None,started=started)
@@ -353,15 +376,21 @@ def bound_ego_distance(store, scene_key, t_range, target, *, zone=None):
     """Distance to one named published pedestrian, never the anonymous live nearest proxy."""
     m=store.manifest(scene_key)
     lo,hi=t_range
+    lo,hi=min(max(lo,m['t0_ms']),m['t1_ms']),max(min(hi,m['t1_ms']),m['t0_ms'])
+    if lo>=hi:
+        return result(scene_key,lo,lo,{'status':'UNRESOLVED','reason':'missing_bound_ego_sample'},coverage=0)
     if m['workspace']!='fleet' or not m['metric'] or target.kind!='person':
         return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'unsupported_bound_ego_measurement'})
     directory=m['assets'].get('ego_dir')
+    if not directory:
+        return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'missing_bound_ego_sample'},coverage=0,
+                      gaps=[(lo,hi,'missing_bound_ego_sample')])
     candidates=[]
     area=Polygon(zone) if zone else None
     for chunk in range(lo//10000,(hi-1)//10000+1):
         remaining(30)
         try:
-            frames=store.asset_json(scene_key,f'{directory}/{chunk:05d}.json')['frames'] if directory else []
+            frames=store.asset_json(scene_key,f'{directory}/{chunk:05d}.json')['frames']
         except FileNotFoundError:
             frames=[]
         for frame in frames:
@@ -610,8 +639,9 @@ def events(store, scene_key, t0_ms, t1_ms, zone=None, *, selection=None):
                 continue
             value['params'] = {**value['params'],'zone_t_ms':t}
         output.append(value)
+    zone_hash=hashlib.sha256(json.dumps(zone,separators=(',',':')).encode()).hexdigest()
     evs = [evidence(store,scene_key,None,max(t0_ms,e['t0_ms']),min(t1_ms,e['t1_ms']),'model' if e['source']=='model' else 'measure','event_'+e['source'],e,
-                    params={'event_id':e['event_id']}) for e in output]
+                    params={'event_id':e['event_id'],'zone_hash':zone_hash}) for e in output]
     return result(scene_key,t0_ms,t1_ms,output,evidence=evs,pts_read=len(found))
 
 

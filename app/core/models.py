@@ -69,7 +69,7 @@ def capabilities(manifest: dict) -> dict[str, dict]:
     spatial = "no_geometry" if street else None if manifest["metric"] else "scene_not_metric"
     reasons = {
         "distance": spatial,
-        "ground_position": "no_geometry" if street else None,
+        "ground_position": spatial,
         "map": "no_geometry" if street else None,
         "blind_spot": "no_geometry" if street else None if "visibility" in a else "no_visibility",
         "tracks": "no_track_ids" if street else None,

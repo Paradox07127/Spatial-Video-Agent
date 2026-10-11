@@ -283,13 +283,14 @@ def thumb(store, scene_key: str, cam: str, t_ms: int) -> Path:
     return path
 
 
-def moment(store, clip: Clip, *, backend: str, vss=None) -> tuple[MomentCard, list[Evidence]]:
+def moment(store, clip: Clip, *, backend: str, vss=None, query_hash=None) -> tuple[MomentCard, list[Evidence]]:
     """One 5 s segment: caption_embed1_rrf (model) + yolo_coco_2d (measure, max boxes per label in one frame)."""
     m = store.manifest(clip.scene_key)
     score = rrf(clip)
     live = {k: v for k, v in [('rank_vss_text', clip.rank_vss_text), ('rank_vss_visual', clip.rank_vss_visual)] if v is not None}
     caption = Evidence.create(scene_key=clip.scene_key, cam_id=clip.cam_id, t0_ms=clip.t0_ms, t1_ms=clip.t1_ms, observation_ids=[],
-                              analysis_rev=m['analysis_rev'], kind='model', method='caption_embed1_rrf', params={'clip_id': clip.clip_id},
+                              analysis_rev=m['analysis_rev'], kind='model', method='caption_embed1_rrf',
+                              params={'clip_id': clip.clip_id, **({'query_hash': query_hash} if query_hash else {})},
                               value={'rank_text': clip.rank_text, 'rank_visual': clip.rank_visual, **live, 'rrf': score})
     dets = detections(store, clip.scene_key, clip.cam_id, clip.t0_ms, clip.t1_ms)
     counts = max_per_frame(dets['rows'])

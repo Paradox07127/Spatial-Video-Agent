@@ -43,7 +43,8 @@ def test_capabilities():
     ss = manifest(WH_KEY)
     ss["metric"] = False
     del ss["assets"]["visibility"]
-    assert _not_ok(ss) == {"distance": "scene_not_metric", "blind_spot": "no_visibility", "speed": "no_gps"}
+    assert _not_ok(ss) == {"distance": "scene_not_metric", "ground_position": "scene_not_metric", "blind_spot": "no_visibility",
+                           "speed": "no_gps"}
     gps_only = _not_ok(manifest(FL2_KEY))
     assert gps_only["distance"] == "scene_not_metric" and gps_only["boxes_2d"] is None
     for key in (WH_KEY, FL_KEY, FL2_KEY, ST_KEY):

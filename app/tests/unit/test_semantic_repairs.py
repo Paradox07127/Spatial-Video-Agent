@@ -29,6 +29,27 @@ def final(frames):
     return next(f['data']['final'] for f in frames if f['event']=='status')
 
 
+def test_link_across_named_cameras_is_supported(store):
+    frames=ask(store,'Link P1 across ceiling_04 and eye_00')
+    claims=[f['data'] for f in frames if f['event']=='claim']
+    assert any(p['operator']=='same_entity' and p['status']=='supported' for c in claims for p in c['predicates'])
+
+
+def test_scalar_distance_at_requested_instant_is_supported(store):
+    frames=ask(store,'How far is the worker from the forklift at 2 seconds?')
+    assert final(frames)=='SUPPORTED'
+    evidence=[e for f in frames if f['event']=='tool_result' for e in f['data'].get('evidence',[])]
+    assert any(e['method']=='ground_distance' and e['t0_ms']==2000 for e in evidence)
+
+
+def test_crossing_inspection_stays_inside_requested_instant(store):
+    frames=ask(store,'Did the pedestrian cross at 4 seconds?','fleet',scene_key='fl-pie-fixture-01')
+    calls=[f['data'] for f in frames if f['event']=='tool_call' and f['data']['name']=='ego_distance']
+    assert calls and all(c['args']['t1_ms']==4001 for c in calls)
+    evidence=[e for f in frames if f['event']=='tool_result' for e in f['data'].get('evidence',[])]
+    assert all(4000<=e['t0_ms']<e['t1_ms']<=4001 for e in evidence if e['method']=='ego_distance')
+
+
 @pytest.mark.parametrize('q,condition',[
     ('Did the worker not dodge the forklift?','negation'),
     ('Did every worker dodge the forklift?','exhaustive_coverage'),

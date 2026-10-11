@@ -63,10 +63,112 @@ def test_english_question_types(q, workspace, template, entities, place, t_range
     ('Did the pedestrian cross?', {'ped_crossing'}),
     ('Was there hard braking?', {'hard_brake'}),
     ('Was there a near miss?', {'near_miss'}),
-    ('How far was the worker from the forklift?', {'near_miss'}),
+    ('How far was the worker from the forklift?', None),
 ])
 def test_english_event_keywords(q, expected):
     assert event_types(q)==expected
+
+
+@pytest.mark.parametrize('q,expected',[
+    ('Link P1 across cameras',None),('Link P1 across ceiling_04 and eye_00',None),
+    ('How far is the worker from the forklift at 2 seconds?',None),
+    ('What is the distance to the worker?',None),('How close is P1 to F1?',None),
+    ('Show pedestrian crossings',{'ped_crossing'}),('Did the pedestrian cross?',{'ped_crossing'}),
+    ('The pedestrian crossed',{'ped_crossing'}),('Find a dodger',None),('Unbraked car',None)])
+def test_event_filters_use_words_and_leave_scalar_questions_unfiltered(q,expected):
+    assert event_types(q)==expected
+
+
+def test_scalar_question_retrieves_before_near_miss(tmp_path):
+    s=fixture_store(tmp_path)
+    parsed,r=retrieve(s,SearchRequest(q='How far is the worker from the forklift at 2 seconds?',workspace='warehouse'))
+    assert parsed.t_range==(2000,2001)
+    assert r.envelope.output['moments'] and all(m['t0_ms']==2000 for m in r.envelope.output['moments'])
+
+
+@pytest.mark.parametrize('q,context,reason',[
+    ('Find P1 in wh-nonexistent-99',{},'unknown_source_constraint'),
+    ('Find P1 in wh-other',{'scene_key':'wh-sdg-fixture-01'},'conflicting_source_constraints'),
+    ('Find P1 in fl-pie-fixture-01',{},'conflicting_workspace_constraints'),
+    ('Find P1 in wh-sdg-fixture-01',{'sources':['fleet']},'conflicting_source_constraints')])
+def test_search_binds_named_source_constraints(tmp_path,q,context,reason):
+    s=fixture_store(tmp_path)
+    _,r=retrieve(s,SearchRequest(q=q,workspace='warehouse',**context))
+    assert r.envelope.output['moments']==[] and r.envelope.output['reason']==reason
+
+
+def test_search_binds_known_named_source(tmp_path):
+    s=fixture_store(tmp_path)
+    parsed,r=retrieve(s,SearchRequest(q='Find P1 in wh-sdg-fixture-01',workspace='warehouse'))
+    assert parsed.scene_key=='wh-sdg-fixture-01' and r.envelope.output['moments']
+
+
+@pytest.mark.parametrize('context',[
+    {'scene_id':'wh/sdg/other','scene_key':'wh-sdg-fixture-01'},
+    {'t_ms':True},{'t_range':(True,5)},{'t_range':(5,5)},{'t_range':(10,5)},
+    {'sources':[]},{'sources':['warehouse','warehouse']},
+    {'zone':[(0,0),(1,1),(0,1),(1,0)]},{'zone':[(0,0),(1,1),(2,2)]},
+    {'zone':[(0,0),(1,0),(float('inf'),1)]}])
+def test_search_request_rejects_invalid_constraints(context):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        SearchRequest(q='Find P1',workspace='warehouse',**context)
+
+
+def test_search_request_accepts_uppercase_street_stem():
+    r=SearchRequest(q='Find a person',workspace='street',scene_id='st/nyc/ABC',scene_key='st-nyc-abc')
+    assert r.scene_id=='st/nyc/ABC'
+
+
+def test_moment_card_is_clipped_to_request_interval(tmp_path):
+    s=fixture_store(tmp_path)
+    _,r=retrieve(s,SearchRequest(q='Did the pedestrian cross at 4 seconds?',workspace='fleet'))
+    assert r.envelope.output['moments']
+    assert all((m['t0_ms'],m['t1_ms'])==(4000,4001) for m in r.envelope.output['moments'])
+
+
+def test_moment_card_is_clipped_to_place_pass(tmp_path,monkeypatch):
+    from app.core import geo
+    s=fixture_store(tmp_path)
+    monkeypatch.setattr(geo,'geocode',lambda *a:{'place_id':'place'})
+    monkeypatch.setattr(geo,'find_passes',lambda *a:[{'trip_id':'fl-pie-fixture-01','t0_ms':4000,'t1_ms':4050}])
+    _,r=retrieve(s,SearchRequest(q='Did the pedestrian cross?',workspace='fleet',place='place'))
+    assert r.envelope.output['moments']
+    assert all(m['t1_ms']<=4050 for m in r.envelope.output['moments'])
+
+
+def test_simultaneous_actor_event_candidates_stay_distinct(tmp_path,monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.events_in
+    def events(key,t0,t1):
+        found=original(key,t0,t1)
+        dodge=next((e for e in found if e.type=='dodge'),None)
+        return [dodge,dodge.model_copy(update={'event_id':key+':other','actor_ids':['P2']})] if dodge else []
+    monkeypatch.setattr(s,'events_in',events)
+    _,r=retrieve(s,SearchRequest(q='When did a worker dodge?',workspace='warehouse'))
+    cards=r.envelope.output['moments']
+    assert len(cards)==2 and len({m['moment_id'] for m in cards})==2
+    assert {tuple(a['entity_id'] for a in m['actor_refs']) for m in cards}=={('P1',),('P2',)}
+    assert all(m['cams']==['ceiling_04','eye_00'] for m in cards)
+
+
+def test_ranking_evidence_binds_normalized_query(tmp_path):
+    s=fixture_store(tmp_path)
+    def ids(q):
+        _,r=retrieve(s,SearchRequest(q=q,workspace='warehouse'))
+        return {e.eid for e in r.evidence if e.method=='caption_embed1_rrf'}
+    a,b,c=ids('Find P1'),ids('Find F1'),ids('  FIND   P1  ')
+    assert a and b and a.isdisjoint(b) and a==c
+
+
+def test_search_uses_cosmos_embedding_url(tmp_path,monkeypatch):
+    s=fixture_store(tmp_path)
+    monkeypatch.delenv('EMBED_URL',raising=False)
+    monkeypatch.setenv('COSMOS_EMBED1_URL','http://embed:8103')
+    calls=[]
+    monkeypatch.setattr(embed,'embed_text',lambda q:calls.append(q) or [0.0]*256)
+    _,r=retrieve(s,SearchRequest(q='Find P1',workspace='warehouse'))
+    assert calls==['find p1'] and r.envelope.exec_state=='live'
 
 
 def test_entities_time_and_llm_fallback(monkeypatch):
