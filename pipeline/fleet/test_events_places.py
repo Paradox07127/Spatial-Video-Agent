@@ -1,5 +1,10 @@
 """Fleet ped_crossing rule and landmark places.  .venv/bin/python -m pytest pipeline/fleet/test_events_places.py -q"""
-from pipeline.fleet import events, places
+import math
+
+import numpy as np
+import pytest
+
+from pipeline.fleet import events, pie, places
 
 
 def _frames(peds: dict) -> list[dict]:
@@ -31,6 +36,54 @@ def test_ped_crossing_inside_lane_needs_lateral_travel():
     peds = {"J": lambda t: (8.0, 0.2 if t // 100 % 2 else -0.2), "M": lambda t: (8.0, 0.6 if t < 3000 else -0.6)}
     evs = events.ped_crossings(_frames(peds), lambda t: 0.0, 10000)
     assert [e["actor_ids"] for e in evs] == [["M"]]
+
+
+V_TURN, W_TURN = 15 / 3.6, math.radians(15)  # 15 km/h at 15 deg/s
+
+
+def _turn(w):
+    """Ego pose (x, y, yaw) on a circle at V_TURN and yaw rate w (rad/s), starting at the origin along +x."""
+    return lambda t: (V_TURN / w * math.sin(w * t / 1000), V_TURN / w * (1 - math.cos(w * t / 1000)), w * t / 1000)
+
+
+def _ego_of(pose, t, P):
+    """World point P -> ego frame at t."""
+    ex, ey, a = pose(t)
+    dx, dy = P[0] - ex, P[1] - ey
+    return math.cos(a) * dx + math.sin(a) * dy, -math.sin(a) * dx + math.cos(a) * dy
+
+
+def _world_of(pose, t, p):
+    ex, ey, a = pose(t)
+    return ex + math.cos(a) * p[0] - math.sin(a) * p[1], ey + math.sin(a) * p[0] + math.cos(a) * p[1]
+
+
+@pytest.mark.parametrize("w", [W_TURN, -W_TURN])
+def test_stationary_pedestrians_while_the_ego_turns_do_not_cross(w):
+    pose = _turn(w)
+    peds = {f"S{x}_{y}": (lambda P: lambda t: _ego_of(pose, t, P))((x, y))
+            for x in (6, 10, 14, 18, 20) for y in (2.5, 4, 6, 8, -2.5, -4, -6, -8)}
+    assert events.ped_crossings(_frames(peds), lambda t: V_TURN, 10000, pose) == []
+
+
+@pytest.mark.parametrize("w", [W_TURN, -W_TURN])
+def test_pedestrian_crossing_the_path_of_a_turning_ego_is_a_crossing(w):
+    pose, d = _turn(w), 1 if w > 0 else -1
+    # 1.5 m/s across the lane line of the ego at 4 s, 10 m ahead; it never changes side in the raw ego frames
+    walk = lambda t: _ego_of(pose, t, _world_of(pose, 4000, (10.0, d * (2.5 - 1.5 * (4000 - t) / 1000))))  # noqa: E731
+    evs = events.ped_crossings(_frames({"C": lambda t: walk(t) if 1000 <= t <= 4000 else None}), lambda t: V_TURN, 10000, pose)
+    assert [e["actor_ids"] for e in evs] == [["C"]]
+    p = evs[0]["params"]
+    assert d * p["y_from_m"] < -events.LANE_HALF_M and d * p["y_to_m"] > events.LANE_HALF_M and p["x_at_cross_m"] == pytest.approx(walk(p["t_cross_ms"])[0], abs=0.01)
+
+
+def test_ego_pose_dead_reckons_obd_heading_clockwise_from_north():
+    n = pie.FPS + 1
+    east = events.ego_pose({"heading": np.full(n, 90.0), "speed_kmh": np.full(n, 36.0)})(1000)
+    north = events.ego_pose({"heading": np.zeros(n), "speed_kmh": np.full(n, 36.0)})(1000)
+    assert east == pytest.approx((10.0, 0.0, 0.0), abs=1e-6) and north == pytest.approx((0.0, 10.0, math.pi / 2), abs=1e-6)
+    right = events.ego_pose({"heading": np.linspace(0.0, 15.0, n), "speed_kmh": np.full(n, 15.0)})(1000)
+    assert right[2] < math.pi / 2 and right[0] > 0  # a right turn lowers the CCW yaw and drifts east
 
 
 def test_landmark_rows_near_the_trip_with_osm_aliases():

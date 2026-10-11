@@ -53,27 +53,47 @@ def _crosses(a: float, b: float) -> bool:
     return a * b < 0 and (outside or inside)
 
 
-def ped_crossings(frames: list[dict], speed, t1: int) -> list[dict]:
-    """ped_crossing events of ego frames by CROSS_RULE; speed(t_ms) -> OBD m/s. Crossings of one pedestrian less than
-    JOIN_MS apart form one event with the highest severity."""
-    seen: dict[str, list[tuple[int, float, float]]] = {}
+def ego_pose(o: dict[str, np.ndarray]):
+    """pose(t_ms) -> (x, y, yaw): OBD speed and heading dead-reckoned per frame in a local metric frame (x east, y north,
+    yaw rad CCW from east)."""
+    yaw = np.radians(90.0 - o["heading"])
+    d = o["speed_kmh"][:-1] / 3.6 / pie.FPS
+    x, y = np.r_[0.0, np.cumsum(d * np.cos(yaw[:-1]))], np.r_[0.0, np.cumsum(d * np.sin(yaw[:-1]))]
+    at = lambda t: min(round(t * pie.FPS / 1000), len(yaw) - 1)  # noqa: E731
+    return lambda t: (float(x[at(t)]), float(y[at(t)]), float(yaw[at(t)]))
+
+
+def ped_crossings(frames: list[dict], speed, t1: int, pose=lambda t: (0.0, 0.0, 0.0)) -> list[dict]:
+    """ped_crossing events of ego frames by CROSS_RULE; speed(t_ms) -> OBD m/s, pose(t_ms) -> ego (x, y, yaw) in a local
+    world frame. Samples of a pair are compared in the ego frame of the later one, so the ego's own motion is no crossing.
+    Crossings of one pedestrian less than JOIN_MS apart form one event with the highest severity."""
+    seen: dict[str, list[tuple[int, float, float, float]]] = {}
     for fr in frames:
+        ex, ey, a = pose(fr["t_ms"])
+        c, sn = np.cos(a), np.sin(a)
         for p in fr["peds"]:
             if 0 < p["x"] <= CROSS_AHEAD_M:
-                seen.setdefault(p["entity_id"], []).append((fr["t_ms"], float(p["x"]), float(p["y"])))
+                x, y = float(p["x"]), float(p["y"])
+                seen.setdefault(p["entity_id"], []).append((fr["t_ms"], ex + c * x - sn * y, ey + sn * x + c * y, x))
     out = []
     for eid, s in seen.items():
         eps: list[dict] = []
         start = 0
-        for j, (tj, _, yj) in enumerate(s):
-            i = next((i for i in range(start, j) if tj - s[i][0] <= CROSS_WINDOW_MS and _crosses(s[i][2], yj)), None)
+        for j, (tj, *_) in enumerate(s):
+            ex, ey, a = pose(tj)
+            c, sn = np.cos(a), np.sin(a)
+            loc = lambda q: (float(c * (q[1] - ex) + sn * (q[2] - ey)), float(c * (q[2] - ey) - sn * (q[1] - ex)))  # noqa: E731
+            yj = loc(s[j])[1]
+            i = next((i for i in range(start, j) if tj - s[i][0] <= CROSS_WINDOW_MS and _crosses(loc(s[i])[1], yj)), None)
             if i is None:
                 continue
-            tk, xk, _ = next(q for q in s[i + 1:j + 1] if (q[2] < 0) != (s[i][2] < 0))
+            yi = loc(s[i])[1]
+            # the range at the crossing is the pedestrian's x in the ego frame of that sample, not of the later one
+            tk, xk = next((q[0], q[3]) for q in s[i + 1:j + 1] if (loc(q)[1] < 0) != (yi < 0))
             v = speed(tk) * 3.6
             e = {"type": "ped_crossing", "t0_ms": s[i][0], "t1_ms": min(tj + 100, t1), "actor_ids": [eid],
                  "severity": 2 if v >= CROSS_FAST_KMH and xk <= CROSS_NEAR_M else 1,
-                 "params": {"rule": CROSS_RULE, "y_from_m": round(s[i][2], 2), "y_to_m": round(yj, 2),
+                 "params": {"rule": CROSS_RULE, "y_from_m": round(yi, 2), "y_to_m": round(yj, 2),
                             "x_at_cross_m": round(xk, 2), "ego_speed_kmh": round(v, 1), "t_cross_ms": tk}}
             if eps and e["t0_ms"] - eps[-1]["t1_ms"] <= JOIN_MS:
                 worse = e if e["severity"] > eps[-1]["severity"] else eps[-1]
@@ -108,7 +128,7 @@ def run(key: str) -> Path:
                 ev.append({"type": "ped_near", "t0_ms": a, "t1_ms": min(b + 100, t1), "actor_ids": [eid],
                            "severity": (3 if d < NEAR_M / 2 else 2) if v >= MOVING_MPS else 1,
                            "params": {"min_dist_m": round(d, 2), "max_ego_speed_mps": round(v, 2), "lane_half_m": LANE_HALF_M}})
-        ev += ped_crossings(frames, speed, t1)
+        ev += ped_crossings(frames, speed, t1, ego_pose(o))
 
         acc = pie.accel(o)
         hard = [pie.t_ms(i) for i in np.nonzero(acc <= pie.HARD_BRAKE_MPS2)[0]]

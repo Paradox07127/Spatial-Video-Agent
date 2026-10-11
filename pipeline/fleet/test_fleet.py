@@ -29,6 +29,35 @@ def test_ground_point_ahead_lies_below_the_horizon_on_the_centre_column():
     assert np.isnan(ego_scene.ground_flu(np.array([[960.0, 300.0]]), CAL)).all()  # above the horizon: no ground hit
 
 
+def _kp(ankles, score=0.9):
+    """17 COCO keypoints, all unconfident but the ankles (pixels) at score."""
+    k = [[960.0, 500.0, 0.1] for _ in range(17)]
+    for j, (u, v) in zip((15, 16), ankles):
+        k[j] = [float(u), float(v), score]
+    return k
+
+
+def test_ankle_anchor_lands_nearer_than_a_raised_box_bottom():
+    # a pedestrian at (8, 1) whose feet are hidden below 0.5 m: the box ends at the knees
+    u_box, v_box = ego_scene.project_ego(np.array([[8.0, 1.0, 0.5]]), CAL)[0]
+    box = [u_box - 40, 300.0, u_box + 40, v_box]
+    ank = ego_scene.project_ego(np.array([[8.0, 0.85, ego_scene.ANKLE_H_M], [8.0, 1.15, ego_scene.ANKLE_H_M]]), CAL)
+    u, v, ankle = ego_scene.ped_anchor(box, _kp(ank), 1080)
+    assert ankle
+    fl = ego_scene.ground_flu(np.array([[u, v]]), CAL, ego_scene.ANKLE_H_M)[0]
+    fl_box = ego_scene.ground_flu(np.array([[(box[0] + box[2]) / 2, box[3]]]), CAL)[0]
+    assert np.allclose(fl, [8.0, 1.0], atol=0.05) and np.hypot(*fl) < np.hypot(*fl_box) - 1.0
+    assert ego_scene.ped_anchor(box, _kp(ank, score=0.4), 1080) == ((box[0] + box[2]) / 2, box[3], False)
+
+
+def test_truncated_box_without_a_confident_ankle_has_no_ground_anchor():
+    box = [900.0, 600.0, 1000.0, 1078.0]  # bottom edge within 2 px of the 1080 px image bottom
+    assert ego_scene.ped_anchor(box, None, 1080) is None
+    assert ego_scene.ped_anchor(box, _kp([(940, 1070), (960, 1072)], score=0.3), 1080) is None
+    assert ego_scene.ped_anchor(box, _kp([(940, 1070), (960, 1072)]), 1080) == (950.0, 1071.0, True)
+    assert ego_scene.ped_anchor([900.0, 600.0, 1000.0, 1077.0], None, 1080) == (950.0, 1077.0, False)
+
+
 def test_cam2world_is_camera_to_ego_in_opengl_basis():
     m = np.array(ego_scene.cam2world(CAL)).reshape(4, 4, order="F")
     assert np.allclose(m[:3, 3], [0, 0, 1.27])

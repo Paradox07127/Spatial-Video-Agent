@@ -3,7 +3,8 @@ building spans.
 
   python pipeline/fleet/ego_scene.py SCENE_KEY
 
-Ground positions: the fisheye pixel of a box's bottom-centre (a pedestrian's feet, a vehicle's lower edge) is undistorted
+Ground positions: the fisheye pixel of a box's bottom-centre (a vehicle's lower edge; a pedestrian's feet unless an ankle
+keypoint is confident, see ped_anchor) is undistorted
 with cv2.fisheye.undistortPoints (PIE K, D) to a pinhole ray, which is intersected with the flat ground, as D2
 `Ground.point` (sim/demos/claim-pack-v3/agent.py:387-407) does for a pinhole image. D2 returns (right, forward); here it
 becomes the ego frame (x forward, y left) with origin on the ground below the camera.
@@ -30,6 +31,11 @@ SIGMA_PITCH_RAD = math.radians(1.0)
 SIGMA_H_M = 0.05
 MAX_RANGE_M = 40.0  # beyond, the 1-sigma range error (~ d * SIGMA_PITCH_RAD / h) exceeds half the range
 PED_H_M = 1.7
+KP_CONF = 0.5  # RTMPose SimCC score below which a keypoint is not used, as warehouse/triangulate.py
+ANKLES = (15, 16)
+ANKLE_H_M = 0.08  # ankle joint height above the ground (anthropometric)
+TRUNC_PX = 2  # a box bottom this close to the image bottom is cut by the frame, so the feet are not in it
+SIGMA_FOOT_M = 0.2  # box bottom vs ankle anchor: the quadrature gap of triangulate.ROOT_SIGMA boxbottom and ankle
 DIMS = {"car": [4.5, 1.8, 1.5], "truck": [8.0, 2.5, 3.2], "bus": [12.0, 2.55, 3.2], "bicycle": [1.8, 0.6, 1.7],
         "motorcycle": [2.1, 0.8, 1.4]}  # length, width, height (m): class priors
 YAW_DT_MS = 1000  # half window of the track displacement that gives a vehicle's heading
@@ -48,19 +54,31 @@ def flu(right: float, fwd: float) -> tuple[float, float]:
     return fwd, -right
 
 
-def ground_rf(uv: np.ndarray, cal: dict) -> np.ndarray:
-    """Source pixels (n, 2) -> (right, forward) metres on the ground; NaN at or above the horizon."""
+def ground_rf(uv: np.ndarray, cal: dict, z=0.0) -> np.ndarray:
+    """Source pixels (n, 2) on planes z (m) above the ground -> (right, forward) metres; NaN at or above the horizon."""
     K, D, h, tilt = _cam(cal)
     xy = cv2.fisheye.undistortPoints(np.asarray(uv, float).reshape(-1, 1, 2), K, D, criteria=CRIT).reshape(-1, 2)
     x, y = xy.T
     den = y * math.cos(tilt) + math.sin(tilt)
-    t = np.where(den > 1e-3, h / np.where(den > 1e-3, den, 1.0), np.nan)
+    t = np.where(den > 1e-3, (h - np.asarray(z, float)) / np.where(den > 1e-3, den, 1.0), np.nan)
     return np.stack([t * x, t * (math.cos(tilt) - y * math.sin(tilt))], 1)
 
 
-def ground_flu(uv: np.ndarray, cal: dict) -> np.ndarray:
-    rf = ground_rf(uv, cal)
+def ground_flu(uv: np.ndarray, cal: dict, z=0.0) -> np.ndarray:
+    rf = ground_rf(uv, cal, z)
     return np.stack(flu(rf[:, 0], rf[:, 1]), 1)
+
+
+def ped_anchor(box, kp, img_h: float) -> tuple[float, float, bool] | None:
+    """(u, v, ankle) ground anchor pixel of a pedestrian box (x1, y1, x2, y2) with COCO keypoints kp: the mean confident
+    ankle (on the ANKLE_H_M plane), else the box bottom centre; None when the box is cut by the image bottom and no ankle
+    is confident."""
+    a = [kp[j][:2] for j in ANKLES if kp and kp[j][2] >= KP_CONF]
+    if a:
+        u, v = np.mean(a, axis=0)
+        return float(u), float(v), True
+    x1, _, x2, y2 = box
+    return None if y2 >= img_h - TRUNC_PX else ((x1 + x2) / 2, y2, False)
 
 
 def project_ego(P: np.ndarray, cal: dict) -> np.ndarray:
@@ -105,12 +123,16 @@ def run(key: str) -> Path:
         cal, o, osm = pie.calibration(), pie.obd(vid), pie.osm()
         ents = pie.entity_of(out)
         rows = [r for r in pie.load_boxes(out) if r[1] in ents]
-        uv = np.array([[(r[3] + r[5]) / 2, r[6]] for r in rows], float).reshape(-1, 2)
-        fl = ground_flu(uv, cal) if len(rows) else np.zeros((0, 2))
+        kp = {(t, tid): k for t, tid, k in json.loads((work / "pose2d.json").read_text())["rows"]}
+        anc = [ped_anchor(r[3:7], kp.get((r[0], r[1])), cal["dim"][1]) if ents[r[1]][1] == "person"
+               else ((r[3] + r[5]) / 2, r[6], None) for r in rows]
+        rows, anc = [r for r, a in zip(rows, anc) if a], [a for a in anc if a]
+        uv = np.array([a[:2] for a in anc], float).reshape(-1, 2)
+        fl = ground_flu(uv, cal, np.array([ANKLE_H_M if a[2] else 0.0 for a in anc])) if len(rows) else np.zeros((0, 2))
         sig = sigma_m(fl, cal)
+        sig = np.where([a[2] is False for a in anc], np.hypot(sig, SIGMA_FOOT_M), sig)
         pos = {(r[1], r[0]): (fl[i, 0], fl[i, 1]) for i, r in enumerate(rows)}
-        kpts = {(t, tid): [[round(u), round(v), c] for u, v, c in k]
-                for t, tid, k in json.loads((work / "pose2d.json").read_text())["rows"]}
+        kpts = {tk: [[round(u), round(v), c] for u, v, c in k] for tk, k in kp.items()}
         by_t: dict[int, list[int]] = {}
         for i, r in enumerate(rows):
             if np.isfinite(fl[i]).all() and fl[i, 0] > 0 and math.hypot(*fl[i]) <= MAX_RANGE_M:
