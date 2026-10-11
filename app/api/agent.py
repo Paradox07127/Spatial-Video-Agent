@@ -369,7 +369,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         for condition in conditions:
             if condition.startswith('requested_action:'):
                 action = condition.split(':',1)[1]
-                kinds = {'dodge':{'dodge'},'crossing':{'ped_crossing'},'braking':{'braking','brake'}}[action]
+                kinds = event_types(action)
                 verified = [eid for p in predicates if p.status=='supported' for eid in p.eids
                             if eid in read and read[eid].kind=='measure' and isinstance(read[eid].value,dict)
                             and read[eid].value.get('type') in kinds]
@@ -504,6 +504,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     constraint_reason='conflicting_camera_constraints'
                 elif not hard_cam and len(named_cams)==1:
                     hard_cam=next(iter(named_cams))
+            elif hard_cam and not any(c['id']==hard_cam for s in store.list_scenes(None if parsed.scope=='corpus' else parsed.workspace)
+                                      if not parsed.sources or tag_of(s) in parsed.sources for c in s['cams']):
+                constraint_reason=constraint_reason or 'conflicting_camera_constraints'
             quantifier = parsed.quantifier
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
@@ -540,11 +543,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             blind_cam = None
             if warehouse and re.search(r"can'?t see|cannot see|blind",body.q,re.I):
                 blind_cam = next((c['id'] for s in warehouse for c in s['cams']
-                                  if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)),None)
+                                  if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)),hard_cam)
             blind_scenes = [s for s in warehouse if 'visibility' in s['assets'] and any(c['id']==blind_cam for c in s['cams'])]
             speeding_q = bool(fleet) and any(w in body.q.lower() for w in ['speeding'])
             building_q = bool(fleet) and parsed.place and re.search(r'\bbuilding\b',body.q,re.I)
             requested_kinds = {('person' if re.fullmatch(r'P\d+',e) else 'forklift' if re.fullmatch(r'F\d+',e) else 'vehicle' if re.fullmatch(r'V\d+',e) else e) for e in parsed.entities}
+            # blind_presence tests person ground points only
+            blind_other = bool(blind_scenes) and bool(requested_kinds-{'person'})
             selection = [e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)]
             point_match=re.search(r'\bat\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))',body.q,re.I)
             requested_time=context.get('t_ms')
@@ -589,6 +594,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     if camera_refs-{c['id'].lower() for c in manifest['cams']}:
                         cameras=[]
                     lo,hi=parsed.t_range or (manifest['t0_ms'],min(manifest['t1_ms'],manifest['t0_ms']+6000))
+                    if hi-lo==1:
+                        hi=lo+math.ceil(1000/manifest['fps'])  # an instant off a frame boundary still needs the next decoded frame
                     lo,hi=max(lo,manifest['t0_ms']),min(hi,manifest['t1_ms'])
                     known={e.entity_id:e for e in store.entities(key)} if manifest['workspace']!='street' else {}
                     subjects=[EntityRef(scene_key=key,entity_id=e,kind=known[e].kind) for e in selection if e in known]
@@ -691,6 +698,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 final,stop_reason = 'UNRESOLVED','abstained'
             elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
                   and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
+                  and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']
+                  and not parsed.scene_key and len([s for s in scoped if s['workspace']=='fleet'])!=1):
+                yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='located',value=None,
+                                             unit=None,status='unknown',eids=[])],
+                                  explain={'note':'Select one Fleet source for a trip GPS position.'})
+                final,stop_reason = 'UNRESOLVED','abstained'
+            elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
+                  and store.manifest(parsed.scene_key or scoped[0]['scene_key'])['workspace']=='fleet'
                   and not store.manifest(parsed.scene_key or scoped[0]['scene_key'])['cams']):
                 key, tm = parsed.scene_key or scoped[0]['scene_key'], context['t_ms']
                 with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm},state='measure') as t:
@@ -730,8 +745,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     with trace.traced(run,'assess',{'scene_key':key,'t_ms':requested_time,'entity_id':entity_id},state='measure') as t:
                         yield step_frame(t,'measure','Measure tracked speed' if scalar_speed_q else 'Read the measured world ground position')
                         res=yield from call(t,'measure' if scalar_speed_q else 'ground_position','measure',
-                                            {'scene_key':key,'t_ms':requested_time,**({'a':target.model_dump(),'kind':'speed'} if scalar_speed_q else {'target':target.model_dump(),'zone':parsed.zone})},
-                                            lambda:tools.measure(store,key,requested_time,target,None,'speed') if scalar_speed_q
+                                            {'scene_key':key,'t_ms':requested_time,**({'a':target.model_dump(),'kind':'speed','cam':hard_cam} if scalar_speed_q else {'target':target.model_dump(),'zone':parsed.zone})},
+                                            lambda:tools.measure(store,key,requested_time,target,None,'speed',cam=hard_cam) if scalar_speed_q
                                             else tools.ground_position(store,key,requested_time,target,zone=parsed.zone))
                         ev=next((e for e in res.evidence if e.kind=='measure' and e.method==('track_speed' if scalar_speed_q else 'ground_position')),None)
                         missing_uncertainty=bool(ev and (not isinstance(ev.sigma,(float,int)) or not math.isfinite(ev.sigma) or ev.sigma<0))
@@ -757,6 +772,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if ev:
                             cams=store.manifest(key)['cams']
                             observed=[o.cam_id for o in ev.observation_ids if any(c['id']==o.cam_id for c in cams)]
+                            if world_position_q and hard_cam and hard_cam not in observed:
+                                predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[target],operator='camera_constraint',
+                                                            value=hard_cam,unit=None,status='unknown',eids=[]))
                             cam=hard_cam or (observed[0] if observed else cams[0]['id'] if cams else '')
                             hit=MomentCard(moment_id=f'm_{key}_{requested_time}',scene_key=key,t0_ms=requested_time,t1_ms=requested_time+1,
                                            cams=[cam] if cam else [],primary_cam=cam,actor_refs=[target],evidence_ids=[ev.eid],score=1,
@@ -784,7 +802,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 statistics_complete = False
                 checked = []
                 for scene in street_scenes:
-                    key, cam = scene['scene_key'], scene['cams'][0]['id']
+                    if hard_cam and not any(c['id']==hard_cam for c in scene['cams']):
+                        continue
+                    key, cam = scene['scene_key'], hard_cam or scene['cams'][0]['id']
                     t0,t1 = scene['t0_ms'],scene['t1_ms']
                     if parsed.t_range:
                         t0,t1 = max(t0,parsed.t_range[0]),min(t1,parsed.t_range[1])
@@ -815,6 +835,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 statistics_complete = True
                 final = counted()
                 stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
+            elif blind_other:
+                predicates = [Predicate(predicate_id='p1',subject_refs=[],operator='present_in_blind_zone',value=blind_cam,
+                                        unit=None,status='unknown',eids=[])]
+                if spatial and spatial[0]!='blind_spot':
+                    _,operator,value,unit = spatial
+                    predicates.append(Predicate(predicate_id='p2',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[]))
+                yield claim_frame(predicates,key=blind_scenes[0]['scene_key'] if len(blind_scenes)==1 else None,
+                                  explain={'note':'The blind-spot check tests people only; '+', '.join(sorted(requested_kinds-{'person'}))+' presence was not checked.'})
+                final,stop_reason = 'UNRESOLVED','abstained'
             elif blind_scenes:
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
                     yield step_frame(t,'plan','Choose the blind spot verification path')
@@ -839,6 +868,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             predicates = [Predicate(predicate_id='p1',subject_refs=[EntityRef(scene_key=key,entity_id=e,kind='person') for e in persons],
                                                     operator='present_in_blind_zone',value=blind_cam,unit=None,status=status,
                                                     eids=[e.eid for e in res.evidence])]
+                            if spatial and spatial[0]!='blind_spot':
+                                _,operator,value,unit = spatial
+                                predicates.append(Predicate(predicate_id='p2',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[]))
                             t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
                         checked.append((key,intervals,persons,predicates,res.envelope.coverage))
                         cams = {c['id']:c for c in scene['cams']}
@@ -876,15 +908,16 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
                     yield step_frame(t,'measure','Scan worker and forklift tracks to measure the closest distance')
                     scan = yield from call(t,'closest_approach','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
-                                           lambda:tools.closest_approach(store,warehouse,parsed.t_range,parsed.zone,**({'selection':selection} if selection else {})))
+                                           lambda:tools.closest_approach(store,[s for s in warehouse if not hard_cam or any(c['id']==hard_cam for c in s['cams'])],
+                                                                         parsed.t_range,parsed.zone,**({'selection':selection} if selection else {})))
                     nearest = scan.envelope.output['closest']
                     closest = {'missing':scan.envelope.output['missing'],'scan':scan.evidence[0] if scan.evidence else None}
                     if nearest:
                         key, tm = nearest['scene_key'], nearest['t_ms']
                         person = EntityRef(scene_key=key,entity_id=nearest['a'],kind='person')
                         vehicle = EntityRef(scene_key=key,entity_id=nearest['b'],kind='forklift')
-                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance'},
-                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance'))
+                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':hard_cam},
+                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=hard_cam))
                         ev = res.evidence[0] if res.evidence else None
                         _, operator, value, unit = spatial
                         reason = res.envelope.output.get('reason')
@@ -921,7 +954,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     if place:
                         passes = (yield from call(t,'find_passes','retrieve',{'place_id':place['place_id'],'r_m':geo.NEAR_M,'fov_deg':360},
                                                   lambda:tools.find_passes(store,place['place_id'],geo.NEAR_M,360))).envelope.output
-                    video = [p for p in passes if any(s['scene_key']==p['trip_id'] and s['cams'] for s in fleet)]
+                    video = [p for p in passes if any(s['scene_key']==p['trip_id'] and s['cams']
+                                                      and (not hard_cam or any(c['id']==hard_cam for c in s['cams'])) for s in fleet)]
                     asked = geo.trim_passes(store,video,parsed.t_range)
                     t.output({'passes':passes,'video_passes':video,'asked_passes':asked})
                 building = {'side':side,'video':bool(video)}
@@ -937,10 +971,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         predicates = [Predicate(predicate_id='p1',subject_refs=[],operator='facade',
                                                 value=found['building']['label'] if found['building'] else None,unit=None,
                                                 status='supported' if found['building'] else 'unknown',eids=[e.eid for e in res.evidence])]
+                        if spatial and spatial[1]!='facade':
+                            _,operator,value,unit = spatial
+                            predicates.append(Predicate(predicate_id='p2',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[]))
                         t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
                     if found['building']:
                         key, tm = found['scene_key'], found['t_ms']
-                        cam = next(s['cams'] for s in fleet if s['scene_key']==key)[0]
+                        cam = next(c for s in fleet if s['scene_key']==key for c in s['cams'] if not hard_cam or c['id']==hard_cam)
                         hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                          actor_refs=[],evidence_ids=[e.eid for e in res.evidence],score=1,why=['osm_facade'],
                                          thumb=tools.thumbnail(store,key,cam['id'],tm),
@@ -1156,15 +1193,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                             ev = read[eid]
                                             if ev.method!='detection_timestamp':
                                                 continue
-                                            observations = [o for o in ev.observation_ids if lo<=o.t_ms<hi and any(
+                                            link_obs = [o for o in ev.observation_ids if lo<=o.t_ms<hi and any(
                                                 e.association.get('valid') and
                                                 (not isinstance(e.association['valid'],list) or len(e.association['valid'])==2 and
                                                  e.association['valid'][0]<=o.t_ms<e.association['valid'][1]) and
                                                 any(p['cam_id']==o.cam_id and p['local_track_id']==o.local_track_id and
                                                     p['t0_ms']<=o.t_ms<p['t1_ms'] for p in e.observations) for e in matched)]
-                                            if observations:
-                                                verified[eid] = observations
-                                    observed_cams = {o.cam_id for observations in verified.values() for o in observations}
+                                            if link_obs:
+                                                verified[eid] = link_obs
+                                    observed_cams = {o.cam_id for refs in verified.values() for o in refs}
                                     requested_cams = {c['id'] for c in manifest['cams'] if re.search(
                                         r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)}
                                     valid = len(set(ids))==1 and len(matched)==1 and requested_cams<=observed_cams
@@ -1172,7 +1209,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                         clip_ids = {r['clip_id'] for r in res.envelope.output['expanded_ranges'] if r['clip_id'].rsplit(':',2)[0]==key}
                                         clips = {clip_id for clip_id in clip_ids if any(
                                             o.cam_id==clip_id.rsplit(':',2)[1] and int(clip_id.rsplit(':',1)[1])*5000<=o.t_ms<
-                                            (int(clip_id.rsplit(':',1)[1])+1)*5000 for observations in verified.values() for o in observations)}
+                                            (int(clip_id.rsplit(':',1)[1])+1)*5000 for refs in verified.values() for o in refs)}
                                         requested_clips = set(re.findall(r'[a-z0-9_-]+:[a-z0-9_-]+:\d{5}',body.q,re.I))
                                         valid &= len(clips)>=2 and requested_clips<=clips
                                     else:
@@ -1572,9 +1609,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             """L1: what the 2D detections show; a spatial question keeps its abstain text and cites no measurement."""
             if any(p.operator in {'tracked_count','peak_count'} and p.eids for c in cards for p in c.predicates):
                 return statistics_sentence(cards)
-            detected = [c.predicates[0] for c in cards]
+            detected = [p for c in cards for p in c.predicates if p.operator=='detected' and isinstance(p.value,list)]
             found = [p for p in detected if p.status=='supported']
-            what = ' and '.join(('an ' if k[0] in 'aeiou' else 'a ')+k for k in detected[0].value)
+            what = ' and '.join(('an ' if k[0] in 'aeiou' else 'a ')+k for k in (detected[0].value if detected else []))
             if not what:
                 text = 'Street camera clips were retrieved by their captions; captions and Cosmos are model output and confirm nothing.'
             elif found:
@@ -1612,7 +1649,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                              if any(c.evidence_level==lv for c in claims))]
             elif corpus:
                 answers = [{**compose(final,claims,read),'evidence_level':None}]
-            elif claims and all(c.evidence_level=='L1' for c in claims):
+            elif claims and all(c.evidence_level=='L1' for c in claims) and not any(
+                    c.predicates and c.predicates[0].operator=='visual_observation' for c in claims):
                 answers = [street_sentence(claims)]
             else:
                 answers = [compose(final,claims,read)]

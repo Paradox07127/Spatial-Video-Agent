@@ -16,8 +16,8 @@ def receipt(key,cam,t_range,actors,**kw):
 
 @pytest.mark.parametrize('q,context,expected_cam,expected_range',[
     ('Describe the scene',{},'ceiling_00',[0,6000]),
-    ('Describe P1 in eye_00 at second 2',{},'eye_00',[2000,2001]),
-    ('Describe the purple P1 in eye_00',{'t_ms':2000,'t_range':[1000,3000]},'eye_00',[2000,2001]),
+    ('Describe P1 in eye_00 at second 2',{},'eye_00',[2000,2034]),
+    ('Describe the purple P1 in eye_00',{'t_ms':2000,'t_range':[1000,3000]},'eye_00',[2000,2034]),
 ])
 def test_v2_observation_answers_keep_scope_and_unknown_conditions(store,monkeypatch,q,context,expected_cam,expected_range):
     seen=[]
