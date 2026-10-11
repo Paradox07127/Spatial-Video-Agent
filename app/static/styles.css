@@ -270,11 +270,12 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .ev-map { color: var(--src-map); }
 .ev-model { color: var(--src-model); }
 .ev-human { color: var(--src-human); }
-.ev { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 10px; padding: 10px; border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; }
+.ev { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(60%); align-items: baseline; gap: 2px 10px; padding: 10px; border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; }
 .ev-k-model { border-style: dashed; border-color: var(--thread); }
 .ev.hover { border-color: var(--ink-2); }
 .ev.sel { border: 1px solid var(--src-measure); background: rgb(86 180 233 / 0.06); }
-.ev-val { justify-self: end; font-size: var(--fs-3); font-weight: 500; overflow-wrap: anywhere; text-align: right; }
+.ev-label, .ev-where { min-width: 0; overflow-wrap: anywhere; }
+.ev-val { min-width: 0; max-width: 100%; justify-self: end; font-size: var(--fs-3); font-weight: 500; overflow-wrap: anywhere; text-align: right; }
 .ev-where { font-size: var(--fs-1); }
 .ev-raw-btn { justify-self: end; display: inline-flex; align-items: center; font-size: var(--fs-1); color: var(--ink-2); }
 .ev-raw-btn:hover, .ev-raw-btn[aria-expanded="true"] { color: var(--ink); }

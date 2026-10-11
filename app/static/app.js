@@ -387,6 +387,7 @@ async function activateEvidence(e, after = null, automatic = false) {
   r.activeMoment = r.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms) ?? r.moments.find((m) => m.scene_key === e.scene_key);
   renderKeyframe();
   renderMoments(r.moments);
+  renderClaims();
   setState('hit');
   document.body.dataset.candidates = '';
   renderModels();
@@ -761,7 +762,7 @@ function renderSlot() {
 }
 
 // ---- answer header
-// The answer's numbers come from evidence fields (measure_refs, in text order, formatted like Python's '.4g');
+// The answer's numbers come from evidence fields (measure_refs, in text order, formatted like Python's '.4g', or '.6f' for GPS coordinates);
 // each found in the text becomes a button to its evidence. A source timestamp is written in seconds ("4.6 s", "3.0 s")
 // and marked as a time, not a measured number.
 // Explicit source-time fields only: durations, speeds and uncertainty are ordinary measurements.
@@ -773,7 +774,8 @@ function numbered(d) {
   let html = '', rest = d.text;
   for (const r of d.measure_refs) {
     const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), scale = TIME_REF_MS.get(r.field), time = scale !== undefined;
-    const expected = typeof v === 'number' && Number.isFinite(v) ? Number((time ? v * scale / 1000 : v).toPrecision(4)) : null;
+    const coordinate = r.field === 'value.lat' || r.field === 'value.lon';
+    const expected = typeof v === 'number' && Number.isFinite(v) ? Number(coordinate ? v.toFixed(6) : (time ? v * scale / 1000 : v).toPrecision(4)) : null;
     // Compare numeric tokens, preserving the server's spelling (.4g can use e-05/e+05).
     // Word boundaries exclude identifiers such as P1, floor_00 and scene ids.
     const tokens = rest.matchAll(/(?<![\w.+-])[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])/g);
@@ -906,7 +908,12 @@ function renderClaims() {
     if (!groups.has(key)) groups.set(key, { moment, claims: [] });
     groups.get(key).claims.push(c);
   }
-  $('#claims').innerHTML = [...groups.values()].map(({ moment, claims: cs }) => {
+  const visible = [...groups.values()].filter(({ moment }) => !run.activeMoment || moment?.moment_id === run.activeMoment.moment_id);
+  if (!visible.length) {
+    $('#claims').innerHTML = '<p class="claim-empty muted">No claim was assessed for this moment.</p>';
+    return;
+  }
+  $('#claims').innerHTML = visible.map(({ moment, claims: cs }) => {
     const status = cs.some((c) => c.after === 'CONTRADICTED') ? 'CONTRADICTED' : cs.some((c) => c.after !== 'SUPPORTED') ? 'UNRESOLVED' : 'SUPPORTED';
     const cardLevel = cs.find((c) => c.evidence_level)?.evidence_level ?? moment?.evidence_level ?? sceneDetails.get(moment?.scene_key)?.evidence_level;
     const hasMeasure = cs.some((c) => c.predicates.some((p) => p.eids.some((id) => measureIds.has(id))) || run.rawAnswers.some((a) => a.claim_ids?.includes(c.claim_id) && a.measure_refs?.some((r) => measureIds.has(r.eid))));
