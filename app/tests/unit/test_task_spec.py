@@ -73,3 +73,25 @@ def test_synchronized_evidence_rejects_bad_sync(store,monkeypatch,method,residua
     result=tools.get_synced_views(store,'wh-sdg-fixture-01',4600)
     assert result.envelope.coverage==0 and result.envelope.pts_read==0
     assert result.envelope.output['cams']==[] and all(g[2]=='unsynchronized' for g in result.envelope.gaps)
+
+
+def test_corpus_anchor_consumes_only_its_actual_source_universe_grammar():
+    from app.core.llm import rule_parse
+    anchor='Show me every clip, from any camera in any site, where a person is close to a moving vehicle'
+    parsed=rule_parse(anchor,{'workspace':'warehouse','scope':'corpus'})
+    assert parsed.scope=='corpus'
+    assert not [c for c in parsed.constraints if c.startswith('unconsumed:')]
+    assert 'exhaustive_coverage' in parsed.constraints and 'action_modifier:moving' in parsed.constraints
+
+
+@pytest.mark.parametrize('q,scope,expected',[
+    ('Show me any person in any site','scene',True),
+    ('Show me any person in any site','corpus',False),
+    ('Show me any person in every site','corpus',True),
+    ('Show me any person in any site and another site','corpus',True),
+])
+def test_source_universe_grammar_never_widens_a_scene_scope(q,scope,expected):
+    from app.core.llm import rule_parse
+    parsed=rule_parse(q,{'workspace':'warehouse','scope':scope})
+    assert ('unconsumed:site' in parsed.constraints)==expected
+    assert not {'unconsumed:me','unconsumed:any'}&set(parsed.constraints)

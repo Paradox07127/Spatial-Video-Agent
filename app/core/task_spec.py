@@ -39,7 +39,7 @@ def time_requirements(q):
 # Explicitly consumed grammar/capability vocabulary. New descriptors stay unknown.
 GRAMMAR=set('''a an the this that these those there it its they them their he she his her
 is are was were be been being did do does have has had can could would will
-find show list clips clip video videos recordings recording where when what happened happening
+find show me any list clips clip video videos recordings recording where when what happened happening
 how far close closest minimum nearest distance gap meters meter m within under over
 less greater more than at least most to from of in on with and or as then
 worker workers person persons people pedestrian pedestrians anyone someone bicycle warehouse fleet camera scene

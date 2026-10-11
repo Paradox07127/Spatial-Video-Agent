@@ -128,6 +128,14 @@ def rule_parse(q: str, ctx: dict) -> Query:
     # entity ids, a time and a selection are local to one scene, and then the sources are ignored
     corpus = ((ctx.get('scope') == 'corpus' or bool(sources)) and not re.search(r'\b[PFV]\d+\b', q.upper())
               and ctx.get('t_ms') is None and not ctx.get('selection'))
+    if corpus:
+        # Only this exact source-universe phrase is consumed by corpus scope.
+        # Another site requirement elsewhere in the question stays unknown.
+        consumed_sites={m.span(1) for m in re.finditer(r'\bany\s+(site)\b',q,re.I)}
+        remaining_sites=[r for r in spec.requirements if r.kind=='unconsumed' and r.span.lower()=='site'
+                         and (r.start,r.end) not in consumed_sites]
+        if consumed_sites and not remaining_sites:
+            constraints=[c for c in constraints if c.lower()!='unconsumed:site']
     return Query(template=template, entities=list(dict.fromkeys(entities)), t_range=t_range, place=place,
                  zone=ctx.get('zone'), scene_key=key, workspace=ctx['workspace'],
                  abstain_reason='unsupported_question' if template == 'unsupported' else None,
