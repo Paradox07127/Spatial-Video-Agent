@@ -52,7 +52,7 @@ function routePieces(trip) {
 }
 
 // hasVideo(trip, s): the second s of the trip has dashcam video (timeline lanes), else the chip is a grey block.
-const hasVideo = (trip, s) => (trip.timeline?.lanes[trip.cam.id] ?? []).some(([a, b, st]) => st !== 'no_video' && a < (s + 1) * 1000 && b > s * 1000);
+const hasVideo = (trip, s) => trip.timeline ? (trip.timeline.lanes[trip.cam.id] ?? []).some(([a, b, st]) => st !== 'no_video' && a < (s + 1) * 1000 && b > s * 1000) : null;
 
 // Moves the pitched camera so the projected box of lngLats fills the map inside PAD (px); fitBounds sizes the box as if the
 // map were flat, which leaves pitched trips small.
@@ -92,8 +92,8 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
       paint: { 'fill-extrusion-color': '#1E242E', 'fill-extrusion-height': ['get', 'h'] },
     }, beforeLabels);
   }
-  const bld = trips.flatMap((t) => Object.entries(t.buildings).map(([bid, b]) => ({ type: 'Feature', properties: { bid, height_m: b.height_m ?? 10 }, geometry: b.geom })));
-  map.addSource('fl-bld', { type: 'geojson', data: { type: 'FeatureCollection', features: bld }, promoteId: 'bid' });
+  const bld = () => trips.flatMap((t) => Object.entries(t.buildings).map(([bid, b]) => ({ type: 'Feature', properties: { bid, height_m: b.height_m ?? 10 }, geometry: b.geom })));
+  map.addSource('fl-bld', { type: 'geojson', data: { type: 'FeatureCollection', features: bld() }, promoteId: 'bid' });
   map.addLayer({
     id: 'fl-bld', type: 'fill-extrusion', source: 'fl-bld', minzoom: 15,
     paint: { 'fill-extrusion-color': ['case', ['boolean', ['feature-state', 'focus'], false], '#009E73', '#4A5462'], 'fill-extrusion-height': ['get', 'height_m'], 'fill-extrusion-opacity': 0.9 },
@@ -112,15 +112,16 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
   map.on('mouseenter', 'fl-bld', () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', 'fl-bld', () => (map.getCanvas().style.cursor = ''));
 
-  const cars = trips.filter((trip) => trip.pts.length).map((trip) => {
+  const createCar = (trip) => {
     const div = document.createElement('div');
     div.className = 'fl-car';
     div.dataset.trip = trip.id;
     div.style.setProperty('--trip', trip.color);
-    div.innerHTML = `${ARROW}<span class="fl-tag"><span class="mono">${esc(trip.id)}</span><span class="fl-age mono"></span></span>${trip.cam ? '<span class="fl-chip"><img alt=""></span>' : ''}`;
+    div.innerHTML = `${ARROW}<span class="fl-tag"><span class="mono">${esc(trip.id)}</span><span class="fl-age mono"></span></span>${trip.cam || trip.summary?.full ? '<span class="fl-chip empty" data-message="Select to load video"><img alt=""></span>' : ''}`;
     div.addEventListener('click', () => onCar(trip.id));
     return { trip, div, s: null, marker: new maplibregl.Marker({ element: div }).setLngLat([trip.pts[0].lon, trip.pts[0].lat]).addTo(map) };
-  });
+  };
+  const cars = trips.filter((trip) => trip.pts.length).map(createCar);
   // Event pins are clustered by the fl-ev source; the DOM markers of whatever it renders (pins or counted clusters) are
   // swapped in on every render.
   const events = new Map(trips.flatMap((trip) => trip.events.flatMap((e) => {
@@ -160,6 +161,7 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
         if (!nextClusters.has(id)) nextClusters.set(id, clusters.get(id) ?? cluster(f).addTo(map));
       } else {
         const v = events.get(f.properties.key);
+        if (!v) continue;
         v.marker ??= pin(v);
         if (!next.has(v) && !shown.has(v)) v.marker.addTo(map);
         next.add(v);
@@ -184,6 +186,23 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
 
   const ov = {
     map,
+    refreshBuildings() {
+      map.getSource('fl-bld').setData({ type: 'FeatureCollection', features: bld() });
+      for (const c of cars) c.s = null;
+      ov.update(wall);
+    },
+    refresh() {
+      map.getSource('fl-route').setData({ type: 'FeatureCollection', features: trips.flatMap(routePieces) });
+      for (const trip of trips) if (trip.pts.length && !cars.some((c) => c.trip === trip)) cars.push(createCar(trip));
+      for (const v of events.values()) v.marker?.remove();
+      events.clear();
+      for (const trip of trips) for (const e of trip.events) {
+        const p = posAt(trip.pts, e.t0_ms);
+        if (p) events.set(`${trip.id}:${e.id}`, { trip, e, lngLat: [p.lon, p.lat], marker: null });
+      }
+      map.getSource('fl-ev').setData({ type: 'FeatureCollection', features: [...events].map(([key, v]) => ({ type: 'Feature', properties: { key, severity: v.e.severity }, geometry: { type: 'Point', coordinates: v.lngLat } })) });
+      ov.refreshBuildings();
+    },
     update(w) {
       wall = w;
       for (const c of cars) {
@@ -204,7 +223,8 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
           c.s = s;
           const chip = c.div.querySelector('.fl-chip'), ok = hasVideo(c.trip, s);
           chip.classList.toggle('empty', !ok);
-          chip.title = ok ? `${c.trip.cam.id} · ${s} s` : 'No video in this second';
+          chip.dataset.message = ok == null ? 'Select to load video' : 'No video coverage';
+          chip.title = ok == null ? 'Select this trip to load its video details' : ok ? `${c.trip.cam.id} · ${s} s thumbnail` : 'No video coverage in this second';
           if (ok) chip.firstChild.src = api.url(`api/assets/${c.trip.id}/${c.trip.cam.thumbs}/${String(s).padStart(5, '0')}.jpg`);
         }
       }

@@ -21,23 +21,122 @@ const GROW = (panel) => `<div class="fl-grow" data-panel="${panel}" title="Enlar
 export const view = {};
 let ctx, root, trips, places, ov, card, ix = null, saved = null, offs = [];
 // Resolves once mount has the trips, the map and the building card; the agent's hits can arrive before that.
-let ready;
+let ready, read, pendingTrip = null, tripLoadGeneration = 0;
 
 const byId = (id) => trips.find((t) => t.id === id);
-const asset = (trip, rel) => ctx.api.get(`api/assets/${trip.id}/${rel}`);
+const asset = (trip, rel) => read(`api/assets/${trip.id}/${rel}`);
+
+// Cap all route/detail requests, rather than multiplying a trip cap by each trip's asset fan-out.
+function boundedReads(api, limit = 6) {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    while (active < limit && queue.length) {
+      const { path, resolve, reject } = queue.shift();
+      active++;
+      Promise.resolve().then(() => api.get(path)).then(resolve, reject).finally(() => { active--; pump(); });
+    }
+  };
+  return (path) => new Promise((resolve, reject) => { queue.push({ path, resolve, reject }); pump(); });
+}
+
+async function loadCore(trip) {
+  const result = await Promise.allSettled([read(trip.summary.geojson_url), read(`api/scene/${trip.id}/manifest`)]);
+  for (const [i, name] of ['route', 'camera information'].entries()) {
+    if (result[i].status === 'rejected') trip.failedAssets.set(name, result[i].reason);
+    else trip.failedAssets.delete(name);
+  }
+  if (result[0].status === 'fulfilled') {
+    try {
+      const gj = result[0].value, first = gj.features[0];
+      if (!Array.isArray(first.properties.replay.coverage_intervals) || !Array.isArray(first.geometry.coordinates)) throw new Error('Invalid trip route');
+      Object.assign(trip, { replay: first.properties.replay, line: first.geometry.coordinates,
+        pts: gj.features.slice(1).map((f) => f.properties).filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat)) });
+    } catch (e) { trip.failedAssets.set('route', e); }
+  }
+  if (result[1].status === 'fulfilled') {
+    const mf = result[1].value;
+    if (!mf || !Array.isArray(mf.cams) || !mf.assets) trip.failedAssets.set('camera information', new Error('Invalid trip manifest'));
+    else { trip.mf = mf; trip.cam = mf.cams[0] ?? null; }
+  }
+  trip.coreReady = !trip.failedAssets.has('route') && !trip.failedAssets.has('camera information');
+  // Events support the overview pins. The larger video/map/entity details remain on demand.
+  if (trip.mf.assets.events) {
+    try { trip.events = (await read(`api/assets/${trip.id}/${trip.mf.assets.events}`)).events; trip.failedAssets.delete('events'); }
+    catch (e) { trip.events = []; trip.failedAssets.set('events', e); }
+  }
+  return trip;
+}
 
 async function loadTrips() {
-  return Promise.all((await ctx.api.get('api/fleet/trips')).map(async (tr) => {
-    const [gj, mf] = await Promise.all([ctx.api.get(tr.geojson_url), ctx.api.get(`api/scene/${tr.trip_id}/manifest`)]);
-    const trip = { id: tr.trip_id, title: tr.title, mf, cam: mf.cams[0] ?? null, chunks: new Map(), names: new Map() };
-    const a = mf.assets;
-    const [ev, bl, ents, tl, pl] = await Promise.all([a.events && asset(trip, a.events), a.buildings && asset(trip, a.buildings), a.entities && asset(trip, a.entities), a.timeline && asset(trip, a.timeline), a.places && asset(trip, a.places)]);
-    for (const e of ents?.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam?.id) trip.names.set(o.local_track_id, e.entity_id);
-    return Object.assign(trip, {
-      replay: gj.features[0].properties.replay, line: gj.features[0].geometry.coordinates, pts: gj.features.slice(1).map((f) => f.properties).filter((p) => Number.isFinite(p.lon) && Number.isFinite(p.lat)),
-      events: ev?.events ?? [], buildings: bl?.buildings ?? {}, timeline: tl, places: pl?.places ?? [],
-    });
+  read = boundedReads(ctx.api);
+  const list = await ctx.api.get('api/fleet/trips');
+  return Promise.all(list.map(async (summary) => {
+    const id = summary.trip_id, t0 = summary.t0_ms ?? 0, t1 = summary.t1_ms ?? t0 + 1;
+    const trip = { id, summary, title: summary.title, mf: { t0_ms: t0, t1_ms: t1, fps: 30, assets: {}, cams: [] },
+      replay: { trip_id: id, source_start_ms: t0, replay_start_ms: t0, rate: 1, coverage_intervals: [] },
+      line: [], pts: [], cam: null, chunks: new Map(), names: new Map(), events: [], buildings: {}, timeline: null, places: [],
+      failedAssets: new Map(), detailsLoaded: false, detailsPromise: null, coreReady: false };
+    return loadCore(trip);
   }));
+}
+
+async function loadDetails(trip, retry = false) {
+  if (!trip.coreReady || trip.detailsLoaded && !retry) return;
+  if (trip.detailsPromise) return trip.detailsPromise;
+  trip.detailsPromise = (async () => {
+    const kinds = ['buildings', 'entities', 'timeline', 'places'].filter((kind) => trip.mf.assets[kind] && (!trip.detailsLoaded || trip.failedAssets.has(kind)));
+    const results = await Promise.allSettled(kinds.map((kind) => read(`api/assets/${trip.id}/${trip.mf.assets[kind]}`)));
+    results.forEach((result, i) => {
+      const kind = kinds[i];
+      if (result.status === 'rejected') return trip.failedAssets.set(kind, result.reason);
+      try {
+        if (!result.value || typeof result.value !== 'object') throw new Error('Invalid trip detail');
+        trip.failedAssets.delete(kind);
+        if (kind === 'buildings') trip.buildings = result.value.buildings ?? {};
+        if (kind === 'timeline') trip.timeline = result.value;
+        if (kind === 'places') trip.places = result.value.places ?? [];
+        if (kind === 'entities') {
+          trip.names.clear();
+          for (const e of result.value.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam?.id) trip.names.set(o.local_track_id, e.entity_id);
+        }
+      } catch (e) { trip.failedAssets.set(kind, e); }
+    });
+    trip.detailsLoaded = true;
+  })().finally(() => { trip.detailsPromise = null; });
+  return trip.detailsPromise;
+}
+
+function refreshPlaces() {
+  places = new Map(trips.flatMap((t) => t.places.map((p) => [p.place_id, p])).reverse());
+}
+
+function renderLoadStatus() {
+  const el = root.querySelector('.fl-load-status');
+  const failed = trips?.filter((t) => t.failedAssets.size) ?? [];
+  el.hidden = !pendingTrip && !failed.length;
+  el.innerHTML = `${pendingTrip ? `<p>Loading ${esc(pendingTrip.title ?? pendingTrip.id)}…</p>` : ''}${failed.map((t) =>
+    `<p data-trip-error="${esc(t.id)}"><span>${esc(shortId(t.id))}: ${esc([...t.failedAssets.keys()].join(', '))} unavailable.</span> <button class="ghost" type="button" data-retry-trip="${esc(t.id)}">Retry trip</button></p>`).join('')}`;
+}
+
+async function retryTrip(trip) {
+  const mount = ctx, current = ix?.trip === trip ? ix.moment : null, generation = tripLoadGeneration;
+  pendingTrip = trip; renderLoadStatus();
+  try {
+    if (!trip.coreReady) await loadCore(trip);
+    else if (trip.failedAssets.has('events')) {
+      try { trip.events = (await read(`api/assets/${trip.id}/${trip.mf.assets.events}`)).events; trip.failedAssets.delete('events'); }
+      catch (e) { trip.failedAssets.set('events', e); }
+    }
+    if (trip.detailsLoaded || current || ctx.route.trip_id === trip.id) await loadDetails(trip, true);
+    if (ctx !== mount) return;
+    refreshPlaces(); ov.refresh(); addLanes();
+    if (generation !== tripLoadGeneration) return;
+    if (current) await enterIx(trip, current, true);
+    else if (ctx.route.trip_id === trip.id && trip.coreReady) await loadScene(trip.id);
+  } finally {
+    if (ctx === mount) { pendingTrip = null; renderLoadStatus(); }
+  }
 }
 
 // fl-pie-set04_video_0007 → set04·0007; other ids unchanged.
@@ -200,10 +299,17 @@ async function renderTrip() {
     <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
 }
 
-function enterIx(trip, m) {
-  if (ix?.moment === m) return;
+async function enterIx(trip, m, force = false) {
+  if (!force && ix?.moment === m) return;
+  const mount = ctx, owns = ctx.owner ?? (() => true);
   ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms });
   leaveIx();
+  const token = ++tripLoadGeneration;
+  if (!trip.coreReady) return renderLoadStatus();
+  pendingTrip = trip; renderLoadStatus();
+  await loadDetails(trip);
+  if (ctx !== mount || token !== tripLoadGeneration || !owns()) return;
+  pendingTrip = null; refreshPlaces(); ov.refreshBuildings(); renderLoadStatus();
   const p = posAt(trip.pts, m.t0_ms);
   if (!p) {
     root.querySelector('.fl-cap').textContent = 'GPS unavailable';
@@ -235,21 +341,25 @@ function enterIx(trip, m) {
       src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
     }),
   };
-  const owns = ctx.owner ?? (() => true);
+  if (trip.referenceBid) { cur.video.setReferences([trip.referenceBid]); cur.scene.focus(trip.referenceBid); }
   const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
-  ctx.api.get(`api/model-results?${q}`).then((rs) => {
+  read(`api/model-results?${q}`).then((rs) => {
     if (ix !== cur) return;
     cur.c5 = rs.filter((r) => r.task === 'C5');
+    trip.failedAssets.delete('model descriptions'); renderLoadStatus();
     cur.frame = null;
     ixTick(ctx.clock.t);
   }).catch((e) => {
-    if (owns() || e?.message !== 'Superseded page command') throw e;
+    if (ix === cur && e?.message !== 'Superseded page command') { trip.failedAssets.set('model descriptions', e); renderLoadStatus(); }
   });
   ixTick(ctx.clock.t);
   if (!document.getElementById('tab-trip').hidden) renderTrip();
 }
 
 function leaveIx() {
+  tripLoadGeneration++;
+  pendingTrip = null;
+  if (root?.querySelector('.fl-load-status')) renderLoadStatus();
   if (!ix) return;
   ix.scene.dispose();
   ix.video.dispose();
@@ -282,12 +392,12 @@ const openTrip = (trip, t0_ms) => enterIx(trip, { scene_key: trip.id, t0_ms });
 
 // Default view: the trip with video and the most events, at its first event.
 function openDefault() {
-  const trip = trips.filter((t) => t.cam).sort((a, b) => b.events.length - a.events.length)[0];
+  const trip = trips.filter((t) => t.cam && t.coreReady).sort((a, b) => (b.summary.n_events ?? b.events.length) - (a.summary.n_events ?? a.events.length))[0];
   if (!trip) return tick(ctx.clock.t);
   const t0 = Math.min(...trip.events.map((e) => e.t0_ms), Infinity);
   const t = t0 === Infinity ? trip.replay.coverage_intervals[0]?.[0] ?? trip.mf.t0_ms : t0;
   ctx.clock.seek(wallOf(trip.replay, t));
-  openTrip(trip, t);
+  return openTrip(trip, t);
 }
 
 function toOverview() {
@@ -309,6 +419,7 @@ export async function mount(el, c) {
   let loaded;
   ready = new Promise((r) => (loaded = r));
   ctx = c;
+  pendingTrip = null; tripLoadGeneration++;
   root = el;
   const links = [ctx.api.url('lib/maplibre/maplibre-gl.css'), new URL('./fleet.css', import.meta.url).href].map((href) =>
     document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'stylesheet', href })));
@@ -316,7 +427,7 @@ export async function mount(el, c) {
     <div class="fl-root">
       <div class="fl-map"></div>
       <div class="fl-clock"><span class="fl-sim" title="Simulated replay clock: trips were not filmed at the same time">Simulated clock</span><span class="mono fl-wall"></span></div>
-      <div class="fl-card" hidden></div>
+      <div class="fl-card" hidden></div><div class="fl-load-status" role="status">Loading fleet routes…</div>
     </div>`;
   root = root.firstElementChild;
   [trips] = await Promise.all([loadTrips(), new Promise((r) => {
@@ -325,7 +436,12 @@ export async function mount(el, c) {
     links[1].onload = links[1].onerror = done;
     if (links[1].sheet) done();
   })]);
-  places = new Map(trips.flatMap((t) => t.places.map((p) => [p.place_id, p])).reverse());
+  view.trips = trips;
+  const initial = byId(ctx.route.trip_id) ?? (!['searching', 'hit'].includes(state.view) ? trips.filter((t) => t.cam && t.coreReady).sort((a, b) => (b.summary.n_events ?? b.events.length) - (a.summary.n_events ?? a.events.length))[0] : null);
+  if (initial) await loadDetails(initial);
+  refreshPlaces();
+  renderLoadStatus();
+
   // fleet.css's --route-1…8 by order in the trip list; MapLibre paint cannot read CSS variables.
   const css = getComputedStyle(root);
   trips.forEach((t, i) => (t.color = css.getPropertyValue(`--route-${(i % 8) + 1}`).trim() || css.getPropertyValue('--ink-2').trim()));
@@ -356,6 +472,8 @@ export async function mount(el, c) {
   root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: trips.some((t) => t.pts.length) ? 'Dashed ring = GPS uncertainty' : 'GPS unavailable' }));
   root.querySelector('.fl-map').insertAdjacentHTML('beforeend', GROW('map'));
   root.addEventListener('click', (e) => {
+    const retry = e.target.closest('[data-retry-trip]');
+    if (retry) { retry.disabled = true; retryTrip(byId(retry.dataset.retryTrip)).catch(() => {}); return; }
     const g = e.target.closest('.fl-grow');
     if (g && ix) setBig(g.dataset.panel);
   });
@@ -385,6 +503,7 @@ export async function mount(el, c) {
   const onEvidence = (e) => {
     if (!ix || e.scene_key !== ix.trip.id) return;
     const bid = e.value?.bid;
+    ix.trip.referenceBid = bid ?? null;
     ix.video.setReferences(bid ? [bid] : []);
     ix.scene.focus(bid ?? null);
   };
@@ -401,11 +520,12 @@ export async function mount(el, c) {
     () => ctx.bus.off('evidence:focus', onEvidence),
     () => links.forEach((l) => l.remove()),
   ];
-  if (ctx.route.trip_id) loadScene(ctx.route.trip_id);
+  if (ctx.route.trip_id) await loadScene(ctx.route.trip_id);
   // A question still running (or its hit) replaces the view once mount returns.
-  else if (!['searching', 'hit'].includes(state.view)) openDefault();
+  else if (!['searching', 'hit'].includes(state.view)) await openDefault();
   else tick(ctx.clock.t);
   return () => {
+    tripLoadGeneration++;
     leaveIx();
     ov.dispose();
     offs.forEach((off) => off());
@@ -421,9 +541,12 @@ export async function applyHits(moments) {
   const trip = byId(m.scene_key), p = posAt(trip.pts, m.t0_ms);
   ov.select(trip.id);
   ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
-  if (trip.cam) enterIx(trip, m);
-  else if (p) flyTo([p.lon, p.lat]);
-  else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
+  if (trip.cam) await enterIx(trip, m);
+  else {
+    leaveIx(); renderLoadStatus();
+    if (p) flyTo([p.lon, p.lat]);
+    else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
+  }
 }
 
 export async function applyUI({ cmd, args }) {
@@ -437,7 +560,7 @@ export async function applyUI({ cmd, args }) {
     ctx.selection.set(args.ids.filter((id) => !buildings.includes(id)), { source: 'agent' });
     if (buildings.length) await card.focus(buildings[0]);
   } else if (cmd === 'setView') ix?.scene.setView(args.view);
-  else if (cmd === 'loadScene') loadScene(args.scene_key);
+  else if (cmd === 'loadScene') return loadScene(args.scene_key);
 }
 
 // Model results are shown by the shell's model panel; the building and place cards fetch their own C5 records.
@@ -453,6 +576,7 @@ export function loadScene(id) {
   if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
   const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0]?.t_ms ?? trip.mf.t0_ms;
   if (trip.cam) return openTrip(trip, t);
+  leaveIx(); renderLoadStatus();
   const p = posAt(trip.pts, t);
   if (p) ov.fly([p.lon, p.lat], FLY_MS);
   else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
