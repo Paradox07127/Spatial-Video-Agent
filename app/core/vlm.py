@@ -456,7 +456,7 @@ def _asset(scene_key: str, rel: str) -> str:
 def _s3():
     import boto3
     return boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"], aws_access_key_id=os.environ["ACCESS_KEY"],
-                        aws_secret_access_key=os.environ["SECRET_KEY"], verify=os.environ.get("S3_VERIFY", "1") != "0")
+                        aws_secret_access_key=os.environ["SECRET_KEY"], verify=Settings().s3_verify)
 
 
 def _json(scene_key: str, rel: str) -> Any:
@@ -618,3 +618,100 @@ def _jpeg_b64(im: Image.Image) -> str:
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode()
+
+
+@_budgeted
+def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int],
+                   actor_refs: list[EntityRef], *, run: Any = None) -> dict:
+    """Bounded visual observations with server-resolved frame citations.
+
+    This is a separate observation contract, not a spatial measurement or a C1
+    event label. Decode on replay too, so cache provenance covers actual pixels.
+    """
+    import hashlib
+    lo, hi = t_range
+    if not isinstance(lo,int) or not isinstance(hi,int) or lo < 0 or hi <= lo:
+        raise VLMUnavailable('invalid_model_scope')
+    manifest = _manifest(scene_key)
+    if not any(c['id']==cam for c in manifest['cams']):
+        raise VLMUnavailable('invalid_model_scope: unknown camera')
+    lo,hi = max(lo,manifest['t0_ms']),min(hi,manifest['t1_ms'])
+    if hi <= lo:
+        raise VLMUnavailable('invalid_model_scope: empty window')
+    n = min(24,max(1,(hi-lo+STEP_MS-1)//STEP_MS))
+    targets = sorted({lo+(hi-lo-1)*i//max(1,n-1) for i in range(n)})
+    ids = sorted({a.entity_id for a in actor_refs})
+    frames = [f for f in _frames(scene_key,manifest,cam,targets,set(ids),None) if lo <= f[0] < hi][:24]
+    if not frames:
+        raise VLMUnavailable(f'{scene_key}/{cam}: no video frames in [{lo}, {hi})')
+    frame_refs = [{'cam_id':cam,'t_ms':ms} for ms,_ in frames]
+    settings = Settings()
+    revision = 'observation-1'
+    image_hashes = [hashlib.sha256(img.tobytes()+str((img.mode,img.size)).encode()).hexdigest() for _,img in frames]
+    identity = {'scene':scene_key,'cam':cam,'window':[lo,hi],'actors':ids,'frames':frame_refs,
+                'pixels':image_hashes,'material':_cache_identity(scene_key),'model':settings.vlm_model,
+                'endpoint':settings.vlm_url,'prompt':revision}
+    digest = hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    cache = _cache_dir() / ('observation_'+digest+'.json')
+    def validate(raw):
+        if not isinstance(raw,dict) or set(raw)!= {'facts'} or not isinstance(raw['facts'],list) or len(raw['facts'])>6:
+            raise VLMUnavailable('invalid_model_observation: expected at most six facts')
+        facts=[]
+        for item in raw['facts']:
+            if not isinstance(item,dict) or set(item)!={'subject_ids','text','frame_indices','uncertainty'}:
+                raise VLMUnavailable('invalid_model_observation: invalid fact fields')
+            subjects,text,indices,u = (item[k] for k in ('subject_ids','text','frame_indices','uncertainty'))
+            if not isinstance(subjects,list) or any(v not in ids for v in subjects):
+                raise VLMUnavailable('invalid_model_observation: unknown subject')
+            if not isinstance(text,str) or not text.strip() or len(text)>300:
+                raise VLMUnavailable('invalid_model_observation: invalid text')
+            if not isinstance(indices,list) or not indices or any(type(v) is not int or not 0 <= v < len(frames) for v in indices):
+                raise VLMUnavailable('invalid_model_observation: invalid frame index')
+            if type(u) not in (int,float) or not math.isfinite(u) or not 0 <= u <= 1:
+                raise VLMUnavailable('invalid_model_observation: invalid uncertainty')
+            # The model may describe visible motion, never smuggle metric claims
+            # into this nonmeasurement channel.
+            if re.search(r'\b\d+(?:\.\d+)?\s*(?:m(?:eters?|etres?)?|km/?h|m/?s|mph|seconds?|people|persons?|vehicles?)\b',text,re.I):
+                raise VLMUnavailable('invalid_model_observation: numeric measurement in visual text')
+            facts.append({**item,'frame_refs':[frame_refs[i] for i in dict.fromkeys(indices)]})
+        return facts
+    raw = None
+    state = 'live'
+    if cache.is_file():
+        try:
+            saved=json.loads(cache.read_text())
+            if saved['identity']==identity:
+                validate(saved['raw'])
+                raw=saved['raw'];state='cached'
+        except (ValueError,KeyError,TypeError,VLMUnavailable):
+            pass
+    if raw is None:
+        images=[]
+        for i,(_,image) in enumerate(frames):
+            image=image.copy()
+            ImageDraw.Draw(image).text((5,25),f'frame_index={i}',fill='white',stroke_width=2,stroke_fill='black')
+            images.append(_jpeg_b64(image))
+        schema=_obj({'facts':{'type':'array','maxItems':6,'items':_obj({
+            'subject_ids':{'type':'array','items':{'type':'string'},'maxItems':len(ids)},
+            'text':{'type':'string','maxLength':300},
+            'frame_indices':{'type':'array','items':{'type':'integer','minimum':0,'maximum':len(frames)-1},'minItems':1,'maxItems':24},
+            'uncertainty':{'type':'number','minimum':0,'maximum':1}})}})
+        prompt=(f'Observe only the visible state, motion and interaction in these {len(frames)} frames from camera {cam}. '
+                f'Allowed tracked subjects are {ids}; use an empty subject_ids list for a scene observation. '
+                'Provide at most six atomic facts, each citing frame_index integers printed on actual input frames. '
+                'Describe what is visible, not inferred intent, blame, hidden objects, numeric distance, count, speed or time. '
+                'An overlay ID is a reference, not proof of real-world identity. Empty facts is valid when evidence is insufficient. '
+                'uncertainty is zero for confident and one for uncertain. Answer JSON only.')
+        raw=_chat(images,prompt,schema,getattr(run,'run_id',None),getattr(run,'deadline',None))
+        facts=validate(raw)
+        cache.parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=cache.parent,delete=False) as handle:
+            temporary=Path(handle.name)
+            handle.write(json.dumps({'identity':identity,'raw':raw}).encode())
+        try:temporary.replace(cache)
+        finally:temporary.unlink(missing_ok=True)
+    else:
+        facts=validate(raw)
+    return {'raw':raw,'facts':facts,'cam_id':cam,'t0_ms':lo,'t1_ms':hi,
+            'input_frame_refs':frame_refs,'model_rev':settings.vlm_model,'prompt_rev':revision,
+            'exec_state':state,'input_digest':'sha256:'+digest}

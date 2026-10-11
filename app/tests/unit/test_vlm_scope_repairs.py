@@ -74,3 +74,26 @@ def test_chat_nontext_and_no_run_circuit_recovers(monkeypatch):
     monkeypatch.setattr(vlm.time,'monotonic',lambda:vlm._opened[('http://model','m')]+31)
     monkeypatch.setattr(vlm.httpx,'post',lambda url,**kw:httpx.Response(200,json={'choices':[{'message':{'content':'{}'}}]},request=httpx.Request('POST',url)))
     assert vlm._chat([],'p',{},None)=={}
+
+
+def test_observe_window_cites_actual_frames_and_cache(model,monkeypatch):
+    frames,out=model
+    frames.extend([(1000,Image.new('RGB',(2,2))),(1250,Image.new('RGB',(2,2)))])
+    out.clear();out['facts']=[{'subject_ids':['P1'],'text':'P1 faces the aisle.','frame_indices':[1],'uncertainty':.2}]
+    actor=EntityRef(scene_key=K,entity_id='P1',kind='person')
+    a=vlm.observe_window(K,'eye',(1000,1500),[actor])
+    assert a['exec_state']=='live' and a['facts'][0]['frame_refs']==[{'cam_id':'eye','t_ms':1250}]
+    b=vlm.observe_window(K,'eye',(1000,1500),[actor])
+    assert b['exec_state']=='cached' and b['input_digest']==a['input_digest']
+    frames[1]=(1250,Image.new('RGB',(2,2),'red'))
+    c=vlm.observe_window(K,'eye',(1000,1500),[actor])
+    assert c['exec_state']=='live' and c['input_digest']!=a['input_digest']
+
+
+@pytest.mark.parametrize('change',[{'subject_ids':['P2']},{'frame_indices':[3]},{'uncertainty':float('nan')},{'text':'P1 is 2 meters away.'}])
+def test_observe_window_rejects_false_citations(model,change):
+    frames,out=model
+    frames.append((1000,Image.new('RGB',(2,2))))
+    out.clear();out['facts']=[{'subject_ids':['P1'],'text':'P1 faces the aisle.','frame_indices':[0],'uncertainty':.2,**change}]
+    with pytest.raises(vlm.VLMUnavailable,match='invalid_model_observation'):
+        vlm.observe_window(K,'eye',(1000,1500),[EntityRef(scene_key=K,entity_id='P1',kind='person')])
