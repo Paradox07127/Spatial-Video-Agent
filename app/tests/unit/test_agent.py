@@ -840,7 +840,11 @@ def test_anchor_measures_on_the_l3_hit_and_abstains_on_l1(corpus):
     answers = {a['evidence_level']:a for a in of(frames, 'answer')}
     assert list(answers)==[None,'L3','L2','L1']
     assert answers['L1']['measure_refs']==[] and '(2D)' in answers['L1']['text'] and ABSTAIN_TEXT['no_geometry'] in answers['L1']['text']
-    assert not answers['L3']['measure_refs'] and 'exhaustive coverage' in answers['L3']['text']
+    # A missing exhaustive-coverage certificate leaves the question unresolved,
+    # while an independently measured distance and its sampled time remain available.
+    assert 'exhaustive coverage' in answers['L3']['text']
+    assert {r['field'] for r in answers['L3']['measure_refs']}=={'value','sigma','t0_ms'}
+    assert all(read[r['eid']]['method']=='ground_distance' for r in answers['L3']['measure_refs'])
     assert of(frames,'status')[-1]['final']=='UNRESOLVED'
     assert all(e.evidence_level for e in corpus.get_run(frames[0]['data']['run_id']).evidence)
 
