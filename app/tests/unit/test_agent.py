@@ -165,14 +165,18 @@ def test_blind_zone_question_lists_persons_and_intervals(setup):
     p = [f['data'] for f in frames if f['event']=='claim'][-1]['predicates'][0]
     assert (p['operator'],p['status'])==('present_in_blind_zone','supported')
     assert [(read[e]['kind'],read[e]['method'],read[e]['value']['entity_id'],read[e]['t0_ms'],read[e]['t1_ms']) for e in p['eids']]==[
-        ('measure','blind_presence','P2',3600,9300),('measure','blind_presence','P1',4000,6000)]
+        ('measure','blind_presence','P2',3600,6000),('measure','blind_presence','P1',4000,6000),
+        ('measure','blind_presence','P2',6000,7000),('measure','blind_presence','P2',7000,9300)]
     ui = [f['data'] for f in frames if f['event']=='ui']
     assert (ui[0]['cmd'],ui[0]['args'])==('seek',{'t_ms':3600,'scene_key':'wh-sdg-fixture-01'})
     assert ui[1]['cmd']=='highlight' and sorted(ui[1]['args']['ids'])==['P1','P2']
     assert frames[-2]['data']['final']=='SUPPORTED'
     answer = next(f['data'] for f in frames if f['event']=='answer')
     assert all(w in answer['text'] for w in ['ceiling_00','P1','P2','ceiling_04, eye_00']) and 'uncited number' not in answer['text']
-    assert set(p['eids'])<=set(answer['cites']) and len(answer['measure_refs'])==4
+    assert set(p['eids'])<=set(answer['cites']) and len(answer['measure_refs'])==8
+    assert [read[e]['value']['seen_by'] for e in p['eids']]==[
+        ['ceiling_04','eye_00'],['ceiling_04','eye_00'],['ceiling_04'],['ceiling_04','eye_00']]
+    assert '6–7 s (floor cells marked visible to ceiling_04)' in answer['text']
 
 
 def test_blind_zone_question_without_anyone_is_contradicted(setup):
@@ -272,10 +276,14 @@ def test_blind_zone_emits_one_hit_per_interval_before_the_claim(setup):
     key = 'wh-sdg-fixture-01'
     assert [(m['scene_key'],m['t0_ms'],m['t1_ms'],m['cams'],m['primary_cam'],[a['entity_id'] for a in m['actor_refs']],m['why'],m['thumb'])
             for m in moments]==[
-        (key,3600,9300,['ceiling_04','eye_00','ceiling_00'],'ceiling_04',['P2'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00003.jpg'),
-        (key,4000,6000,['ceiling_04','eye_00','ceiling_00'],'ceiling_04',['P1'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00004.jpg')]
+        (key,3600,6000,['ceiling_04','eye_00','ceiling_00'],'ceiling_04',['P2'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00003.jpg'),
+        (key,4000,6000,['ceiling_04','eye_00','ceiling_00'],'ceiling_04',['P1'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00004.jpg'),
+        (key,6000,7000,['ceiling_04','ceiling_00'],'ceiling_04',['P2'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00006.jpg'),
+        (key,7000,9300,['ceiling_04','eye_00','ceiling_00'],'ceiling_04',['P2'],['blind_presence'],f'/api/assets/{key}/thumbs/ceiling_04/00007.jpg')]
     assert [[(read[e]['method'],read[e]['value']['entity_id']) for e in m['evidence_ids']] for m in moments]==[
-        [('blind_presence','P2')],[('blind_presence','P1')]]
+        [('blind_presence','P2')],[('blind_presence','P1')],[('blind_presence','P2')],[('blind_presence','P2')]]
+    # A camera outage must remove that witness from the affected moment only.
+    assert 'eye_00' not in moments[2]['cams'] and 'eye_00' in moments[3]['cams']
     assert [m.moment_id for m in store.get_run(frames[0]['data']['run_id']).hits]==[m['moment_id'] for m in moments]
 
 

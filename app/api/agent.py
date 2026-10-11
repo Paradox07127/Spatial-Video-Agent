@@ -143,7 +143,7 @@ def abstained(claim):
 def quantity_name(predicate):
     if predicate.operator=='measured' and predicate.unit=='m':
         return 'distance'
-    return {'located':'position','measured_speed':'speed','present_in_blind_zone':'sampled blind-zone presence','visual_zone':'selected zone'}.get(
+    return {'located':'position','measured_speed':'speed','present_in_blind_zone':'sampled blind-zone presence','visual_zone':'selected zone','place_constraint':'requested place'}.get(
         predicate.operator,predicate.operator.replace('_',' '))
 
 
@@ -286,6 +286,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     ego_measured = False
     observations = []
     ego_measurement = None
+    place_verified = False
 
     def frame(event, **data):
         f = {'event':event,'data':{'run_id':run.run_id,**data}}
@@ -361,6 +362,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
 
     def claim_frame(predicates, before=None, explain=None, *, key=None, moment=None, lv=None, text='Spatial and event evidence check'):
         # A condition retained by parsing must either be measured or remain unknown.
+        if parsed and parsed.place and not place_verified and not any(p.operator=='place_constraint' for p in predicates):
+            predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[],
+                                        operator='place_constraint',value=parsed.place,unit=None,status='unknown',eids=[]))
         conditions = parsed.constraints if parsed else []
         for condition in conditions:
             if condition.startswith('requested_action:'):
@@ -909,6 +913,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if not passes or video and not asked:
                     final, stop_reason = 'OUT_OF_RANGE','abstained'
                 elif video:
+                    place_verified=True  # The facade path reads source-bound GPS passes.
                     with trace.traced(run,'assess',{'passes':asked,'side':side},state='inspect') as t:
                         yield step_frame(t,'inspect','Read building facades at the time closest to the place')
                         res = yield from call(t,'facade','inspect',{'passes':asked,'lat':place['lat'],'lon':place['lon'],'side':side},
@@ -952,6 +957,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                      lambda:tools.find_passes(store,place.envelope.output['place_id'],geo.NEAR_M,360))
                             if not passes.envelope.output:
                                 final,stop_reason='OUT_OF_RANGE','abstained'
+                            else:
+                                place_verified=True  # Candidate retrieval is constrained to these GPS passes.
                     if stop_reason!='abstained':
                         if speeding_q:
                             near = passes.envelope.output if parsed.place else None
@@ -1596,6 +1603,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     unmet=list(dict.fromkeys(quantity_name(p) for c in claims for p in c.predicates
                                               if p.status=='unknown' and p.operator!='visual_observation'))
                     zone_note=(' These observations cover full camera frames; the selected zone was not visually localized or verified.' if parsed.zone else '')
+                    if parsed.place and not place_verified:
+                        zone_note+=' The requested place was not verified for these frames.'
                     answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+'.'+zone_note+
                                   ' These sampled visual observations do not independently verify the full question or a geometric measurement.'+
                                   (' Unverified conditions: '+', '.join(unmet)+'.' if unmet else ''),
