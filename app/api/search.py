@@ -17,6 +17,7 @@ from app.settings import Settings
 
 router = APIRouter()
 LEVEL_QUOTA = 4
+BICYCLE = r'\b(bicycles?|cycling)\b'
 
 
 class SearchRequest(BaseModel):
@@ -57,7 +58,7 @@ def event_types(q):
     text = q.lower()
     for pattern, types in [(r'\b(dodg(?:e[sd]?|ing)|yield(?:s|ed|ing)?|give way|step back)\b', {'dodge'}),
                            (r'\bcross(?:es|ed|ings?)?\b', {'ped_crossing'}),
-                           (r'\bbrak(?:e[sd]?|ing)\b', {'hard_brake'}),
+                           (r'\bbrak(?:e[sd]?|ing)\b(?!\s+lights?\b)', {'hard_brake'}),
                            (r'\bnear miss\b', {'near_miss'})]:
         if re.search(pattern,text):
             return types
@@ -117,12 +118,13 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     if corpus:
         parsed = parsed.model_copy(update={'scope':'corpus'})
     key = None if corpus else parsed.scene_key
-    evidence, grouped, expanded, chunks, gaps = [], {}, [], {}, []
+    evidence, grouped, expanded, chunks, gaps, scene_tracks = [], {}, [], {}, [], {}
     backend = getattr(store, 'backend', 'duckdb')
     empty = {'moments':[], 'expanded_ranges':[], 'backend':backend}
     if constraint_reason:
         return parsed, result(key or 'all',0,0,{**empty,'abstain':'UNRESOLVED','reason':constraint_reason},exec_state=exec_state,started=started)
-    if parsed.template == 'unsupported':
+    # other unsupported parses still retrieve; the agent keeps its own template handling
+    if parsed.template == 'unsupported' and re.search(llm.FORBIDDEN, request.q.lower()):
         return parsed, result(key or 'all',0,0,empty,exec_state=exec_state,started=started)
     scenes = store.list_scenes(None if corpus else parsed.workspace)
     selected = [m for m in scenes if (not key or m['scene_key']==key)
@@ -135,7 +137,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             return parsed,result(key or 'all',0,0,{**empty,'abstain':'UNRESOLVED','reason':'conflicting_camera_constraints'},started=started)
         cam_ids=[request.cam_id]
     filters = SearchFilters(workspace=parsed.workspace,scene_keys=[m['scene_key'] for m in selected],
-                            cam_ids=cam_ids or None,t_range=parsed.t_range,k=50)
+                            cam_ids=cam_ids or None,t_range=parsed.t_range,k=50,query=' '.join(request.q.lower().split()))
     if not selected:
         return parsed, result(key or 'all',0,0,empty,exec_state=exec_state,started=started)
     windows = None
@@ -147,9 +149,9 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             return parsed, result(key or 'all',0,0,{**empty,'abstain':'OUT_OF_RANGE'},exec_state=exec_state,started=started)
         windows = [w for w in windows if w[0] in filters.scene_keys]
         filters.scene_keys = list(dict.fromkeys(w[0] for w in windows))
-    # site (vss given) always embeds; without an embedding service (local dev) the search is unranked over the filtered clips.
+    # site (vss given) always embeds; without an embedding service (local dev) every filtered clip is searched, caption BM25 matches first.
     # VSS /search is never awaited here: the store ranks our clips and the live rows directly
-    query = ' '.join(request.q.lower().split())
+    query = filters.query
     query_hash = hashlib.sha256(query.encode()).hexdigest()
     vectors = embed.embed_text(query) if vss is not None or Settings().embed_url else None
     if vectors is not None:
@@ -188,13 +190,14 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
         if t0 >= t1:
             continue
         expanded.append({'clip_id':clip.clip_id,'t0_ms':t0,'t1_ms':t1})
-        # the expanded range is context only; a moment's detections and events must lie inside the pass and t_range
+        # the expanded range is context only; a moment's detections and events must lie inside the clip, the pass and t_range
+        c0, c1 = max(t0,clip.t0_ms), min(t1,clip.t1_ms)
         def inside(t):
             return ((windows is None or any(trip==clip.scene_key and a<=t<b for trip, a, b in windows))
                     and (not parsed.t_range or parsed.t_range[0]<=t<parsed.t_range[1]))
-        rows = [r for r in box_rows(store,clip.scene_key,clip.cam_id,t0,t1,chunks) if inside(r[0])]
+        rows = [r for r in box_rows(store,clip.scene_key,clip.cam_id,c0,c1,chunks) if inside(r[0])]
         # Bicycle queries require an observed bicycle; semantic rank alone cannot certify one.
-        if any(w in request.q.lower() for w in ['bicycle','cycling']):
+        if re.search(BICYCLE,request.q,re.I):
             rows = [r for r in rows if r[2]=='bicycle']
             if not rows:
                 continue
@@ -205,8 +208,9 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 spans = [(max(a,parsed.t_range[0]),min(b,parsed.t_range[1])) for a, b in spans]
             starts = [max(a,e.t0_ms) for a, b in spans if max(a,e.t0_ms)<min(b,e.t1_ms)]
             return min(starts) if starts else None
-        events = [(first_inside(e),e) for e in store.events_in(clip.scene_key,t0,t1)]
-        events = [(t,e) for t, e in events if t is not None]
+        # an event belongs to the clip that holds its first allowed instant
+        events = [(first_inside(e),e) for e in store.events_in(clip.scene_key,c0,c1)]
+        events = [(t,e) for t, e in events if t is not None and c0<=t<c1]
         if parsed.t_range and re.search(r'\b(when|start(?:ed)?|after|before)\b',request.q,re.I):
             # A continuing event is not an event that began in the requested window.
             events = [(t,e) for t,e in events if parsed.t_range[0]<=e.t0_ms<parsed.t_range[1]]
@@ -216,19 +220,25 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             if not events:
                 continue
         candidates = events if events else [(r[0],None) for r in rows[:1]]
+        clip_t = None
         for candidate_t, event in candidates:
             explicit = [x for x in parsed.entities if x[:1] in 'PFV' and x[1:].isdigit()]
             if explicit and event is not None and not set(explicit)<=set(event.actor_ids):
                 continue
-            entities = store.entities(clip.scene_key)
+            if clip.scene_key not in scene_tracks:
+                entities, tracks = store.entities(clip.scene_key), {}
+                for e in entities:
+                    for o in e.observations:
+                        tracks.setdefault((o['cam_id'],o['local_track_id']),[]).append((o['t0_ms'],o['t1_ms'],e.entity_id))
+                scene_tracks[clip.scene_key] = entities, tracks
+            entities, tracks = scene_tracks[clip.scene_key]
+            def owners(r):
+                return {i for a, b, i in tracks.get((clip.cam_id,r[1]),()) if a<=r[0]<b}
             bound = explicit or (event.actor_ids if event else [])
             if not bound and event is None:
-                bound = [e.entity_id for e in entities if e.kind in parsed.entities and
-                         any(o['cam_id']==clip.cam_id and o['local_track_id']==r[1] and o['t0_ms']<=r[0]<o['t1_ms']
-                             for o in e.observations for r in rows if r[0]==candidate_t)]
-            participant_rows = [r for r in rows if not bound or any(e.entity_id in bound and
-                                any(o['cam_id']==clip.cam_id and o['local_track_id']==r[1] and o['t0_ms']<=r[0]<o['t1_ms']
-                                    for o in e.observations) for e in entities)]
+                seen = set().union(*(owners(r) for r in rows if r[0]==candidate_t))
+                bound = [e.entity_id for e in entities if e.kind in parsed.entities and e.entity_id in seen]
+            participant_rows = [r for r in rows if not bound or owners(r)&set(bound)]
             stamps = sorted({r[0] for r in participant_rows if t0<=r[0]<t1 and
                              (event is None or event.t0_ms<=r[0]<event.t1_ms and abs(r[0]-candidate_t)<=250)})
             if not stamps:
@@ -244,7 +254,12 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 points += [(f.x,f.y) for f in moment.forklift if not bound or f.entity_id in bound]
                 if not any(Polygon(parsed.zone).covers(Point(p)) for p in points):
                     continue
-            live = {k:v for k, v in [('rank_vss_text',clip.rank_vss_text),('rank_vss_visual',clip.rank_vss_visual)] if v is not None}
+            # one moment per clip; simultaneous candidates at that instant stay distinct cards
+            if clip_t not in (None,t_ms):
+                continue
+            clip_t = t_ms
+            live = {k:v for k, v in [('rank_vss_text',clip.rank_vss_text),('rank_vss_visual',clip.rank_vss_visual),
+                                     ('rank_bm25',clip.rank_bm25)] if v is not None}
             rank_score = sum(1/(60+r) for r in [clip.rank_text,clip.rank_visual,*live.values()] if r is not None)
             ev = Evidence.create(scene_key=clip.scene_key,cam_id=clip.cam_id,t0_ms=t0,t1_ms=t1,observation_ids=[],
                                  analysis_rev=manifest['analysis_rev'],kind='model',method='caption_embed1_rrf',
@@ -288,7 +303,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             thumb = thumbnail(store,clip.scene_key,primary,t_ms)
             if thumb is None:
                 gaps.append((t_ms,t_ms+1,'missing_thumbnail'))
-            end = min(t_ms+1000,t1)
+            end = min(t_ms+1000,c1)
             if windows is not None:
                 end = min(end,max(b for trip,a,b in windows if trip==clip.scene_key and a<=t_ms<b))
             candidate_hash = hashlib.sha256(repr(group_key[2:]).encode()).hexdigest()[:12]
@@ -312,7 +327,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 card.exec_state = 'live'
             if card.exec_state=='live':
                 exec_state = 'live'
-            if any(w in request.q.lower() for w in ['bicycle','cycling']) and not card_evidence[1].value['counts'].get('bicycle'):
+            if re.search(BICYCLE,request.q,re.I) and not card_evidence[1].value['counts'].get('bicycle'):
                 continue
             if card.thumb is None:
                 gaps.append((card.t0_ms,card.t1_ms,'missing_thumbnail'))

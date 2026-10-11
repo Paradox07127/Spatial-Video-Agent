@@ -250,6 +250,72 @@ def test_no_match_unsupported_and_hard_time(tmp_path, monkeypatch):
     assert all(8000 <= m['t0_ms'] < 9000 for m in r.envelope.output['moments'])
 
 
+def test_retrieve_passes_the_query_and_fuses_the_caption_bm25_rank(tmp_path, monkeypatch):
+    s = fixture_store(tmp_path)
+    seen, original = [], s.search_clips
+    def ranked(filters, txt, vis):
+        seen.append(filters.query)
+        return [c.model_copy(update={'rank_bm25': 1}) for c in original(filters, txt, vis)]
+    monkeypatch.setattr(s, 'search_clips', ranked)
+    _, r = retrieve(s, SearchRequest(q='  Find   P1 ', workspace='warehouse'))
+    values = [e.value for e in r.evidence if e.method == 'caption_embed1_rrf']
+    assert seen == ['find p1'] and values
+    assert all(v['rank_bm25'] == 1 and v['rrf'] == pytest.approx(1/61) for v in values)
+
+
+def test_unsupported_parse_retrieves_unless_the_question_is_forbidden(tmp_path, monkeypatch):
+    monkeypatch.delenv('LLM_URL', raising=False)
+    s = fixture_store(tmp_path)
+    q = 'worker beside the forklift'
+    assert llm.rule_parse(q, {'workspace': 'warehouse'}).template == 'unsupported'
+    parsed, r = retrieve(s, SearchRequest(q=q, workspace='warehouse'))
+    assert parsed.template == 'unsupported' and r.envelope.output['moments']
+    _, r = retrieve(s, SearchRequest(q='Why did the worker step aside?', workspace='warehouse'))
+    assert r.envelope.output['moments'] == []
+
+
+def test_moment_comes_from_its_clip_span(tmp_path, monkeypatch):
+    s = fixture_store(tmp_path)
+    original = s.search_clips
+    # the expanded window [0, 10000) holds earlier detections and events that begin before this clip
+    monkeypatch.setattr(s, 'search_clips', lambda f, t, v: [c for c in original(f, t, v) if c.cam_id == 'ceiling_04' and c.t0_ms == 5000])
+    _, r = retrieve(s, SearchRequest(q='Find a worker', workspace='warehouse'))
+    cards = r.envelope.output['moments']
+    assert len(cards) == 1 and 5000 <= cards[0]['t0_ms'] < cards[0]['t1_ms'] <= 10000
+    assert r.envelope.output['expanded_ranges'] == [{'clip_id': cards[0]['clip_id'], 't0_ms': 0, 't1_ms': 10000}]
+
+
+def test_one_clip_yields_one_card(tmp_path, monkeypatch):
+    s = fixture_store(tmp_path)
+    original = s.events_in
+    def events(key, t0, t1):
+        found = original(key, t0, t1)
+        return found + [e.model_copy(update={'event_id': e.event_id + ':later', 't0_ms': e.t0_ms + 1000}) for e in found if e.type == 'ped_crossing']
+    monkeypatch.setattr(s, 'events_in', events)
+    _, r = retrieve(s, SearchRequest(q='Show pedestrian crossings', workspace='fleet'))
+    by_clip = [m['clip_id'] for m in r.envelope.output['moments']]
+    assert by_clip and len(by_clip) == len(set(by_clip))
+
+
+@pytest.mark.parametrize('q,expected', [('stopped behind a black SUV with its brake lights on', None),
+                                        ('a dark sedan with its brake light on', None),
+                                        ('a white sedan brakes ahead', {'hard_brake'})])
+def test_brake_lights_are_not_a_braking_event(q, expected):
+    assert event_types(q) == expected
+
+
+def test_bicycle_filter_matches_plural_words_only(tmp_path, monkeypatch):
+    from app.api import search
+    s = fixture_store(tmp_path)
+    rows = search.box_rows
+    monkeypatch.setattr(search, 'box_rows', lambda *a: [[*r[:2], 'bicycle', *r[3:]] if r[0] == 1500 else r for r in rows(*a)])
+    monkeypatch.setattr(s, 'events_in', lambda *a: [])
+    def starts(q):
+        return [m['t0_ms'] for m in retrieve(s, SearchRequest(q=q, workspace='fleet'))[1].envelope.output['moments']]
+    assert starts('Find bicycles locked on the sidewalk') == [1500]
+    assert 1200 in starts('Find recycling bins on the sidewalk')
+
+
 def test_box_rows_skips_absent_chunks():
     # the pipeline writes no chunk file for a 10 s window without boxes (wh-ss-warehouse_017 camera_01 has no 00015.json)
     from app.api.search import box_rows

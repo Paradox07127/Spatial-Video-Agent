@@ -32,6 +32,12 @@ def street_guards(monkeypatch, store):
     monkeypatch.setattr(store, 'entities', lambda key: guarded(lambda s, k: entities(k))(store, key))
 
 
+def test_rrf_fuses_the_caption_bm25_rank():
+    from app.core.models import Clip
+    clip = Clip(clip_id='c', scene_id='st/x/y', scene_key='st-x-y', workspace='street', cam_id='cam', t0_ms=0, t1_ms=5000, rank_text=1)
+    assert street.rrf(clip.model_copy(update={'rank_bm25': 2})) == pytest.approx(1/61 + 1/62)
+
+
 def test_street_moments_are_2d_segments_and_never_read_boxes_or_entities(store, monkeypatch):
     street_guards(monkeypatch, store)
     for request in [SearchRequest(q='Find a person', scope='corpus'), SearchRequest(q='Find a person', workspace='street'),

@@ -49,7 +49,7 @@ def chunk_at(store, scene_key: str, cam: str, t_ms: int) -> dict:
 
 
 def rrf(clip: Clip) -> float:
-    return sum(1 / (60 + r) for r in [clip.rank_text, clip.rank_visual, clip.rank_vss_text, clip.rank_vss_visual] if r is not None)
+    return sum(1 / (60 + r) for r in [clip.rank_text, clip.rank_visual, clip.rank_vss_text, clip.rank_vss_visual, clip.rank_bm25] if r is not None)
 
 
 def max_per_frame(rows: list) -> dict[str, int]:
@@ -287,7 +287,7 @@ def moment(store, clip: Clip, *, backend: str, vss=None, query_hash=None) -> tup
     """One 5 s segment: caption_embed1_rrf (model) + yolo_coco_2d (measure, max boxes per label in one frame)."""
     m = store.manifest(clip.scene_key)
     score = rrf(clip)
-    live = {k: v for k, v in [('rank_vss_text', clip.rank_vss_text), ('rank_vss_visual', clip.rank_vss_visual)] if v is not None}
+    live = {k: v for k, v in [('rank_vss_text', clip.rank_vss_text), ('rank_vss_visual', clip.rank_vss_visual), ('rank_bm25', clip.rank_bm25)] if v is not None}
     caption = Evidence.create(scene_key=clip.scene_key, cam_id=clip.cam_id, t0_ms=clip.t0_ms, t1_ms=clip.t1_ms, observation_ids=[],
                               analysis_rev=m['analysis_rev'], kind='model', method='caption_embed1_rrf',
                               params={'clip_id': clip.clip_id, **({'query_hash': query_hash} if query_hash else {})},

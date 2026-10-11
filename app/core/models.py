@@ -317,6 +317,8 @@ class SearchFilters(_M):
     zone_id: str | None = None
     cam_ids: list[str] | None = None
     k: int = 50
+    # normalised question text; when set, captions are ranked by BM25 as a third list
+    query: str | None = None
 
 
 class Clip(_M):
@@ -351,6 +353,8 @@ class Clip(_M):
     sim_vss_visual: float | None = None
     rank_vss_text: int | None = None
     rank_vss_visual: int | None = None
+    # rank by Okapi BM25 of the caption against SearchFilters.query
+    rank_bm25: int | None = None
 
 
 class Event(_M):

@@ -1,8 +1,8 @@
 """Read-only index plus durable application data and scene assets.
 
-Text and visual branches each take top-k by cosine, union by clip_id; on site the live VSS rows mapped to our
-clips add a text and a visual branch of their own.
-RRF = sum(1 / (60 + rank)); hard filters apply before ranking (CONTRACT §5).
+Text and visual branches rank every filtered clip by cosine and a caption BM25 branch ranks them by the query words;
+on site the live VSS rows mapped to our clips add a text and a visual branch of their own.
+RRF = sum(1 / (60 + rank)) over all branches, then top-k; hard filters apply before ranking (CONTRACT §5).
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -319,10 +320,25 @@ class Store:
         qvec_txt, qvec_vis = [v if v is not None and any(v) else None for v in (qvec_txt, qvec_vis)]
         union = set()
         def assign(scored, rank, similarity):
-            for i, (score, key) in enumerate(sorted(scored, key=lambda x: (-x[0], x[1]))[:filters.k], 1):
+            for i, (score, key) in enumerate(sorted(scored, key=lambda x: (-x[0], x[1])), 1):
                 setattr(clips[key], rank, i)
-                setattr(clips[key], similarity, score)
+                if similarity:
+                    setattr(clips[key], similarity, score)
                 union.add(key)
+        if filters.query:
+            # Okapi BM25 over the filtered captions
+            stop = {'a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'with', 'from', 'by', 'for', 'is', 'are', 'was', 'were',
+                    'be', 'it', 'its', 'this', 'that', 'there', 'any', 'did', 'do', 'does', 'what', 'when', 'where', 'which', 'how', 'find', 'show'}
+            words = lambda text: [w for w in re.findall(r'[a-z0-9]+', (text or '').lower()) if w not in stop]
+            docs = {key: words(clip.caption) for key, clip in clips.items()}
+            terms, avgdl, k1, b = set(words(filters.query)), sum(map(len, docs.values())) / max(len(docs), 1), 1.2, 0.75
+            idf = {t: math.log(1 + (len(docs) - n + 0.5) / (n + 0.5)) for t in terms for n in [sum(t in d for d in docs.values())]}
+            scored = []
+            for key, doc in docs.items():
+                tf = {t: doc.count(t) for t in terms if t in doc}
+                if tf:
+                    scored.append((sum(idf[t] * f * (k1 + 1) / (f + k1 * (1 - b + b * len(doc) / avgdl)) for t, f in tf.items()), key))
+            assign(scored, 'rank_bm25', None)
         for column, vector, rank, similarity in [('v_txt', qvec_txt, 'rank_text', 'sim_text'), ('v_vis', qvec_vis, 'rank_visual', 'sim_visual')]:
             if vector is None:
                 continue
@@ -349,10 +365,12 @@ class Store:
                 if key in clips and score > best.get(key, -2):
                     best[key] = score
             assign([(score, key) for key, score in best.items()], rank, similarity)
+        ranks = lambda c: (c.rank_text, c.rank_visual, c.rank_vss_text, c.rank_vss_visual, c.rank_bm25)
+        fused = lambda c: (-sum(1 / (60 + r) for r in ranks(c) if r), c.clip_id)
+        # without a query vector every filtered clip stays a candidate; caption matches come first
         if qvec_txt is None and qvec_vis is None:
-            return list(clips.values())
-        ranks = lambda c: (c.rank_text, c.rank_visual, c.rank_vss_text, c.rank_vss_visual)
-        return sorted((clips[k] for k in union), key=lambda c: (-sum(1 / (60 + r) for r in ranks(c) if r), c.clip_id))
+            return sorted(clips.values(), key=fused)
+        return sorted((clips[k] for k in union), key=fused)[:filters.k]
 
     def events_in(self, scene_key: str, t0_ms: int, t1_ms: int) -> list[Event]:
         if scene_key not in self._events:

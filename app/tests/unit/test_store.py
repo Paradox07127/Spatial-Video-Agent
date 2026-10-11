@@ -44,10 +44,11 @@ def test_moment_visibility_and_missing_video(store):
 
 def test_search_intersection_and_two_branch_union(store):
     rows = store.index.execute('SELECT clip_id,v_txt,v_vis FROM clips WHERE scene_key=? ORDER BY clip_id', [WH]).fetchall()
-    result = store.search_clips(SearchFilters(workspace='warehouse', scene_keys=[WH], t_range=(4900, 5100), k=1), list(rows[0][1]), list(rows[-1][2]))
-    assert len(result) == 2
-    assert {c.clip_id for c in result} == {rows[0][0], rows[-1][0]}
+    result = store.search_clips(SearchFilters(workspace='warehouse', scene_keys=[WH], t_range=(4900, 5100)), list(rows[0][1]), list(rows[-1][2]))
+    assert len(result) == len(rows)
+    assert {c.clip_id for c in result if 1 in (c.rank_text, c.rank_visual)} == {rows[0][0], rows[-1][0]}
     assert any(c.rank_text == 1 for c in result) and any(c.rank_visual == 1 for c in result)
+    assert len(store.search_clips(SearchFilters(workspace='warehouse', scene_keys=[WH], t_range=(4900, 5100), k=1), list(rows[0][1]), list(rows[-1][2]))) == 1
     for c in result:
         Clip.model_validate(c.model_dump())
         assert c.t0_ms < 5100 and c.t1_ms > 4900
@@ -191,6 +192,29 @@ def test_geocode_skips_places_without_a_name():
 def test_search_clips_zero_query_vector_is_unranked(store):
     every = store.search_clips(SearchFilters(workspace='warehouse', k=1), None, None)
     assert len(store.search_clips(SearchFilters(workspace='warehouse', k=1), [0.0]*256, [0.0]*256)) == len(every) > 1
+
+
+def test_search_clips_bm25_lifts_a_rare_caption_word_above_vector_only_matches(store):
+    rows = store.index.execute("SELECT clip_id,v_txt,v_vis FROM clips WHERE scene_key=? ORDER BY clip_id", [FL]).fetchall()
+    early, late = rows[0], rows[1]
+    ranked = store.search_clips(SearchFilters(workspace='fleet', query='hard brake'), list(early[1]), list(early[2]))
+    assert ranked[0].clip_id == late[0] and ranked[0].rank_bm25 == 1 and ranked[0].rank_text > 1
+    vector_only = next(c for c in ranked if c.clip_id == early[0])
+    assert vector_only.rank_text == vector_only.rank_visual == 1 and vector_only.rank_bm25 is None
+
+
+def test_search_clips_fuses_every_ranked_row_before_cutting_to_k(store, monkeypatch):
+    def row(i):
+        v = [1.0, i / 100] + [0.0] * 254
+        return {'clip_id': f'c{i:03d}', 'scene_id': 'wh/sdg/fixture-01', 'scene_key': WH, 'workspace': 'warehouse', 'cam_id': 'ceiling_00',
+                't0_ms': 5000 * i, 't1_ms': 5000 * i + 5000, 'v_txt': v, 'v_vis': v,
+                'caption': 'a worker walks past the forklift' + (' and a zebra' if i == 50 else '')}
+    rows = [row(i) for i in range(60)]
+    monkeypatch.setattr(store, 'rows', lambda db, sql, params=(): rows)
+    q = [1.0] + [0.0] * 255
+    ranked = store.search_clips(SearchFilters(workspace='warehouse', k=10, query='zebra'), q, q)
+    assert len(ranked) == 10 and ranked[0].clip_id == 'c050'
+    assert (ranked[0].rank_text, ranked[0].rank_visual, ranked[0].rank_bm25) == (51, 51, 1)
 
 
 def test_live_vss_rows_join_the_rrf_of_their_mapped_clip(store, monkeypatch):
