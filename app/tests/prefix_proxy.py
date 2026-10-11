@@ -30,13 +30,19 @@ def handler(prefix: str, upstream: int):
             conn.request(self.command, path, body=body, headers=headers)
             r = conn.getresponse()
             self.send_response(r.status, r.reason)
+            has_body = self.command != 'HEAD' and r.status >= 200 and r.status not in (204, 304)
             for k, v in r.getheaders():
                 if k.lower() not in HOP:
                     self.send_header(k, v)
             length = r.getheader("Content-Length")
-            if length is None:
+            if has_body and length is None:
                 self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
+            # 304/204/1xx and HEAD end at the header boundary. A chunk
+            # terminator here would become the next keep-alive status line.
+            if not has_body:
+                conn.close()
+                return
             while True:
                 chunk = r.read1(65536) if length is None else r.read(65536)
                 if not chunk:
