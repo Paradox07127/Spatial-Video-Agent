@@ -382,3 +382,20 @@ test('row 10: answer slot placeholder reflects question type while waiting', asy
   await page.evaluate(() => window.__releaseAsk());
   await expect(page.locator('#answer .verdict')).toHaveText('Supported');
 });
+
+
+test('located predicate with meter units keeps position placeholder and missing quantity', async ({ page }) => {
+  await page.goto('#/test');
+  await askWithHeldStream(page, 'Where was the worker?', [
+    { event: 'step', data: { step_id: 's0', i: 0, state: 'parse', elapsed_ms: 1, summary: 'Template where: position', exec_state: 'waiting' } },
+    { event: 'claim', data: {
+      claim_id: 'c_position', text: 'Worker position', aggregate: 'UNRESOLVED', before: null, after: 'UNRESOLVED', examined_eids: [], available_eids: [],
+      predicates: [{ predicate_id: 'p_position', subject_refs: [{ entity_id: 'P1' }], operator: 'located', value: true, unit: 'm', status: 'unknown', eids: [] }],
+    } },
+  ]);
+  await expect(page.locator('#answer .ans-slot .muted')).toHaveText('Appears here once the position is measured.');
+  await page.evaluate(() => window.__releaseAsk());
+  await expect(page.locator('#answer .verdict')).toHaveText('Supported');
+  await expect(page.locator('#answer .not-measured')).toContainText('position — not checked');
+  await expect(page.locator('#answer .not-measured')).not.toContainText('distance');
+});

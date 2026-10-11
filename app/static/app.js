@@ -721,7 +721,8 @@ function slotPlaceholder(r) {
   const parseSummary = (r?.steps?.find((s) => s.state === 'parse')?.summary ?? r?.steps?.[0]?.summary ?? '').toLowerCase();
   const q = (r?.q ?? '').toLowerCase();
 
-  // Decide from predicate unit first: "m" means distance; "km/h" or "m/s" means speed
+  if (ops.includes('located')) return 'Appears here once the position is measured.';
+  // Position is explicit; otherwise use units to distinguish distance from speed.
   if (units.some((u) => u === 'km/h' || u === 'm/s')) {
     return 'Appears here once the speed is measured.';
   }
@@ -761,20 +762,25 @@ function renderSlot() {
 
 // ---- answer header
 // The answer's numbers come from evidence fields (measure_refs, in text order, formatted like Python's '.4g');
-// each found in the text becomes a button to its evidence. A time field (*_ms, *_s) is written in seconds ("4.6 s", "3.0 s")
+// each found in the text becomes a button to its evidence. A source timestamp is written in seconds ("4.6 s", "3.0 s")
 // and marked as a time, not a measured number.
+// Explicit source-time fields only: durations, speeds and uncertainty are ordinary measurements.
+const TIME_REF_MS = new Map([
+  ...['t0_ms', 't1_ms', 'value.t_ms', 'value.t0_ms', 'value.t1_ms', 'value.t_min_ms'].map((field) => [field, 1]),
+  ...['value.t_s', 'value.t0_s', 'value.t1_s', 'value.window_t0_s', 'value.window_t1_s'].map((field) => [field, 1000]),
+]);
 function numbered(d) {
   let html = '', rest = d.text;
   for (const r of d.measure_refs) {
-    const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), ms = r.field.endsWith('_ms'), time = ms || r.field.endsWith('_s');
-    const expected = typeof v === 'number' && Number.isFinite(v) ? Number((ms ? v / 1000 : v).toPrecision(4)) : null;
+    const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), scale = TIME_REF_MS.get(r.field), time = scale !== undefined;
+    const expected = typeof v === 'number' && Number.isFinite(v) ? Number((time ? v * scale / 1000 : v).toPrecision(4)) : null;
     // Compare numeric tokens, preserving the server's spelling (.4g can use e-05/e+05).
     // Word boundaries exclude identifiers such as P1, floor_00 and scene ids.
     const tokens = rest.matchAll(/(?<![\w.+-])[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])/g);
     const token = expected !== null && [...tokens].find((t) => Number(t[0]) === expected);
     const m = token && { index: token.index, 0: token[0] + (time ? rest.slice(token.index + token[0].length).match(/^\s?s\b/)?.[0] ?? '' : '') };
     if (!m) continue;
-    html += `${esc(rest.slice(0, m.index))}<button class="${time ? 'ans-time' : 'ans-num'} mono" data-cite data-eid="${esc(r.eid)}" title="${esc(r.eid)} · ${esc(r.field)}">${m[0]}</button>`;
+    html += `${esc(rest.slice(0, m.index))}<button class="${time ? 'ans-time' : 'ans-num'} mono" data-cite data-eid="${esc(r.eid)}" data-ref-field="${esc(r.field)}" title="${esc(r.eid)} · ${esc(r.field)}">${m[0]}</button>`;
     rest = rest.slice(m.index + m[0].length);
   }
   return html + esc(rest);
@@ -799,7 +805,7 @@ function notMeasuredLine() {
   for (const c of run.claims.values()) {
     if (c.explain?.abstain) add(ABSTAIN_QTY[c.explain.abstain.reason] ?? 'measurement', c.explain.abstain.text ?? c.explain.abstain.reason.replace(/_/g, ' '));
     for (const p of c.predicates ?? []) if (!['supported', 'contradicted'].includes(p.status)) {
-      const q = p.unit === 'm' ? 'distance' : ['m/s', 'km/h', 'mps'].includes(p.unit) ? 'speed' : OP_WORDS[p.operator] ?? p.operator.replace(/_/g, ' ');
+      const q = p.operator === 'located' ? 'position' : p.unit === 'm' ? 'distance' : ['m/s', 'km/h', 'mps'].includes(p.unit) ? 'speed' : OP_WORDS[p.operator] ?? p.operator.replace(/_/g, ' ');
       add(q, p.eids?.length ? 'checked but unresolved' : 'not checked');
     }
     for (const name of c.explain?.not_measured ?? []) if (!c.predicates.some((p) => p.operator === name)) add(String(name).replace(/_/g, ' '), 'not checked');
@@ -1072,8 +1078,12 @@ function nativeBlock(d) {
 }
 
 // Citation click: seek to the evidence, enter evidence mode and flash every row that shows it (1.4 s × 2).
-async function flash(eid) {
-  const e = run.evidence.get(eid);
+async function flash(eid, field = null) {
+  const evidence = run.evidence.get(eid);
+  const value = field?.split('.').reduce((o, k) => o?.[k], evidence);
+  const scale = TIME_REF_MS.get(field), time = scale !== undefined && typeof value === 'number' && Number.isFinite(value) ? value * scale : null;
+  // A time reference owns its instant; retain the stored evidence's original window for ordinary citations.
+  const e = time === null ? evidence : { ...evidence, t0_ms: time };
   await activateEvidence(e, () => focusEvidence(eid, e));
 }
 
@@ -1168,7 +1178,7 @@ timeline.onBrush(({ t0, t1 }) => {
 bus.on('context:zone', (zone) => { followContext.zone = zone; renderContext(); });
 $('#panel').addEventListener('click', (e) => {
   const c = e.target.closest('.cite, .ans-num, .ans-time, .ev');
-  if (c && !e.target.closest('.ev-raw-btn, .ev-raw') && run?.evidence.has(c.dataset.eid)) flash(c.dataset.eid);
+  if (c && !e.target.closest('.ev-raw-btn, .ev-raw') && run?.evidence.has(c.dataset.eid)) flash(c.dataset.eid, c.dataset.refField);
 });
 timeline.onEvidence((eid) => run?.evidence.has(eid) && flash(eid));
 document.addEventListener('pointerover', (e) => hover(e.target.closest('.ans-num, .ans-time, .cite, .ev')?.dataset.eid ?? null));
