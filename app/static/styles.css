@@ -514,3 +514,17 @@ body[data-stage="evidence"] :is(.lbl-model, .fl-model, .fl-pin, .fl-cluster) { d
 
 /* Expanding all trip lanes preserves the investigation stage. */
 body[data-ws="fleet"] .tl-lanes { max-height: min(180px, 25vh) !important; overflow-y: auto; }
+
+.investigation-status { padding: 8px 16px; margin: 0; color: var(--ink-2); border-bottom: 1px solid var(--rule); font-size: var(--fs-1); }
+.investigations { position: fixed; z-index: 12; inset: 10vh 10vw; padding: 20px; background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 12px 60px #0008; overflow: auto; }
+.investigations header { display: flex; gap: 16px; align-items: center; }
+.investigations header b { margin-right: auto; }
+.investigation-columns { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 20px; }
+.investigation-columns nav, .investigation-columns ol { display: flex; flex-direction: column; gap: 8px; padding: 0; list-style: none; }
+.investigation-columns button { width: 100%; padding: 10px; text-align: left; border: 1px solid var(--rule); overflow-wrap: anywhere; }
+.investigation-columns button[aria-current] { border-color: var(--ink); }
+.investigation-columns small { display: block; color: var(--ink-2); }
+#observations article { padding: 12px 0; border-top: 1px solid var(--rule); }
+#observations article p { margin: 6px 0; }
+.observation-frame { margin: 6px 8px 6px 0; border: 1px solid var(--rule); padding: 4px 6px; }
+@media(max-width:700px) { .investigations { inset: 5vh 12px; } .investigation-columns { grid-template-columns: 1fr; } .top-right { gap: 4px; } #investigations-btn { font-size: 10px; } }

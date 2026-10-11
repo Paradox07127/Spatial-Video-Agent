@@ -184,6 +184,12 @@ function go(id) {
 }
 
 // r: the opened run; src: the run whose steps it shows (r itself, or the source of a cache replay).
+function typedObservations(src) {
+  const records = src.steps.map(s=>s.output?.observation).filter(o=>o?.observation_id && Array.isArray(o.facts));
+  const unique = [...new Map(records.map(o=>[o.observation_id,o])).values()];
+  return unique.length ? `<span class="p-label">MODEL OBSERVATIONS · NOT MEASURED</span>${unique.map(o=>`<article class="rp-observation"><p class="mono muted">${esc(o.cam_id)} · ${tc(o.t0_ms)} · ${esc(o.verification)}</p>${o.facts.map(f=>`<p>${esc(f.text)}</p><p class="muted">Uncertainty ${esc(f.uncertainty)}</p>${(f.frame_refs?.length?f.frame_refs:o.frame_refs).map(frame=>`<button type="button" data-observed-frame data-scene="${esc(o.scene_key)}" data-cam="${esc(frame.cam_id)}" data-time="${frame.t_ms}">View ${esc(frame.cam_id)} · ${tc(frame.t_ms)}</button>`).join('')}`).join('')}<p class="muted">${esc(o.model_rev)} · ${esc(o.prompt_rev)}</p></article>`).join('')}` : '';
+}
+
 function renderRun(r, src, summaries, keepView = false) {
   const scroll = el().scrollTop, active = keepView && el().querySelector('.rp-nav .on')?.dataset.go;
   const expanded = keepView ? [...el().querySelectorAll('.trace-step.open')].map((s) => +s.dataset.i) : [];
@@ -195,6 +201,7 @@ function renderRun(r, src, summaries, keepView = false) {
     ch.length && ['changed', 'What changed', ch.map((change) => changed(change, src, ev)).join('')],
     ['steps', `Steps · ${src.steps.length}`, '<span class="p-label">STEPS</span><div class="rp-steps"></div>'],
     ['evidence', `Evidence · ${src.evidence.length}`, `<span class="p-label">EVIDENCE</span>${evidence(src, ev)}`],
+    typedObservations(src) && ['observations', 'Model observations', typedObservations(src)],
     recs.length && ['models', `Model notes · ${recs.length}`, `<span class="p-label">MODEL NOTES · NOT USED FOR NUMBERS</span><div class="rp-notes">${recs.map(note).join('')}</div>`],
     vss && ['vss', 'VSS comparison', native(vss.output)],
   ].filter(Boolean);
@@ -227,6 +234,8 @@ function renderList(runs) {
 
 // Nav items scroll to their section, raw toggles an evidence row's fields, a cite flashes its evidence row.
 function onClick(e) {
+  const observed=e.target.closest('[data-observed-frame]');
+  if(observed){window.dispatchEvent(new CustomEvent('sva:observation-frame',{detail:{scene_key:observed.dataset.scene,cam_id:observed.dataset.cam,t_ms:Number(observed.dataset.time)}}));return;}
   const nav = e.target.closest('.rp-nav [data-go]');
   if (nav) return go(nav.dataset.go);
   const b = e.target.closest('.rp-raw-btn');

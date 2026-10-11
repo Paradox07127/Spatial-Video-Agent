@@ -42,10 +42,14 @@ async function controlledFleetVideo(page) {
     const event = (name) => video.dispatchEvent(new Event(name));
     window.videoSync = {
       seek(ms) { clock.t = ms; videos.player.sync(ms, false); state.currentTime = ms / 1000; state.seeking = true; state.readyState = 1; event('seeking'); },
+      delayedSeeking() { event('seeking'); },
+      sync(ms, seeking=true) { videos.player.sync(ms, false); state.seeking = seeking; state.readyState = seeking ? 1 : 2; },
       presented(seconds) { const index = callbacks.findIndex((x) => !x.canceled); const [item] = callbacks.splice(index, 1); item.callback(performance.now(), { mediaTime: seconds }); },
       stale(seconds) { const index = callbacks.findLastIndex((x) => x.canceled); const [item] = callbacks.splice(index, 1); item.callback(performance.now(), { mediaTime: seconds }); },
       seeked() { state.seeking = false; state.readyState = 2; event('seeked'); },
+      initialLoad() { event('loadstart'); },
       source() { video.src = new URL('replacement.mp4', document.baseURI).href; event('loadstart'); },
+      presentations() { return videos.times; },
       snapshot() { return { sceneMs: video.dataset.sceneMs ?? null, currentTime: video.currentTime, state: video.parentElement.dataset.mediaState }; },
       dispose() { videos.dispose(); },
     };
@@ -59,6 +63,19 @@ test('Fleet paused seek publishes its actual presented frame when rVFC precedes 
   await page.evaluate(() => videoSync.seeked());
   // The value is the callback's real frame time, not the requested currentTime.
   expect(await page.evaluate(() => videoSync.snapshot())).toEqual({ sceneMs: '5167', currentTime: 5.184, state: 'ready' });
+});
+
+test('Fleet explicit seek keeps its presented frame when native seeking arrives after rVFC', async ({page})=>{
+  await controlledFleetVideo(page);
+  await page.evaluate(()=>{videoSync.sync(8184);videoSync.presented(8.166667);videoSync.delayedSeeking();videoSync.seeked();});
+  expect(await page.evaluate(()=>videoSync.snapshot().sceneMs)).toBe('8167');
+});
+
+test('Fleet retains its actual receipt when the ready callback precedes native seeking', async ({page})=>{
+  await controlledFleetVideo(page);
+  await page.evaluate(()=>{videoSync.sync(8184,false);videoSync.presented(8.166667);videoSync.delayedSeeking();videoSync.seeked();});
+  expect(await page.evaluate(()=>videoSync.snapshot().sceneMs)).toBe('8167');
+  expect(await page.evaluate(()=>videoSync.presentations().map(x=>x.t))).toEqual([8167,8167]);
 });
 
 test('Fleet a later seek or source replacement cancels pending presented-frame metadata', async ({ page }) => {
@@ -85,6 +102,17 @@ test('Fleet source replacement subscribes immediately and publishes its only ini
   expect(await page.evaluate(() => videoSync.snapshot())).toEqual({ sceneMs: '5167', currentTime: 5.184, state: 'ready' });
 });
 
+
+test('Fleet initial load keeps its queued actual frame while a later same-source reload invalidates it',async({page})=>{
+  await controlledFleetVideo(page);
+  await page.evaluate(()=>{videoSync.presented(5.166667);videoSync.initialLoad();videoSync.seeked();});
+  expect(await page.evaluate(()=>videoSync.snapshot().sceneMs)).toBe('5167');
+  expect(await page.evaluate(()=>videoSync.presentations().map(x=>x.t))).toEqual([5167,5167]);
+  await page.evaluate(()=>{videoSync.initialLoad();videoSync.seeked();});
+  expect(await page.evaluate(()=>videoSync.snapshot().sceneMs)).toBeNull();
+  await page.evaluate(()=>videoSync.presented(5.166667));
+  expect(await page.evaluate(()=>videoSync.snapshot().sceneMs)).toBe('5167');
+});
 
 test('camera owner is resolved at detection time and conflicting associations stay ambiguous', async ({ page }) => {
   await mockApi(page); await page.goto('#/');
@@ -166,4 +194,15 @@ test('default Fleet brush uses the active source mapping and commits its explici
   const events=[],c={timeline:{onBrush:fn=>fn({t0:22000,t1:23000})},ctx:{route:{workspace:'fleet',page:'fleet'}},run:null,state:{activeFleetScene:'new'},clock:{domain:{kind:'fleet',replay:[{trip_id:'new',source_start_ms:0,replay_start_ms:20000,rate:2}]}},followContext:{},renderContext:()=>{},bus:{emit:(...x)=>events.push(x)}};
   vm.runInNewContext(code,c);expect(Array.from(c.followContext.t_range)).toEqual([4000,6000]);
   expect(events).toEqual([['fleet:active',{scene_key:'new',t_ms:4000}]]);
+});
+
+test('Fleet media playback multiplies wall-clock rate by the trip mapping and Street follows scene rate',async({page})=>{
+  await mockApi(page);await page.goto('#/fleet/fl-pie-fixture-01@3000');
+  await expect(page.locator('.fl-vbox video')).toBeVisible();
+  await page.evaluate(async()=>{const {view}=await import(new URL('fleet/page.js',document.baseURI).href);const {clock}=await import(new URL('kernel/clock.js',document.baseURI).href);view.ix.trip.replay.rate=2;clock.rate=1.5;clock.seek(clock.t);});
+  await expect.poll(()=>page.locator('.fl-vbox video').evaluate(v=>v.playbackRate)).toBe(3);
+  await page.goto('#/street/st-fixture_cam_1-clip01');
+  await expect(page.locator('.st-vbox video')).toBeVisible();
+  await page.evaluate(async()=>{const {clock}=await import(new URL('kernel/clock.js',document.baseURI).href);clock.rate=2;clock.seek(1000);});
+  await expect.poll(()=>page.locator('.st-vbox video').evaluate(v=>v.playbackRate)).toBe(2);
 });

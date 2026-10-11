@@ -46,7 +46,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const { w, h } = cam;
   el.innerHTML = `
     <div class="fl-vbox" style="aspect-ratio:${w}/${h}">
-      <video muted playsinline preload="auto" crossorigin="anonymous" src="${esc(src)}"></video>
+      <video muted playsinline preload="auto" crossorigin="anonymous"></video>
       <canvas class="fl-remap" width="${w}" height="${h}" hidden></canvas>
       <canvas class="fl-ovl" width="${w}" height="${h}"></canvas>
       <div class="fl-cols"></div>
@@ -60,17 +60,28 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const out = remapEl.getContext('2d');
   let references = new Set();
   let undist = false, lut = null, last = null, alive = true, time = 0, playing = false, rate = 1;
-  let epoch = 0, frameHandle = null, pending = null;
+  let epoch = 0, frameHandle = null, pending = null, seekTarget = null, presentedReceipt = null, receiptNeedsReplay = false, expectedLoadSource = null;
   const clear = () => { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.textContent = 'Detections pending presented frame'; };
   const invalidate = () => {
-    epoch++; pending = null; delete video.dataset.sceneMs; clear(); onInvalidate(epoch);
+    epoch++; pending = null; presentedReceipt = null; receiptNeedsReplay = false; delete video.dataset.sceneMs; clear(); onInvalidate(epoch);
     if (frameHandle != null) video.cancelVideoFrameCallback(frameHandle);
     frameHandle = null; if (alive) requestFrame();
   };
-  video.addEventListener('seeking', invalidate);
-  video.addEventListener('loadstart', invalidate);
-  video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing));
-  video.addEventListener('loadeddata', () => alive && player.sync(time, playing));
+  const onSeeking = () => {
+    // sync already opened this seek epoch. Native seeking may arrive after its
+    // only rVFC callback; cancelling it here would lose a paused decoded frame.
+    if (seekTarget == null || Math.abs(video.currentTime-seekTarget) > 1/fps) invalidate();
+    seekTarget = null;
+  };
+  video.addEventListener('seeking', onSeeking);
+  video.addEventListener('seeked', () => { seekTarget = null; });
+  const onLoadStart = () => {
+    if (expectedLoadSource === video.src) { expectedLoadSource = null; return; }
+    invalidate();
+  };
+  video.addEventListener('loadstart', onLoadStart);
+  video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing, rate));
+  video.addEventListener('loadeddata', () => alive && player.sync(time, playing, rate));
 
   // lut[i] = source pixel index for pinhole pixel i, −1 outside the fisheye frame.
   function buildLut() {
@@ -97,6 +108,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     if (p.epoch !== epoch || p.source !== video.src || deferred && Math.abs(p.mediaTime - video.currentTime) > 1 / fps) return;
     if (undist) remap();
     const t = Math.round(p.mediaTime * 1000) + cam.offset_ms;
+    presentedReceipt = p; receiptNeedsReplay = false;
     video.dataset.sceneMs = t;
     onPresented(t, epoch);
   };
@@ -109,11 +121,10 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       requestFrame();
     });
   };
-  requestFrame();
   const media = createMediaStatus(video, {
     host: el.querySelector('.fl-vbox'),
-    onUnavailable() { clear(); },
-    onReady() { if (alive) queueMicrotask(() => { if (alive) { publish(true); player.sync(time, playing, rate); } }); },
+    onUnavailable() { receiptNeedsReplay = !!presentedReceipt; clear(); },
+    onReady() { if (alive) queueMicrotask(() => { if (alive) { if (receiptNeedsReplay) pending ??= presentedReceipt; publish(true); player.sync(time, playing, rate); } }); },
   });
 
   function draw(frame, boxes) {
@@ -189,6 +200,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
   const player = {
     draw,
     get epoch() { return epoch; },
+    suspend() { invalidate(); playing = false; video.pause(); },
     redraw() { if (last) draw(...last); },
     setReferences(ids) { references = new Set(ids); if (last) draw(...last); },
     clear() {
@@ -203,7 +215,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       time = t;
       playing = on;
       const target = Math.max(0, (t - cam.offset_ms) / 1000);
-      if (Math.abs(video.currentTime - target) > (playing ? 0.25 : 1 / fps)) { invalidate(); video.currentTime = target; }
+      if (Math.abs(video.currentTime - target) > (playing ? 0.25 : 1 / fps)) { seekTarget = target; invalidate(); video.currentTime = target; }
       if (playing && video.paused) video.play().catch(() => {});
       else if (!playing && !video.paused) video.pause();
     },
@@ -214,12 +226,16 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     },
     dispose() {
       alive = false; invalidate();
-      video.removeEventListener('seeking', invalidate); video.removeEventListener('loadstart', invalidate);
+      video.removeEventListener('seeking', onSeeking); video.removeEventListener('loadstart', onLoadStart);
       media.dispose();
       video.pause();
       video.removeAttribute('src');
       video.load();
     },
   };
+  // Bind the initial source only after presentation and readiness handlers exist.
+  // Its loadstart belongs to this epoch; cancelling an already queued callback
+  // would discard the only native receipt for an initially paused video.
+  video.src = src; expectedLoadSource = video.src; requestFrame();
   return player;
 }

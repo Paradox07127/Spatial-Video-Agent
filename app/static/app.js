@@ -8,6 +8,7 @@
 //   agent:camera (bool)         false once the user takes over during a run; agent focus / setView commands are then dropped
 //   panel:tab (name)            answer | evidence | steps | videos | trip
 import { api } from './kernel/api.js';
+import { createInvestigations } from './kernel/investigation.js';
 import { exec, icon, level, say, source, srcIcon, srcLabel, transition, verdict } from './kernel/badges.js';
 import { bus } from './kernel/bus.js';
 import { clock } from './kernel/clock.js';
@@ -59,6 +60,7 @@ const workspaces = api.get('api/workspaces').then((ws) => {
   return ws.filter((w) => PAGES[w.id]);
 });
 let page = null, pageKind = null, dispose = null, stream = null, run = null;
+const investigations = createInvestigations({ restore: restoreInvestigation, attach: active => { stream?.abort(); stream = active; }, reset: () => { toDefault(); selection.clear(); } });
 let navigation = 0, runGeneration = 0, evidenceGeneration = 0, pageQueue = Promise.resolve(), mountQueue = Promise.resolve(), applying = Promise.resolve(), pageContext = null;
 const narration = $('#narration'), feedback = $('#ask-status');
 const STALE = new Error('Superseded page command');
@@ -335,6 +337,23 @@ function completion(d) {
   return `${label} · ${count(run.steps.length, 'step')} · ${sec(took())}${d.cached ? ' · cached replay' : ''}`;
 }
 
+function renderObservations() {
+  if (!run) return;
+  const observations = [...run.observations.values()];
+  $('#observations').innerHTML = observations.length ? `<div class="mp-box"><h2 class="p-label">Model observations · not measured</h2>${observations.map(o=>`<article data-observation="${esc(o.observation_id)}"><span class="mono muted">${esc(o.cam_id ?? 'source')} · ${tc(o.t0_ms)} · ${esc(o.verification)}</span>${o.facts.map((fact,i)=>`<p>${esc(fact.text)}</p><span class="muted">Uncertainty ${esc(fact.uncertainty)}</span><div>${(fact.frame_refs?.length ? fact.frame_refs : o.frame_refs).map((f,j)=>`<button type="button" class="observation-frame" data-observation="${esc(o.observation_id)}" data-fact="${i}" data-frame="${j}">View ${esc(f.cam_id)} · ${tc(f.t_ms)}</button>`).join('')}</div>`).join('')}<small class="muted">${esc(o.model_rev)} · ${esc(o.prompt_rev)}</small></article>`).join('')}</div>` : '';
+}
+$('#panel').addEventListener('click',async e=>{
+  const button=e.target.closest('.observation-frame');if(!button||!run)return;
+  const o=run.observations.get(button.dataset.observation),fact=o?.facts[Number(button.dataset.fact)],f=(fact?.frame_refs?.length?fact.frame_refs:o?.frame_refs)?.[Number(button.dataset.frame)];
+  if(!f)return;
+  await activateEvidence({scene_key:o.scene_key,t0_ms:f.t_ms,t1_ms:f.t_ms+1,cam_id:f.cam_id});
+  await toPage(async p=>{
+    if(ctx.route.workspace === 'fleet') await p.applyHits([{scene_key:o.scene_key,t0_ms:f.t_ms,t1_ms:f.t_ms+1,cams:[f.cam_id],primary_cam:f.cam_id,actor_refs:[],evidence_ids:[o.eid]}]);
+    clock.seek(clock.toWall(o.scene_key,f.t_ms));
+    bus.emit('observation:frame',{scene_key:o.scene_key,cam_id:f.cam_id,t_ms:f.t_ms});
+  });
+});
+
 function renderModels() {
   const records = ctx.route.page === 'test' ? [...(run?.models.values() ?? [])].flatMap((rs) => [...rs.values()])
     : [...(run?.models.get(run?.activeScene ?? ctx.route.scene_key ?? run?.source)?.values() ?? [])];
@@ -444,7 +463,7 @@ function hover(eid) {
 }
 
 // ---- ask
-function toDefault() {
+function toDefault(preserveInvestigation = false) {
   runGeneration++;
   run?.held?.(null);
   stream?.abort();
@@ -454,7 +473,8 @@ function toDefault() {
   document.body.dataset.candidates = '';
   setStage('explore', null);
   setTab('answer');
-  for (const s of ['#answer', '#tabs', '#keyframe', '#claims', '#modelpanel', '#moments', '#tab-evidence', '#tab-steps', '#narration', '.p-moments-head']) $(s).replaceChildren();
+  if (!preserveInvestigation) investigations.detach();
+  for (const s of ['#observations', '#answer', '#tabs', '#keyframe', '#claims', '#modelpanel', '#moments', '#tab-evidence', '#tab-steps', '#narration', '.p-moments-head']) $(s).replaceChildren();
   $('.p-moments').classList.remove('open');
   statusLine('');
   timeline.setLaneData('agent', []);
@@ -474,17 +494,18 @@ function statusLine(text) {
 const took = () => run.steps.at(-1)?.elapsed_ms ?? 0;
 
 // home: the route a question asked from the home page runs against; it opens on the first hits (or an answer that is not a refusal).
-function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {}) {
+async function ask(q, { home = null, t_ms = null, corpus = false, follow = false, replay = null } = {}) {
   q = q.trim();
   if (q.length > 500) { statusLine('Keep the question to 500 characters or fewer.'); return; }
   if (!q) return;
-  toDefault();
+  const activeCamera = state.activeCamera;
+  toDefault(!!replay);
   const route = home ? parseRoute(home) : ctx.route;
   $('#ask-input').value = q;
   run = {
     id: null, q, home, source: route.scene_key, held: ctx.route.page === 'home' ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
     evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], rawAnswers: [], calls: new Map(), moments: [], native: null, final: null,
-    skippedUi: 0, corpus, measureRefs: [],
+    skippedUi: 0, corpus, measureRefs: [], observations: new Map(), protocolVersion: replay ? 2 : 1,
   };
   document.body.dataset.run = 'running';
   setAgentCamera(true);
@@ -499,9 +520,43 @@ function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {
   if (!corpus && followContext.t_range) { context.t_range = followContext.t_range; delete context.t_ms; }
   if (!corpus && followContext.zone) context.zone = followContext.zone;
   const r = run, generation = runGeneration;
-  stream = askSSE({ q, context }, Object.fromEntries(Object.entries(handlers).map(([event, fn]) => [event, (data) => {
+  const safeHandlers = Object.fromEntries(Object.entries(handlers).map(([event, fn]) => [event, (data) => {
     if (r === run && generation === runGeneration) fn(data);
-  }])));
+  }]));
+  if (replay) return safeHandlers;
+  try {
+    const persistent = await investigations.prepare(q, follow);
+    if (r !== run || generation !== runGeneration) return;
+    r.protocolVersion = persistent.protocol_version ?? 1;
+    const durableContext = {...context};
+    if (persistent.protocol_version === 2 && follow) {
+      durableContext.t_range = followContext.t_range ?? null; durableContext.zone = followContext.zone ?? null;
+      durableContext.selection = followContext.selection && selection.ids.size ? [...selection.ids] : null;
+      if(!followContext.time) durableContext.t_ms = null;
+    }
+    if(persistent.protocol_version === 2 && activeCamera?.scene_key === context.scene_key) durableContext.cam_id = activeCamera.cam_id;
+    let jobStarted = false;
+    stream = askSSE({ q, context:durableContext, ...persistent }, safeHandlers, {
+      headers: h => { if(r===run) { jobStarted = !!h.get('X-SVA-Job'); investigations.headers(h); } },
+      sequence: n => { if(r===run) investigations.sequence(n); },
+      disconnect: e => r===run && jobStarted && investigations.disconnected(e),
+    });
+  } catch (e) { if(r===run && generation===runGeneration) safeHandlers.error(e); }
+}
+
+async function restoreInvestigation(turn, { reset }) {
+  if (reset || !run) {
+    const c = turn.context ?? {}, workspace = c.workspace ?? sceneWorkspaces.get(c.scene_key);
+    const hash = c.scene_key && workspace ? workspace === 'fleet' ? `#/fleet/${c.scene_key}@${c.t_ms ?? c.t_range?.[0] ?? 0}` : `#/${workspace}/${c.scene_key}` : '#/';
+    await go(hash, true);
+    const safeHandlers = await ask(turn.q, { corpus:c.scope==='corpus', replay:turn });
+    followContext = {time:true,selection:true,t_range:c.t_range??null,zone:c.zone??null};
+    selection.set(c.selection ?? [],{source:'restore'}); renderContext();
+    return safeHandlers;
+  }
+  const r=run,generation=runGeneration;
+  return Object.fromEntries(Object.entries(handlers).map(([event,fn])=>[event,d=>{if(r===run&&generation===runGeneration)fn(d);} ]));
+
 }
 
 const sceneT = () => {
@@ -512,7 +567,8 @@ const sceneT = () => {
 let followContext = { time: true, selection: true, t_range: null, zone: null };
 const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT(), follow: true });
 
-function stop() {
+async function stop() {
+  try { await investigations.stop(); } catch(e) { statusLine(`Cancellation failed: ${e.message}. The server job may still be running.`); return; }
   runGeneration++;
   stream?.abort();
   stream = null;
@@ -528,6 +584,14 @@ function stop() {
 }
 
 const handlers = {
+  job_terminal(d) {
+    stream = null;
+    if(d.status === 'done' && run.final) return finish();
+    document.body.dataset.run = 'failed'; if(state.view !== 'home') setState('default');
+    $('#answer').innerHTML = `<p class="abstain" role="alert">Investigation ${esc(d.status)}${d.error ? ': '+esc(d.error.message ?? d.error) : ''}. Saved partial observations remain in its history.</p>`;
+    statusLine(`Investigation ${d.status}.`);
+  },
+  observation(d) { run.observations.set(d.observation.observation_id,d.observation); renderObservations(); },
   step(d) {
     run.id = d.run_id;
     run.lastStep = d;
@@ -651,6 +715,7 @@ const handlers = {
     else if (state.view === 'searching') setState('default');
   },
   done() {
+    investigations.complete();
     stream = null;
   },
   comparison_error(e) {
@@ -689,6 +754,7 @@ function finish() {
   renderEvidence();
   renderSteps();
   renderFollowup();
+  renderObservations();
   const r = run;
   Promise.resolve(r.opening).then(() => run === r ? replayEvidence() : null).then(() => {
     if (run !== r || !r.final || r.userExplored || document.body.dataset.run !== 'done') return;
@@ -771,6 +837,18 @@ const TIME_REF_MS = new Map([
   ...['value.t_s', 'value.t0_s', 'value.t1_s', 'value.window_t0_s', 'value.window_t1_s'].map((field) => [field, 1000]),
 ]);
 function numbered(d) {
+  if (run.protocolVersion === 2 || Array.isArray(d.text_spans)) {
+    const chars = Array.from(d.text); let cursor = 0, html = '';
+    for (const ref of [...(d.text_spans ?? [])].sort((a,b)=>a.start-b.start)) {
+      if (!Number.isSafeInteger(ref.start) || !Number.isSafeInteger(ref.end) || ref.start < cursor || ref.end <= ref.start || ref.end > chars.length) continue;
+      const evidence = run.evidence.get(ref.eid), value = ref.field.split('.').reduce((o,k)=>o?.[k],evidence);
+      if (!evidence || !['measure','map'].includes(evidence.kind) || !Number.isFinite(value)) continue;
+      const time = TIME_REF_MS.has(ref.field);
+      html += esc(chars.slice(cursor,ref.start).join('')) + `<button class="${time ? 'ans-time' : 'ans-num'} mono" data-eid="${esc(ref.eid)}" data-ref-field="${esc(ref.field)}" title="${esc(ref.eid)} · ${esc(ref.field)}">${esc(chars.slice(ref.start,ref.end).join(''))}</button>`;
+      cursor = ref.end;
+    }
+    return html + esc(chars.slice(cursor).join('')) + (d.model_refs ?? []).filter(r=>{const observation=run.observations.get(r.observation_id),index=r.field?.match(/^facts\.(\d+)\.text$/)?.[1];return observation?.eid===r.eid && index != null && observation.facts[index];}).map(r=>` <button type="button" class="observation-frame model-cite" data-observation="${esc(r.observation_id)}" data-fact="${esc(r.field?.match(/^facts\.(\d+)\.text$/)?.[1] ?? 0)}" data-frame="0">Model observation · not measured</button>`).join('');
+  }
   let html = '', rest = d.text;
   for (const r of d.measure_refs) {
     const v = r.field.split('.').reduce((o, k) => o?.[k], run.evidence.get(r.eid)), scale = TIME_REF_MS.get(r.field), time = scale !== undefined;
@@ -868,8 +946,8 @@ function renderTabs() {
 
 // ---- Answer tab
 function renderKeyframe() {
-  const m = run.activeMoment ?? run.moments[0];
-  if (!m) return;
+  const m = run.activeMoment ?? (ctx.route.workspace === 'fleet' && run.activeScene ? run.moments.find(m=>m.scene_key===run.activeScene) : run.moments[0]);
+  if (!m || !Number.isFinite(m.t0_ms)) return $('#keyframe').replaceChildren();
   $('#keyframe').innerHTML = `
     <figure class="keyframe">
       ${m.thumb ? `<img src="${esc(api.url(m.thumb))}" alt="">` : '<span class="thumb-empty">No thumbnail</span>'}
@@ -908,7 +986,7 @@ function renderClaims() {
     if (!groups.has(key)) groups.set(key, { moment, claims: [] });
     groups.get(key).claims.push(c);
   }
-  const visible = [...groups.values()].filter(({ moment }) => !run.activeMoment || moment?.moment_id === run.activeMoment.moment_id);
+  const visible = [...groups.values()].filter(({ moment }) => (ctx.route.workspace !== 'fleet' || !run.activeScene || moment?.scene_key === run.activeScene) && (!run.activeMoment || moment?.moment_id === run.activeMoment.moment_id));
   if (!visible.length) {
     $('#claims').innerHTML = '<p class="claim-empty muted">No claim was assessed for this moment.</p>';
     return;
@@ -1127,7 +1205,8 @@ function stepBack() {
 // ---- wiring
 bus.on('view:state', (s) => (document.body.dataset.view = s));
 selection.onChange(({ ids, source }) => { if (source === 'user' && ids.size) followContext.selection = true; renderContext(); });
-bus.on('fleet:active', ({ scene_key, t_ms, commit = true }) => {
+bus.on('fleet:active', ({ scene_key, t_ms, cam_id = null, commit = true }) => {
+  state.activeCamera = scene_key ? {scene_key,cam_id} : null;
   const changed = state.activeFleetScene !== scene_key;
   state.activeFleetScene = scene_key;
   if (commit && ctx.route?.page === 'fleet' && ctx.route.scene_key !== scene_key) {
@@ -1135,12 +1214,14 @@ bus.on('fleet:active', ({ scene_key, t_ms, commit = true }) => {
     history.replaceState(null, '', hash); wsHash = hash;
     ctx.route = parseRoute(hash); if (pageContext) pageContext.route = ctx.route;
     state.sourceTag = { hash, workspace: 'fleet', scene_key: scene_key ?? null, trip_id: scene_key ?? null };
-    store(LAST_ROUTE, hash); renderSourceTag(); bus.emit('route', ctx.route);
+    store(LAST_ROUTE, hash); renderSourceTag(); bus.emit('route', ctx.route); state.activeCamera = scene_key ? {scene_key,cam_id} : null;
   }
   if (changed) { followContext.t_range = null; timeline.clearBrush(); }
-  if (run) { run.activeScene = scene_key; run.activeMoment = run.moments.find((m) => m.scene_key === scene_key && t_ms != null && m.t0_ms <= t_ms && t_ms < m.t1_ms) ?? null; renderClaims(); }
+  if (run) { run.activeScene = scene_key; run.activeMoment = run.moments.find((m) => m.scene_key === scene_key && t_ms != null && m.t0_ms <= t_ms && t_ms < m.t1_ms) ?? {moment_id:'unassessed',scene_key}; renderClaims(); renderKeyframe(); renderModels(); }
   renderContext();
 });
+bus.on('source:camera', camera=>{state.activeCamera=camera;});
+bus.on('route',()=>{state.activeCamera=null;});
 clock.onTick(renderContext);
 window.addEventListener('hashchange', onRoute);
 $('#ask-form').addEventListener('submit', (e) => {
@@ -1195,7 +1276,7 @@ timeline.onBrush(({ t0, t1 }) => {
   const key = (ctx.route.workspace === 'fleet' ? state.activeFleetScene ?? ctx.route.scene_key : ctx.route.scene_key) ?? run?.activeScene;
   const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
   const sourceT = (t) => replay ? Math.round(replay.source_start_ms + (t - replay.replay_start_ms) * replay.rate) : t;
-  if (clock.domain.kind === 'fleet' && key) bus.emit('fleet:active', { scene_key: key, t_ms: sourceT(t0) });
+  if (clock.domain.kind === 'fleet' && key) bus.emit('fleet:active', { scene_key: key, t_ms: sourceT(t0), ...(state.activeCamera?.scene_key === key ? {cam_id:state.activeCamera.cam_id} : {}) });
   followContext.t_range = [sourceT(t0), sourceT(t1)];
   renderContext();
 });
@@ -1207,6 +1288,13 @@ $('#panel').addEventListener('click', (e) => {
 timeline.onEvidence((eid) => run?.evidence.has(eid) && flash(eid));
 document.addEventListener('pointerover', (e) => hover(e.target.closest('.ans-num, .ans-time, .cite, .ev')?.dataset.eid ?? null));
 document.addEventListener('pointerout', (e) => !e.relatedTarget && hover(null));
+window.addEventListener('sva:observation-frame',async ({detail:f})=>{
+  const workspace = (await workspaces).find(w=>w.scenes.some(s=>s.scene_key===f.scene_key))?.id;
+  if(!workspace)return;
+  const hash=workspace==='fleet'?`#/fleet/${f.scene_key}@${f.t_ms}`:`#/${workspace}/${f.scene_key}`;
+  await go(hash);
+  await toPage(()=>{clock.seek(clock.toWall(f.scene_key,f.t_ms));bus.emit('observation:frame',f);});
+});
 $('#runpage').addEventListener('click', (e) => e.target.closest('.rp-back') && closeRunpage());
 
 async function openCmdk() {
@@ -1247,4 +1335,4 @@ api.get('api/dependencies').then((d) => {
 }).catch(() => {});
 
 initPanelResizer();
-onRoute();
+onRoute().then(() => investigations.resume({restart:true}));

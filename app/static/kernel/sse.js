@@ -2,7 +2,7 @@
 // answer, status, vss_native, done, error}; on site, vss_native arrives after status. Frames whose run_id differs from the stream's first frame, or that arrive after abort(), are dropped.
 import { api } from './api.js';
 
-export function askSSE(body, handlers) {
+export function askSSE(body, handlers, options = {}) {
   const ctl = new AbortController();
   let runId = null;
   let finalStatus = false;
@@ -32,6 +32,7 @@ export function askSSE(body, handlers) {
       }
       throw new Error(typeof detail === 'string' ? detail : `Could not start the investigation (${r.status}). Please retry.`);
     }
+    options.headers?.(r.headers);
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
     let buf = '';
     for (;;) {
@@ -42,12 +43,13 @@ export function askSSE(body, handlers) {
       while ((k = buf.indexOf('\n\n')) >= 0) {
         const block = buf.slice(0, k);
         buf = buf.slice(k + 2);
-        let event = 'message', data = '';
+        let event = 'message', data = '', id = null;
         for (const line of block.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
+          if (line.startsWith('id:')) id = Number(line.slice(3).trim());
+          else if (line.startsWith('event:')) event = line.slice(6).trim();
           else if (line.startsWith('data:')) data += line.slice(5).trim();
         }
-        if (data) dispatch(event, JSON.parse(data));
+        if (data) { dispatch(event, JSON.parse(data)); if (Number.isSafeInteger(id)) options.sequence?.(id); }
       }
     }
     // Final status completes the answer; site comparison frames can follow it, and dev fixtures may omit done.
@@ -56,7 +58,27 @@ export function askSSE(body, handlers) {
     if (ctl.signal.aborted) return;
     console.error(e); // a throwing frame handler lands here too; the stack is the only trace of it
     if (finalStatus) handlers.comparison_error?.(e);
-    else handlers.error?.(e);
+    else if (!options.disconnect?.(e)) handlers.error?.(e);
   });
   return { abort: () => ctl.abort() };
+}
+
+
+export function jobSSE(jobId, afterSeq, handlers, options = {}) {
+  const ctl = new AbortController();
+  (async () => {
+    const response = await fetch(api.url(`api/agent/jobs/${encodeURIComponent(jobId)}/events?after_seq=${afterSeq}`), { headers:{accept:'text/event-stream'},signal:ctl.signal });
+    if(!response.ok)throw new Error(`Job subscription failed (${response.status})`);
+    const reader=response.body.pipeThrough(new TextDecoderStream()).getReader();let buffer='',finished=false;
+    for(;;){const {value,done}=await reader.read();if(done)break;buffer+=value.replace(/\r/g,'');let end;
+      while((end=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,end);buffer=buffer.slice(end+2);let event='message',data='',seq=null;
+        for(const line of block.split('\n')){if(line.startsWith('event:'))event=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trim();else if(line.startsWith('id:'))seq=Number(line.slice(3).trim());}
+        if(!data||ctl.signal.aborted)continue;
+        handlers[event]?.(JSON.parse(data));if(Number.isSafeInteger(seq))options.sequence?.(seq);
+        if(event==='done'){finished=true;options.complete?.();}
+      }
+    }
+    if(!finished&&!ctl.signal.aborted)throw new Error('Job subscription ended before completion.');
+  })().catch(e=>{if(!ctl.signal.aborted)options.disconnect?.(e);});
+  return {abort:()=>ctl.abort()};
 }

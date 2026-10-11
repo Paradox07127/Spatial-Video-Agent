@@ -90,6 +90,7 @@ export async function mount(root, ctx) {
     ctx.selection.onChange(onSelection),
     sub('view:state', onView),
     sub('evidence:focus', onFocus),
+    sub('observation:frame', ({scene_key,cam_id,t_ms}) => { if(P?.key===scene_key && P.mf.cams.some(c=>c.id===cam_id)) { pin(cam_id); ctx.clock.seek(t_ms); } }),
     sub('evidence:hover', (eid) => P?.mf && P.stage.setMeasureHot(!!eid && eid === P.measure?.eid)),
     sub('stage:mode', onStageMode),
     sub('context:zone-clear', () => P.host.querySelector('.wh-zone-clear')?.click()),
@@ -217,6 +218,7 @@ function railThumbs(frames) {
 
 function setView(v) {
   const shown = P.stage.setView(v);
+  if (shown?.startsWith('cam:')) P.ctx.bus.emit('source:camera', {scene_key:P.key,cam_id:shown.slice(4)});
   P.host.querySelectorAll('.wh-views button').forEach((b) => b.classList.toggle('on', b.dataset.view === shown));
   updateRail();
   return shown;
@@ -366,7 +368,7 @@ function onStageMode({ mode, eid }) {
 // Actors an evidence cites: a measured pair, observed owners, or a named actor from an explicit measured tool.
 function cited(e) {
   if (P.measure?.eid === e.eid) return P.measure.ids;
-  const observed = [...new Set((e.observation_ids ?? []).map((o) => P.owner.get(`${o.cam_id}:${o.local_track_id}`)).filter(Boolean))];
+  const observed = [...new Set((e.observation_ids ?? []).map((o) => P.owner.get(`${o.cam_id}:${o.local_track_id}`, e.t0_ms)).filter(Boolean))];
   if (observed.length || e.kind !== 'measure') return observed;
   const ref = e.method === 'ground_position' ? e.value?.entity_id ?? e.params?.target : e.method === 'track_speed' ? e.params?.a : null;
   const id = typeof ref === 'string' ? ref : ref?.entity_id;
@@ -447,6 +449,7 @@ function setDock(cam = dockCams()[0], only = null) {
     P.dock = null;
   }
   P.dockCam = cam;
+  P.ctx.bus.emit('source:camera', {scene_key:P.key,cam_id:cam?.id ?? null});
   P.dockOnly = only;
   renderDock();
 }

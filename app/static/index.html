@@ -21,6 +21,7 @@
       <span class="ask-hint mono">Esc steps back</span>
     </form>
     <span class="top-right"><span id="dependency-status" role="status" hidden></span>
+      <button type="button" id="investigations-btn" class="ghost">Investigations</button>
       <a id="runs-btn" class="ghost" href="#/runs"><svg class="i"><use href="icons.svg#workflow"/></svg>Runs</a>
       <button id="cmdk-btn" class="ghost mono" title="Go to (⌘K)"><svg class="i"><use href="icons.svg#command"/></svg>K</button>
     </span>
@@ -37,12 +38,14 @@
         <p>Ask about this scene</p>
         <span id="presets" class="presets"></span>
       </div>
+      <p id="investigation-status" class="investigation-status" role="status" hidden></p>
       <section id="answer" class="answer" aria-label="Answer"></section>
       <nav id="tabs" class="tabs" aria-label="Result"></nav>
       <div class="p-body">
         <div id="tab-answer" class="tab-pane">
           <div id="keyframe"></div>
           <div id="claims"></div>
+          <section id="observations" aria-label="Model observations"></section>
           <div id="modelpanel"></div>
           <section class="pane p-moments"><h2 class="p-moments-head"></h2><div id="moments"></div></section>
         </div>
@@ -61,6 +64,7 @@
 
   <footer id="timeline"></footer>
 
+  <section id="investigations" class="investigations" role="dialog" aria-modal="true" aria-label="Saved investigations" hidden></section>
   <section id="runpage" class="runpage" aria-label="Reasoning" hidden></section>
 
   <div id="cmdk" class="cmdk" hidden>

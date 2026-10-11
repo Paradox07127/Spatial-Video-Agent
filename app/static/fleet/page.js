@@ -200,7 +200,10 @@ function placeHtml(p, t, c5) {
 async function ixTick(wall) {
   const cur = ix, current = ++cur.tick, t = tripT(cur.trip.replay, wall);
   cur.el.querySelector('.fl-vid').classList.toggle('novid', t == null);
-  if (t == null) return;
+  if (t == null) {
+    cur.video.suspend(); cur.frame = null; cur.place.replaceChildren(); cur.placeHtml = null; cur.placeId = undefined;
+    cur.facts.textContent = 'No source coverage at this time'; cur.el.querySelector('.fl-3d').style.visibility = 'hidden'; ov.gps(null); ov.place(null); return;
+  }
   cur.video.sync(t, ctx.clock.playing, ctx.clock.rate * cur.trip.replay.rate);
   if (cur.frame && Math.floor(cur.frame.t_ms / 10000) !== Math.floor(t / 10000)) cur.video.clear();
   let frames, rows;
@@ -306,7 +309,7 @@ async function renderTrip() {
 async function enterIx(trip, m, force = false) {
   if (!force && ix?.moment === m) return;
   const mount = ctx, owns = ctx.owner ?? (() => true);
-  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms, commit: m.commit !== false });
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: m.t0_ms, commit: m.commit !== false });
   leaveIx();
   const token = ++tripLoadGeneration;
   if (!trip.coreReady) return renderLoadStatus();
@@ -405,8 +408,8 @@ function openDefault() {
   return openTrip(trip, t, false);
 }
 
-function toOverview() {
-  ctx.bus.emit('fleet:active', { scene_key: null });
+function toOverview(resetSource = false) {
+  if (resetSource) ctx.bus.emit('fleet:active', { scene_key: null });
   leaveIx();
   card.close();
   ov.hit(null);
@@ -459,7 +462,7 @@ export async function mount(el, c) {
     trips, api: ctx.api,
     onCar(id) {
       const trip = byId(id), t = tripT(trip.replay, ctx.clock.t);
-      ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: t });
+      ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: t });
       if (trip.cam && t != null) openTrip(trip, t);
       else {
         leaveIx();
@@ -467,7 +470,7 @@ export async function mount(el, c) {
       }
     },
     onEvent(trip, e) {
-      ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: e.t0_ms });
+      ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: e.t0_ms });
       if (trip.cam) openTrip(trip, e.t0_ms); else leaveIx();
       ov.select(trip.id);
       ctx.timeline.highlight(`${trip.id}:${e.id}`);
@@ -500,7 +503,7 @@ export async function mount(el, c) {
   const onKey = (e) => {
     if (e.key !== 'Escape' || !ix || state.view !== 'default' || !document.getElementById('cmdk').hidden || !document.getElementById('runpage').hidden) return;
     e.stopPropagation();
-    toOverview();
+    toOverview(true);
   };
   ctx.bus.on('view:state', onView);
   ctx.bus.on('clock:play', onPlay);
@@ -546,7 +549,7 @@ export async function applyHits(moments) {
   const m = moments.find((x) => byId(x.scene_key));
   if (!m) return;
   const trip = byId(m.scene_key), p = posAt(trip.pts, m.t0_ms);
-  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms });
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: m.t0_ms });
   ov.select(trip.id);
   ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
   if (trip.cam) await enterIx(trip, m);
@@ -561,7 +564,7 @@ export async function applyUI({ cmd, args }) {
   await ready;
   if (cmd === 'seek') {
     const trip = byId(args.trip_id ?? args.scene_key) ?? ix?.trip;
-    if (trip) ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: args.t_ms, commit: false });
+    if (trip) ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: args.t_ms, commit: false });
     ctx.clock.seek(trip ? wallOf(trip.replay, args.t_ms) : args.t_ms);
   } else if (cmd === 'focus' && args.latlon) flyTo([args.latlon[1], args.latlon[0]]);
   else if (cmd === 'highlight') {
@@ -584,7 +587,7 @@ export function loadScene(id) {
   ov.select(id);
   if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
   const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0]?.t_ms ?? trip.mf.t0_ms;
-  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: t });
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: t });
   if (trip.cam) return openTrip(trip, t);
   leaveIx(); renderLoadStatus();
   const p = posAt(trip.pts, t);

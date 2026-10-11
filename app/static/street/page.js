@@ -195,6 +195,7 @@ async function load(key) {
   const box = root.querySelector('.st-vbox'), canvas = root.querySelector('.st-ovl');
   box.style.setProperty('--ar', cam.w / cam.h);
   Object.assign(canvas, { width: cam.w, height: cam.h });
+  ctx.bus.emit('source:camera',{scene_key:key,cam_id:cam.id});
   S = { key, mf, cam, chunks, cur: -1, presented: null, dets: new Map(), moments: [], boxes: 0, answerLabels: new Set() };
   renderBands();
   if (ctx.route.t_ms != null) ctx.clock.seek(ctx.route.t_ms);
