@@ -20,7 +20,8 @@ def test_cosmos_reports_the_source_actually_used_despite_existing_stale_file(tmp
     record=_published_c1(4600)
     monkeypatch.setattr(vlm,'_cache_identity',lambda key:identity)
     monkeypatch.setattr(vlm,'_cache_dir',lambda:tmp_path)
-    manifest={'t1_ms':10000,'analysis_rev':'r1','assets':{'cosmos':'cosmos/record.json'}}
+    manifest={'t0_ms':0,'t1_ms':10000,'cams':[{'id':'ceiling_00'}],
+              'analysis_rev':'r1','assets':{'cosmos':'cosmos/record.json'}}
     monkeypatch.setattr(vlm,'_manifest',lambda key:manifest)
     published={'records':[record], 'input_artifact_hashes':{'scene:source_identity':identity['source']}}
     monkeypatch.setattr(vlm,'_json',lambda *a:published if source=='published' else None)

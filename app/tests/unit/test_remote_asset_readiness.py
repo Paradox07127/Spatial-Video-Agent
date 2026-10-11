@@ -174,7 +174,8 @@ def test_health_waits_for_real_remote_validation_and_preserves_local_contract(tm
     local=SimpleNamespace(asset_dir=tmp_path,backend='duckdb',list_scenes=lambda:[],index_counts=lambda:{})
     response=health(request(tmp_path,local))
     assert response.status_code==503
-    assert set(json.loads(response.body))=={'ok','mode','backend','libs_ready','index_rows','assets_ok'}
+    assert set(json.loads(response.body))=={'ok','mode','backend','libs_ready','index_rows','assets_ok','agent_protocols'}
+    assert json.loads(response.body)['agent_protocols']==[1,2]
 
 
 def test_s3_validation_client_has_bounded_timeouts_and_missing_credentials_fail_closed(monkeypatch,tmp_path):

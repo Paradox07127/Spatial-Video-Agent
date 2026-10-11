@@ -86,7 +86,12 @@ def test_single_sample_does_not_certify_a_second_or_other_missing_person(tmp_pat
 def test_blind_selection_and_zone_are_applied(tmp_path):
     s=fixture_store(tmp_path)
     result=tools.blind_presence(s,KEY,'ceiling_00',0,10000,selection=['P2'])
-    assert [e.value['entity_id'] for e in result.evidence]==['P2']
+    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms,e.value['seen_by']) for e in result.evidence]==[
+        ('P2',3600,6000,['ceiling_04','eye_00']),
+        ('P2',6000,7000,['ceiling_04']),
+        ('P2',7000,9300,['ceiling_04','eye_00']),
+    ]
+    assert result.envelope.coverage==1
     result=tools.blind_presence(s,KEY,'ceiling_00',0,10000,selection=['P2'],zone=[(100,100),(101,100),(101,101)])
     assert result.evidence==[] and result.envelope.coverage==1
 

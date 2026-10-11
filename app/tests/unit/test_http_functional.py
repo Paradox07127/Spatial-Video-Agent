@@ -174,7 +174,7 @@ def test_health_retains_fields_when_ready(health_client):
     r = client.get('/health')
     assert r.status_code == 200
     assert r.json() == {'ok': True, 'mode': 'dev', 'backend': 'duckdb', 'libs_ready': True,
-                        'index_rows': {'clips': 1}, 'assets_ok': True}
+                        'index_rows': {'clips': 1}, 'assets_ok': True, 'agent_protocols': [1, 2]}
 
 
 @pytest.mark.parametrize('missing', ['manifest.json', 'video.mp4', 'entities.json', 'timeline.json', 'events.json'])
@@ -255,5 +255,5 @@ def test_health_invalid_app_connection_is_unready_while_index_and_assets_remain_
     response = client.get('/health')
     assert response.status_code == 503
     assert response.json() == {'ok': False, 'mode': 'dev', 'backend': 'duckdb', 'libs_ready': True,
-                               'index_rows': {'clips': 1}, 'assets_ok': True}
+                               'index_rows': {'clips': 1}, 'assets_ok': True, 'agent_protocols': [1, 2]}
     assert 'connection' not in response.text.lower()
