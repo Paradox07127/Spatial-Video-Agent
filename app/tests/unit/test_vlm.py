@@ -128,7 +128,7 @@ def test_situation_finds_the_batch_moment_at_the_agents_detection_time(calls, st
     calls["queue"].append(REC["C1"])
     rec = vlm.situation(K, tm, [EntityRef.model_validate(a) for a in card["actor_refs"]], run=_Run("r1"))
     assert rec == CosmosRecord.model_validate(records[1])
-    assert calls["bodies"] == [] and steps[-1]["exec_state"] == "cached"
+    assert calls["bodies"] == [] and steps[-1]["exec_state"] == "precomputed"
 
 
 def _published_c1(t, *, key=K, cam="ceiling_00", ids=None, task="C1", rev=None):

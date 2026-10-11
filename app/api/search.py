@@ -73,6 +73,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     if corpus or request.sources:
         # the parser needs a workspace; corpus retrieval does not read it
         context.setdefault('workspace','warehouse')
+    exec_state = ('live' if parsed is None and llm.needs_llm(request.q,llm.rule_parse(request.q,context)) else 'precomputed')
     parsed = parsed or llm.parse(request.q, context)
     corpus = corpus or parsed.scope=='corpus'
     if corpus:
@@ -82,7 +83,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     backend = getattr(store, 'backend', 'duckdb')
     empty = {'moments':[], 'expanded_ranges':[], 'backend':backend}
     if parsed.template == 'unsupported':
-        return parsed, result(key or 'all',0,0,empty,started=started)
+        return parsed, result(key or 'all',0,0,empty,exec_state=exec_state,started=started)
     scenes = store.list_scenes(None if corpus else parsed.workspace)
     selected = [m for m in scenes if (not key or m['scene_key']==key)
                 and (not parsed.sources or tag_of(m) in parsed.sources)]
@@ -91,19 +92,22 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     filters = SearchFilters(workspace=parsed.workspace,scene_keys=[m['scene_key'] for m in selected],
                             cam_ids=cam_ids or None,t_range=parsed.t_range,k=50)
     if not selected:
-        return parsed, result(key or 'all',0,0,empty,started=started)
+        return parsed, result(key or 'all',0,0,empty,exec_state=exec_state,started=started)
     windows = None
     if parsed.place:
         place = geo.geocode(store,parsed.place)
         passes = geo.find_passes(store,place['place_id'],geo.NEAR_M,360) if place else []
         windows = [(p['trip_id'],p['t0_ms'],p['t1_ms']) for p in passes if not key or p['trip_id']==key]
         if not windows:
-            return parsed, result(key or 'all',0,0,{**empty,'abstain':'OUT_OF_RANGE'},started=started)
+            return parsed, result(key or 'all',0,0,{**empty,'abstain':'OUT_OF_RANGE'},exec_state=exec_state,started=started)
         windows = [w for w in windows if w[0] in filters.scene_keys]
         filters.scene_keys = list(dict.fromkeys(w[0] for w in windows))
     # site (vss given) always embeds; without an embedding service (local dev) the search is unranked over the filtered clips.
     # VSS /search is never awaited here: the store ranks our clips and the live rows directly
     vectors = embed.embed_text(request.q) if vss is not None or os.environ.get('EMBED_URL') else None
+    if vectors is not None:
+        exec_state = 'live'
+    ranking_state = exec_state
     clips = []
     # corpus ranks each workspace on its own so one level cannot crowd out another
     for workspace in (get_args(Workspace) if corpus else (parsed.workspace,)):
@@ -233,7 +237,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                                             why=[f'caption rank {clip.rank_text}; visual rank {clip.rank_visual}',
                                                  'detection timestamp verified'],
                                             thumb=thumb,
-                                            exec_state='live',backend=backend,clip_id=clip.clip_id,
+                                            exec_state=exec_state,backend=backend,clip_id=clip.clip_id,
                                             **({'workspace':manifest['workspace'],'evidence_level':level_of(manifest)} if corpus else {}))
     quota = min(LEVEL_QUOTA,request.k) if corpus else request.k
     street_cards = []
@@ -243,6 +247,10 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
             if len(street_cards)==quota:
                 break
             card, card_evidence = street.moment(store,clip,backend=backend,vss=vss)
+            if ranking_state=='live':
+                card.exec_state = 'live'
+            if card.exec_state=='live':
+                exec_state = 'live'
             if any(w in request.q.lower() for w in ['bicycle','cycling']) and not card_evidence[1].value['counts'].get('bicycle'):
                 continue
             if card.thumb is None:
@@ -261,7 +269,7 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
     output = {'moments':[{**m.model_dump(exclude_none=True),'thumb':m.thumb} for m in moments], 'expanded_ranges':expanded,'backend':backend}
     return parsed, result(key or 'all',min((r['t0_ms'] for r in expanded),default=0),
                           max((r['t1_ms'] for r in expanded),default=0),output,evidence=evidence,
-                          pts_read=len(clips),gaps=gaps,started=started)
+                          pts_read=len(clips),gaps=gaps,exec_state=exec_state,started=started)
 
 
 def search_response(store, parsed, result):

@@ -169,7 +169,8 @@ def _call(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt, sch
     with (trace.traced(run, f"vlm.{task}", {"scene_key": scene_key, "t_ms": t_ms, "cam_id": cam, "actor_ids": ids,
                                             "record_id": rid}, state="inspect") if run is not None else nullcontext()) as st:
         # only C1 looks at a window around t_ms; C2 must see nothing after its own t_ms and C3-C5 are keyed by their window
-        rec, state = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None), "cached"
+        state = "cached" if (_cache_dir() / f"{rid}.json").is_file() else "precomputed"
+        rec = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None)
         if rec is None:
             rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
                                region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"

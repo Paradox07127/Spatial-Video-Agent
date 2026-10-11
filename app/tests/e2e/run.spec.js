@@ -58,7 +58,7 @@ test('step timeline: name, summary, elapsed ms, exec state; a step expands to in
   await expect(parse.locator('.ts-name')).toHaveText('parse');
   await expect(parse.locator('.ts-note')).toHaveText(ASKS.find((a) => a.ask_id === 'wh-main').events.find((f) => f.event === 'step').data.summary);
   await expect(parse.locator('.ts-ms')).toHaveText('5 ms');
-  await expect(parse.locator('.exec')).toHaveText('live');
+  await expect(parse.locator('.exec')).toHaveText('precomputed');
   const tool = page.locator('#runpage .trace-step[data-i="4"]');
   await expect(tool).toHaveClass(/child/);
   await expect(tool.locator('.ts-name')).toHaveText('tool.visibility');

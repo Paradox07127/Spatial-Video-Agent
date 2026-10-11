@@ -95,14 +95,16 @@ def availability_gaps(t0, t1, available, missing=()):
 def _sidecar(store, source: str) -> dict:
     """The segment's YOLO sidecar read from S3, as {source, video_shape, frame_count, frames [{time_sec, rows [label, x1, y1, x2, y2, conf]}]}."""
     path = _cache(store, 'detections', _digest(source) + '.json')
+    exec_state = 'precomputed'
     if not path.is_file():
         raw = live_measure.fetch_sidecar(store.s3(), live_measure.sidecar_uri(source))
+        exec_state = 'live'
         doc = {'source': raw.get('source', 'yolo11_coco'), 'fps':raw['fps'], 'video_shape': raw['video_shape'][:2],
                'frame_count': raw.get('frame_count', len(raw['frames'])),
                'frames': [{'time_sec': f['frame_index'] / raw['fps'], 'rows': [[d['label'], *d['bbox'], d['confidence']] for d in f['detections']]}
                           for f in raw['frames']]}
         _publish(path,json.dumps(doc).encode())
-    return json.loads(path.read_text())
+    return {**json.loads(path.read_text()),'exec_state':exec_state}
 
 
 def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
@@ -112,6 +114,7 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
     m = street_manifest(store, scene_key)
     c = camera(m, cam)
     rows, sources, gaps, stamps, available = [], [], [], set(), []
+    exec_state = 'precomputed'
     if any(ch['uri'].startswith('s3://') for ch in c['chunks']):
         segments = store.search_clips(SearchFilters(workspace='street', scene_keys=[scene_key], cam_ids=[cam], t_range=(t0_ms, t1_ms)), None, None)
         for seg in sorted(segments, key=lambda s: s.t0_ms):
@@ -126,6 +129,8 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
             except (BotoCoreError, ClientError):
                 gaps.append([lo, hi, 'sidecar_unavailable'])
                 continue
+            if doc['exec_state']=='live':
+                exec_state = 'live'
             # one frame of slack for the rounding of a segment's end
             expected = round((seg.t1_ms - seg.t0_ms) * m['fps'] / 1000)
             if list(doc['video_shape']) != [c['h'], c['w']] or abs(doc['frame_count'] - expected) > 1:
@@ -149,6 +154,8 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
             except FileNotFoundError:
                 gaps.append([lo, hi, 'no_detections'])
                 continue
+            if store.asset_dir is None:
+                exec_state = 'live'
             sources.append(doc['source'])
             inside = [r for r in doc['rows'] if lo <= r[0] < hi]
             times = sorted({r[0] for r in doc['rows']})
@@ -160,7 +167,8 @@ def detections(store, scene_key: str, cam: str, t0_ms: int, t1_ms: int) -> dict:
             stamps.update(r[0] for r in inside)
             rows.extend(inside)
     gaps = availability_gaps(t0_ms,t1_ms,[(a,b) for a,b in available if a<b],gaps)
-    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps, 'frames_read': len(stamps)}
+    return {'cam_id': cam, 'rows': rows, 'source': sources[0] if sources else None, 'gaps': gaps,
+            'frames_read': len(stamps), 'exec_state': exec_state}
 
 
 def counts_of(store, clip: Clip) -> dict | None:
@@ -232,6 +240,6 @@ def moment(store, clip: Clip, *, backend: str, vss=None) -> tuple[MomentCard, li
                       cams=[clip.cam_id], primary_cam=clip.cam_id, actor_refs=[], evidence_ids=[caption.eid, boxes.eid], score=score,
                       why=[f'caption rank {clip.rank_text}; visual rank {clip.rank_visual}',
                            f'2D detections in one frame: {seen}' if seen else 'no 2D detections read'],
-                      thumb=f'/api/street/{clip.scene_key}/thumb?cam={clip.cam_id}&t={clip.t0_ms}', exec_state='live', backend=backend,
+                      thumb=f'/api/street/{clip.scene_key}/thumb?cam={clip.cam_id}&t={clip.t0_ms}', exec_state=dets['exec_state'], backend=backend,
                       clip_id=clip.clip_id, workspace='street', evidence_level=level_of(m))
     return card, [caption, boxes]

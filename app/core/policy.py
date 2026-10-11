@@ -1,5 +1,7 @@
 """Choose the next evidence by coverage gain within the remaining budget."""
 
+MAX_MOMENTS = 3
+
 
 def plan_next(state: dict) -> dict:
     candidates = sorted(state['candidates'], key=lambda c: (-c['gain'], c['cam']))

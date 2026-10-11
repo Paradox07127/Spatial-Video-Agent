@@ -790,11 +790,11 @@ class Seq:
         sid = f"{self.run_id}.s{self.i}"
         self.cur = sid
         self.frames.append({"event": "step", "data": {"run_id": self.run_id, "step_id": sid, "i": self.i, "state": state,
-                                                      "elapsed_ms": elapsed, "summary": summary, "exec_state": "live"}})
+                                                      "elapsed_ms": elapsed, "summary": summary, "exec_state": "waiting"}})
         name = {"parse": "parse", "plan": "policy.plan_next", "retrieve": "retrieve", "answer": "answer"}.get(state, "assess")
         self.steps.append({"step_id": sid, "parent_step_id": None, "i": self.i, "state": state, "name": name,
                            "started_ms": elapsed, "elapsed_ms": 5, "input": {"summary": summary}, "output": None,
-                           "evidence_ids": [], "note": summary, "exec_state": "live", "weave_call_id": None,
+                           "evidence_ids": [], "note": summary, "exec_state": "precomputed", "weave_call_id": None,
                            "trace_delivery_state": "local", "blob_ref": None})
         self.i += 1
 
@@ -803,14 +803,14 @@ class Seq:
         state = self.steps[-1]["state"]
         env = {"input_range": {"scene_key": scene_key or args.get("scene_key", WH_KEY), "cam_id": cam, "t0_ms": rng[0], "t1_ms": rng[1]},
                "pts_read": pts_read, "model_rev": model_rev, "output": output, "coverage": 1.0, "gaps": [], "quality": "ok",
-               "elapsed_ms": 12, "exec_state": "live", "error": None}
+               "elapsed_ms": 12, "exec_state": "precomputed", "error": None}
         self.frames.append({"event": "tool_call", "data": {"run_id": self.run_id, "step_id": self.cur, "call_id": cid, "name": name,
                                                            "args": args, "why": why}})
         self.frames.append({"event": "tool_result", "data": {"run_id": self.run_id, "step_id": self.cur, "call_id": cid, "ok": True,
                                                              "envelope": env, "evidence": evidence}})
         self.steps.append({"step_id": cid, "parent_step_id": self.cur, "i": self.i, "state": state, "name": f"tool.{name}",
                            "started_ms": elapsed, "elapsed_ms": 12, "input": args, "output": env,
-                           "evidence_ids": [e["eid"] for e in evidence], "note": why, "exec_state": "live",
+                           "evidence_ids": [e["eid"] for e in evidence], "note": why, "exec_state": "precomputed",
                            "weave_call_id": None, "trace_delivery_state": "local", "blob_ref": None})
         self.i += 1
 
@@ -839,7 +839,7 @@ def wh_main(wh) -> tuple[dict, dict]:
               "primary_cam": "ceiling_00", "actor_refs": [P("P1", "person"), P("F1", "forklift")],
               "evidence_ids": [e_cap["eid"], e_dodge["eid"]], "score": 0.0325,
               "why": ["caption rank 1 · visual rank 2", "Dodge event starts at 4.6 s"], "thumb": f"/api/assets/{WH_KEY}/thumbs/ceiling_00/00004.jpg",
-              "exec_state": "live", "backend": "duckdb", "clip_id": f"{WH_KEY}:ceiling_04:00000", "vss_rank": None, "time_filter": None}
+              "exec_state": "precomputed", "backend": "duckdb", "clip_id": f"{WH_KEY}:ceiling_04:00000", "vss_rank": None, "time_filter": None}
     q.emit("hits", {"query_id": "q1", "moments": [moment]})
     q.emit("model_result", {"scene_key": WH_KEY, "t_ms": 4500, "results": [r for r in wh["cosmos"] if r["task"] in ("C1", "C2", "C4")]})
     q.emit("ui", {"cmd": "seek", "args": {"t_ms": t_hit, "scene_key": WH_KEY}})
@@ -926,7 +926,7 @@ def fl_where(fl) -> dict:
     moment = {"moment_id": f"m_{FL_KEY}_3000", "scene_key": FL_KEY, "t0_ms": 3000, "t1_ms": 8000, "cams": ["dashcam"],
               "primary_cam": "dashcam", "actor_refs": [{"scene_key": FL_KEY, "entity_id": "P1", "kind": "person"}],
               "evidence_ids": [e_pass["eid"], e_evt["eid"]], "score": 0.9, "why": ["Passing Queen and Spadina", "Rule event ped_crossing severity 2"],
-              "thumb": f"/api/assets/{FL_KEY}/thumbs/dashcam/00006.jpg", "exec_state": "live", "backend": "duckdb",
+              "thumb": f"/api/assets/{FL_KEY}/thumbs/dashcam/00006.jpg", "exec_state": "precomputed", "backend": "duckdb",
               "clip_id": f"{FL_KEY}:dashcam:00001", "vss_rank": None, "time_filter": None}
     q.emit("hits", {"query_id": "q1", "moments": [moment]})
     q.emit("model_result", {"scene_key": FL_KEY, "t_ms": 6000, "results": [r for r in fl["cosmos"] if r["task"] in ("C1", "C2", "C4")]})

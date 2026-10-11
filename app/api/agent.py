@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import html
 import json
 import logging
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.api.search import event_types
 from app.core import cache, geo, llm, policy, tools, trace
 from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
+from app.settings import Settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -59,6 +61,13 @@ def native_search(vss, q):
             return box[0]
         return {'elapsed_ms':round((time.monotonic()-started)*1000),'status':'timeout','sql_query':None,'hits':[]}
     return wait
+
+
+@functools.cache
+def site_rows():
+    """The site-map rows ({source, scene_key, cam_id, t_ms}) of the live VSS segments."""
+    from pipeline.common import site_map
+    return list(site_map.load(Settings().site_map_path)[0].values())
 
 
 def trip_name(key):
@@ -197,6 +206,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     reserve, cut, levels = 0, False, {}
     corpus, groups, spatial = False, {}, None
     sent_hits, auto_open = False, None
+    ego_measured = False
     quantifier = 'all' if re.search(r'\b(everyone|all (?:people|workers|persons|pedestrians)|(?:every|each) (?:person|worker|pedestrian))\b',body.q,re.I) else 'any'
 
     def frame(event, **data):
@@ -205,8 +215,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         return f
 
     def step_frame(t, state, summary):
+        t.exec_state('precomputed')
         return frame('step',step_id=t.step_id,i=t.i,state=state,
-                     elapsed_ms=round((time.monotonic()-start)*1000),summary=summary,exec_state='live')
+                     elapsed_ms=round((time.monotonic()-start)*1000),summary=summary,exec_state='waiting')
 
     def ui(cmd, args, key):
         # once hits are sent the view moves only inside their auto_open scene; across scenes the shell lists candidates
@@ -250,6 +261,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             t.output(res.envelope.model_dump(mode='json'))
             t.evidence([e.eid for e in res.evidence])
             t.exec_state(res.envelope.exec_state)
+            if res.envelope.exec_state=='live':
+                parent.exec_state('live')
             read.update({e.eid:e for e in res.evidence})
             yield frame('tool_result',step_id=parent.step_id,call_id=t.step_id,ok=res.envelope.exec_state!='failed',
                         envelope=res.envelope.model_dump(mode='json'),evidence=[e.model_dump(mode='json') for e in res.evidence])
@@ -337,6 +350,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     raise BudgetExhausted
                 with trace.traced(run,'llm.parse',{'q':body.q,'rule':parsed.model_dump(mode='json')},state='parse',parent_step_id=t.step_id) as child:
                     parsed = llm.parse(body.q,context)
+                    child.exec_state('live')
+                    t.exec_state('live')
                     child.output(parsed.model_dump(mode='json'))
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
@@ -417,7 +432,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                     primary_cam=primary,actor_refs=[EntityRef(scene_key=key,entity_id=interval['entity_id'],kind='person')],
                                                     evidence_ids=[ev.eid],score=1,why=['blind_presence'],
                                                     thumb=tools.thumbnail(store,key,primary,interval['t0_ms']),
-                                                    backend=getattr(store,'backend','duckdb'),exec_state='live'))
+                                                    backend=getattr(store,'backend','duckdb'),exec_state=res.envelope.exec_state))
                 except BudgetExhausted:
                     # the scenes already checked still answer; the unchecked ones only rule out CONTRADICTED
                     exhausted = True
@@ -467,7 +482,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                      actor_refs=[person,vehicle],evidence_ids=[e.eid for e in [*scan.evidence,*res.evidence]],score=1,
                                      why=['closest_approach'],thumb=tools.thumbnail(store,key,cam['id'],tm),
-                                     backend=getattr(store,'backend','duckdb'),exec_state='live')
+                                     backend=getattr(store,'backend','duckdb'),exec_state=scan.envelope.exec_state)
                     yield hits([hit],special=True)
                     yield from ui('seek',{'t_ms':tm,'scene_key':key},key)
                     yield from ui('highlight',{'ids':[person.entity_id,vehicle.entity_id],'mode':'outline'},key)
@@ -510,7 +525,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                          actor_refs=[],evidence_ids=[e.eid for e in res.evidence],score=1,why=['osm_facade'],
                                          thumb=tools.thumbnail(store,key,cam['id'],tm),
-                                         backend=getattr(store,'backend','duckdb'),exec_state='live')
+                                         backend=getattr(store,'backend','duckdb'),exec_state=res.envelope.exec_state)
                         yield hits([hit],special=True)
                     if found['t_ms'] is not None:
                         yield from ui('seek',{'t_ms':found['t_ms'],'scene_key':found['scene_key']},found['scene_key'])
@@ -555,7 +570,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                           t1_ms=c['t_ms']+1,cams=[x['id'] for x in cams],primary_cam=cams[0]['id'] if cams else '',actor_refs=[],
                                                           evidence_ids=[ev.eid],score=c['over_kmh'],why=['OBD speed minus map speed limit'],
                                                           thumb=tools.thumbnail(store,c['scene_key'],cams[0]['id'],c['t_ms']) if cams else None,
-                                                          backend=getattr(store,'backend','duckdb'),exec_state='live'))
+                                                          backend=getattr(store,'backend','duckdb'),exec_state=res.envelope.exec_state))
                             final, no_limit = 'UNRESOLVED', not moments
                         elif (parsed.template=='where_is' and context.get('t_ms') is not None and not parsed.place
                               and capabilities(store.manifest(parsed.scene_key or scoped[0]['scene_key']))['ground_position']['ok']):
@@ -571,7 +586,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                 primary_cam=cam,actor_refs=actors,evidence_ids=[e.eid for e in res.evidence],
                                                 score=1,why=['entity observation at requested timestamp'],
                                                 thumb=res.envelope.output['cams'][0]['frame_url'] if res.envelope.output['cams'] else None,
-                                                backend=getattr(store,'backend','duckdb'),exec_state='live')] if actors else []
+                                                backend=getattr(store,'backend','duckdb'),exec_state=res.envelope.exec_state)] if actors else []
                             final='UNRESOLVED' if moments else 'NO_MATCH'
                         else:
                             if parsed.template=='where_is' and context.get('t_ms') is not None:
@@ -600,6 +615,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             if corpus and any(level(m.scene_key)==lv for m in moments)]
                     # corpus: the top moment of each level first, then the rest
                     order = [*tops,*(m for m in moments if all(m is not top for top in tops))]
+                    limited = not corpus and len(order)>policy.MAX_MOMENTS
+                    if not corpus:
+                        order = order[:policy.MAX_MOMENTS]
                     street_top = next((m for m in order if level(m.scene_key)=='L1'),None)
                     for card_index, card in enumerate(order):
                         # one tool stays for the top moment of every later level
@@ -656,6 +674,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 if manifest['cams']:
                                     yield from call(t,'get_synced_views','inspect',{'scene_key':key,'t_ms':tm,'cam':cam},
                                                     lambda:tools.get_synced_views(store,key,tm,cam=cam))
+                                # Scene scope only: corpus keeps its tools for the level reserve.
+                                if not corpus and manifest['workspace']=='fleet' and not ego_measured and any(a.kind=='person' for a in card.actor_refs):
+                                    ego_measured = True
+                                    yield from call(t,'ego_distance','measure',{'scene_key':key,'cam':cam,'t0_ms':tm,'t1_ms':card.t1_ms},
+                                                    lambda:tools.ego_distance(store,key,cam,tm,card.t1_ms,rows=site_rows() if vss is not None else []))
                                 person = next((s for s in subjects if s.kind=='person'),None)
                                 vis = None
                                 if manifest['workspace']=='warehouse' and person:
@@ -820,7 +843,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             cut = True
                     reserve = 0
                     # an abstained claim does not count; all abstained leaves UNRESOLVED
-                    final=counted(cut)
+                    final=counted(cut or limited)
                     if corpus and speeding_q:
                         yield from abstain_levels('speed','fleet')
                     if cut:
@@ -1002,6 +1025,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             # the run is already finalized; this step is still appended to its persisted steps
             with trace.traced(run,'vss.search',{'q':body.q},state='retrieve') as t:
                 data = native(max(0,min(body.budget.seconds-(time.monotonic()-start),NATIVE_WAIT_S)))
+                t.exec_state('live')
                 t.output(data)
             yield frame('vss_native',**data)
         yield frame('done')
