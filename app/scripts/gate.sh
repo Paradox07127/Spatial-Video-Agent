@@ -6,7 +6,7 @@ set -uo pipefail
 SVA="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$SVA"
 PY="$SVA/.venv/bin/python"
-MODE="${1:-full}"
+GATE_MODE="${1:-full}"
 FAIL=0
 step() { echo; echo "== $1"; }
 check() { if [ "$1" -eq 0 ]; then echo "-- ok: $2"; else echo "-- FAIL: $2"; FAIL=1; fi; }
@@ -14,7 +14,7 @@ check() { if [ "$1" -eq 0 ]; then echo "-- ok: $2"; else echo "-- FAIL: $2"; FAI
 [ -x "$PY" ] || { echo "missing $PY (uv sync)"; exit 2; }
 
 step "pytest"
-if [ "$MODE" = "--w0" ]; then "$PY" -m pytest app/tests/contract -q; else "$PY" -m pytest app/tests -q; fi
+if [ "$GATE_MODE" = "--w0" ]; then "$PY" -m pytest app/tests/contract -q; else "$PY" -m pytest app/tests -q; fi
 check $? "pytest"
 
 step "schema_check fixtures/"
@@ -47,12 +47,12 @@ print(f"{len(m['files'])} files, importmap {sorted(m['importmap'])}, bad: {bad o
 sys.exit(1 if bad else 0)
 PYEOF
 check $? "vendor manifest"
-if [ "$MODE" != "--w0" ] && [ -f app/scripts/vendor.py ]; then
+if [ "$GATE_MODE" != "--w0" ] && [ -f app/scripts/vendor.py ]; then
   "$PY" app/scripts/vendor.py --check; check $? "vendor.py --check"
 fi
 
 step "playwright"
-if [ "$MODE" = "--w0" ]; then
+if [ "$GATE_MODE" = "--w0" ]; then
   (cd app && npx playwright test -c tests/playwright.config.js --list --pass-with-no-tests)
   check $? "playwright config loads"
 else
@@ -60,7 +60,7 @@ else
   check $? "playwright e2e"
 fi
 
-if [ "$MODE" != "--w0" ]; then
+if [ "$GATE_MODE" != "--w0" ]; then
   step "configmap size"
   if [ -f app/scripts/configmap_size.sh ]; then bash app/scripts/configmap_size.sh; check $? "configmap < 900 KiB"; else echo "-- SKIP: app/scripts/configmap_size.sh not merged yet (card D)"; fi
 fi
@@ -68,8 +68,8 @@ fi
 step "secrets"
 # Scan what git would publish: tracked plus untracked files not ignored (.gitignore and .git/info/exclude).
 HITS="$(git ls-files -z -co --exclude-standard | xargs -0 grep -InE '(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|(api[_-]?key|secret[_-]?key|password|token)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{16,})' || true)"
-if [ -n "$HITS" ]; then echo "$HITS" | cut -c1-160; check 1 "no secrets in sva/"; else check 0 "no secrets in sva/"; fi
+if [ -n "$HITS" ]; then echo "$HITS" | cut -d: -f1,2; check 1 "no secrets in sva/"; else check 0 "no secrets in sva/"; fi
 
 echo
-if [ "$FAIL" -eq 0 ]; then echo "gate: PASS ($MODE)"; else echo "gate: FAIL ($MODE)"; fi
+if [ "$FAIL" -eq 0 ]; then echo "gate: PASS ($GATE_MODE)"; else echo "gate: FAIL ($GATE_MODE)"; fi
 exit "$FAIL"
