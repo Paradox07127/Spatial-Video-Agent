@@ -7,6 +7,7 @@ from app.core import llm, tools
 from app.core.investigation_context import apply_constraints
 from app.core.models import EntityRef
 from app.tests.unit.a5_fakes import fixture_store
+from app.tests.unit.test_semantic_repairs import store,ask,final
 
 KEY = 'wh-sdg-fixture-01'
 
@@ -14,6 +15,28 @@ KEY = 'wh-sdg-fixture-01'
 def constrained(q, **context):
     ctx = {'workspace':'warehouse','scene_key':KEY,**context}
     return apply_constraints(q,ctx,llm.rule_parse(q,ctx))
+
+
+@pytest.mark.parametrize('q',[
+    'Find P1 at 2 seconds or at 5 seconds',
+    'Find P1 or P2',
+])
+def test_disjunction_remains_an_unknown_requirement(store,q):
+    ctx={'workspace':'warehouse','scene_key':KEY}
+    parsed=llm.rule_parse(q,ctx)
+    assert 'disjunction' in parsed.constraints
+    assert parsed.t_range is None and parsed.entities==[]
+    parsed,reason=apply_constraints(q,ctx,parsed.model_copy(update={'constraints':[],
+        'entities':['P1','P2'],'t_range':(5000,2001)}))
+    assert reason=='disjunction' and 'disjunction' in parsed.constraints
+    assert parsed.t_range is None and parsed.entities==[]
+    frames=ask(store,q)
+    assert final(frames)=='UNRESOLVED'
+    claims=[f['data'] for f in frames if f['event']=='claim']
+    assert any(c['explain'].get('note')=='disjunction' for c in claims)
+    assert any(p['operator']=='disjunction' and p['status']=='unknown'
+               for c in claims for p in c['predicates'])
+    assert not any(f['event']=='tool_call' for f in frames)
 
 
 def test_intersects_paused_frame_text_and_context_without_widening():

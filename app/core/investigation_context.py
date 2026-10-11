@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from app.core.task_spec import time_requirements
+from app.core.task_spec import has_disjunction, time_requirements
 from dataclasses import dataclass
 
 ENTITY = re.compile(r'^[PFV]\d+$')
@@ -18,6 +18,9 @@ class Constraints:
 
 
 def resolve_constraints(q, context, parsed):
+    if has_disjunction(q) or 'disjunction' in parsed.constraints:
+        return Constraints(context.get('t_range'),list(context.get('selection') or []),
+                           context.get('zone') or parsed.zone,'disjunction')
     ranges = [r for r in (parsed.t_range, context.get('t_range')) if r is not None]
     # A paused-frame follow-up addresses this instant, not an arbitrary nearby event.
     if context.get('t_ms') is not None:
@@ -53,5 +56,6 @@ def resolve_constraints(q, context, parsed):
 
 def apply_constraints(q, context, parsed):
     constraints = resolve_constraints(q,context,parsed)
+    conditions=list(dict.fromkeys([*parsed.constraints,*(['disjunction'] if constraints.reason=='disjunction' else [])]))
     return parsed.model_copy(update={'t_range':constraints.t_range,'entities':constraints.entities,
-                                     'zone':constraints.zone}), constraints.reason
+                                     'zone':constraints.zone,'constraints':conditions}), constraints.reason

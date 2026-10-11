@@ -9,7 +9,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.core.models import Query, scene_key_of
-from app.core.task_spec import build_task_spec
+from app.core.task_spec import PLACE_NAME, build_task_spec, has_disjunction
 
 FORBIDDEN = r"\b(who is|who was|who are|who's|who drove|whose|identity|name of|intent|intend(?:ed|s|ing)?\b|meant to|on purpose|purpose|trying to|planning to|wants? to|motive|who caused|deliberately|why|fault|responsib)"
 
@@ -45,7 +45,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
     junction = (re.search(rf'({street})\s*(?:&|/|\band\b)\s*({street})', q)
                 or re.search(rf'({word})\s*(?:&|\band\b)\s*({word})\s+(?:junction|intersection)\b', q))
     # only a capitalised name is a place: "near a moving vehicle" is a distance, not a place
-    named = re.search(r'(?i:near)\s+([A-Z][^?,]*)', q)
+    named = re.search(rf'\b(?i:near)\s+({PLACE_NAME})', q)
     if junction:
         place = junction[1]+' & '+junction[2]
     elif named:
@@ -118,7 +118,10 @@ def rule_parse(q: str, ctx: dict) -> Query:
             ms = int(float(bound[2] or bound[3]) * 1000)
             t_range = (0, ms) if bound[1] == 'before' else (ms + 1, 2**53 - 1)
     spec = build_task_spec(q)
-    if spec.time_ranges:
+    if has_disjunction(q):
+        constraints.append('disjunction')
+        t_range,entities=ctx.get('t_range'),[]
+    elif spec.time_ranges:
         ranges = [*spec.time_ranges, *([ctx['t_range']] if ctx.get('t_range') else [])]
         t_range = (max(r[0] for r in ranges),min(r[1] for r in ranges))
     constraints.extend('unconsumed:'+r.span for r in spec.requirements if r.kind=='unconsumed')

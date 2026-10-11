@@ -102,3 +102,24 @@ def test_verified_place_prefix_does_not_consume_matching_words_elsewhere():
     assert consume_verified_place_prefix('ROM: did any pedestrian cross?','ROM',['unconsumed:ROM','requested_action:crossing'])==['requested_action:crossing']
     assert consume_verified_place_prefix('ROM: describe the ROM sign','ROM',['unconsumed:ROM','unconsumed:sign'])==['unconsumed:ROM','unconsumed:sign']
     assert consume_verified_place_prefix('Unknown: did any pedestrian cross?','ROM',['unconsumed:Unknown'])==['unconsumed:Unknown']
+
+
+@pytest.mark.parametrize('place',['Queen and Spadina','Union Station'])
+def test_place_span_does_not_consume_following_conditions(store,place):
+    q=f'Did P1 cross near {place} with a seated pedestrian?'
+    spec=build_task_spec(q)
+    assert [r.span for r in spec.requirements if r.kind=='unconsumed']==['seated']
+    parsed=llm.rule_parse(q,{'workspace':'fleet'})
+    assert parsed.place==place.replace(' and ',' & ')
+    if place=='Queen and Spadina':
+        frames=ask(store,q,'fleet',scene_key='fl-pie-fixture-01')
+        assert final(frames)=='UNRESOLVED'
+        assert any(p['operator']=='unconsumed:seated' and p['status']=='unknown'
+                   for f in frames if f['event']=='claim' for p in f['data']['predicates'])
+
+
+def test_or_between_nouns_is_not_a_disjunction():
+    for q in ['Find a truck or trailer backed up to a loading dock', 'Show a person or cyclist crossing',
+              'Is the worker walking or standing at 3 s?']:
+        assert not [r for r in build_task_spec(q).requirements if r.kind == 'disjunction' or r.span.lower() == 'or']
+    assert [r.kind for r in build_task_spec('Find P1 or P2').requirements].count('disjunction') == 1
