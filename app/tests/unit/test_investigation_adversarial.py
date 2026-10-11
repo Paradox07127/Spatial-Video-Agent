@@ -102,3 +102,60 @@ def test_application_mirrors_are_queued_transactionally_without_blocking_executi
     assert store.retry_mirrors(limit=100) == len(pending)
     assert not store.rows(store.app, 'SELECT * FROM mirror_outbox')
     assert service.session(job['session_id'])['turns'][0]['status'] == 'done'
+
+
+def interrupted_output(service, job, *, spent_ms=0):
+    from app.core.investigations import encode, ident, stamp
+    old_run='r_0123456789abcdef'
+    old_observation={'observation_id':'o_'+'b'*24,'text':'Retired observation'}
+    retired=[{'event':'answer','data':{'run_id':old_run,'text':'Retired answer'}},
+             {'event':'observation','data':{'run_id':old_run,'observation':old_observation}}]
+    with service.transaction() as db:
+        db.execute("UPDATE investigation_jobs SET status='running',attempt=1,last_seq=2,run_id=?,spent_ms=?,lease_started=? WHERE job_id=?", [old_run,spent_ms,stamp(),job['job_id']])
+        db.execute("UPDATE investigation_turns SET status='running',run_id=? WHERE turn_id=?", [old_run,job['turn_id']])
+        for seq,frame in enumerate(retired,1):
+            db.execute('INSERT INTO investigation_events VALUES (?,?,?,?,?,?)',[ident('v'),job['job_id'],seq,1,encode(frame),stamp()])
+        db.execute('INSERT INTO investigation_observations VALUES (?,?,?,?,?,?,?,?,?,?,?)',['retired_occurrence',job['session_id'],job['turn_id'],job['job_id'],old_run,'wh-sdg-fixture-01','ceiling_00',0,1000,encode(old_observation),stamp()])
+
+
+def test_recovery_queued_projection_hides_partial_attempt_before_worker_runs(store,monkeypatch):
+    service=Investigations(store,runner=frames)
+    job=service.submit(body(service.create()))
+    interrupted_output(service,job)
+    release=Event()
+    monkeypatch.setattr(service,'work',lambda:release.wait(4))
+    service.start()
+    try:
+        queued=service.job(job['job_id'])
+        assert queued['status']=='queued' and queued['run_id'] is None
+        assert queued['current_attempt_start_seq']==3
+        turn=service.session(job['session_id'])['turns'][0]
+        assert turn['run_id'] is None and turn['answers']==[] and turn['observations']==[]
+        subscription=service.stream(job['job_id'])
+        assert next(subscription)==': keepalive\n\n'
+        subscription.close()
+        # The retired evidence remains available for audit, not active display.
+        assert len(service.rows('investigation_events'))==2
+        assert len(service.rows('investigation_observations'))==1
+    finally:
+        release.set();service.close()
+
+
+def test_recovery_exhausted_budget_stream_terminates_without_retired_output(store):
+    from app.tests.unit.test_investigations import await_done
+    service=Investigations(store,runner=lambda *a,**kw: (_ for _ in ()).throw(
+        AssertionError('Exhausted recovery must not execute')))
+    job=service.submit(body(service.create()))
+    interrupted_output(service,job,spent_ms=25000)
+    service.start()
+    try:
+        failed=await_done(service,job['job_id'])
+        assert failed['status']=='failed' and failed['current_attempt_start_seq']==3
+        subscription=service.stream(job['job_id'])
+        try:
+            import pytest
+            with pytest.raises(StopIteration):next(subscription)
+        finally:subscription.close()
+        turn=service.session(job['session_id'])['turns'][0]
+        assert turn['answers']==[] and turn['observations']==[]
+    finally:service.close()
