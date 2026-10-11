@@ -30,6 +30,14 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 - Every source is labelled: Measured, Map, Model or Human. Numeric Measured badges require a measurement reference; the panel also shows the scene evidence level and a **Not measured** explanation. Model output (Cosmos situation, prediction, timing, sign reading) "describes only, no numbers" and shows whether a measurement checked it.
 - While the agent moves the view, a pill says "Agent is steering the view". **Take over** (or a click on the stage) gives you the camera; the agent can still seek the clock and highlight objects.
 
+### Persistent investigations and visual observations
+
+- The current interface opts into protocol v2 when `/health` advertises it. An investigation keeps its turns, parent context, execution jobs, answers and model observations across refreshes. Its history can be reopened from the question panel.
+- A description question can read source video directly, even when the detector has no matching object. Atomic model observations appear in the answer with an **unverified** label and buttons for the actual camera frames read. They do not prove distances, counts, identity, intent or hidden activity; quantitative answers still use measurement evidence.
+- Refreshing or losing the connection only ends the subscription. The bounded server worker continues, and committed SSE events replay by sequence number. **Stop** explicitly cancels the job. A running native call stops at its next execution boundary; late answers and observations are not committed after cancellation.
+- Duplicate submissions use an idempotency key, and concurrent history changes require a revision reload. Recovery starts a new attempt of an unfinished turn using its original remaining budget. Completed turns never rerun. Historical assertions are not silently reused as fresh evidence.
+- Keep `APP_DUCKDB` and `RUNS_DIR` on persistent storage with one application writer. See [the v2 contract](CONTRACT.md#protocol-v2-observations-and-durable-investigations) and [backup/restore utility](app/scripts/state_backup.py). The source guard currently hashes declared manifests; immutable media releases, world-state revision, autonomous observation selection and independently checked forecasts remain subsequent project work.
+
 ### Warehouse 3D stage
 
 ![The warehouse workspace before a question: 3D stage, camera views and source video; preset questions in the panel](docs/screenshots/03-warehouse.png)

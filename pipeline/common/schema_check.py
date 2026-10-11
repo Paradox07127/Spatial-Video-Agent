@@ -354,11 +354,11 @@ class SceneCheck:
 ABSTAIN = {"UNSUPPORTED", "NO_MATCH", "OUT_OF_RANGE"}
 
 
-def check_sse_sequence(frames: list[dict]) -> list[str]:
+def check_sse_sequence(frames: list[dict], *, protocol_version: int = 1) -> list[str]:
     """Schema of each frame plus ordering rules; returns error strings."""
     errs: list[str] = []
     for i, f in enumerate(frames):
-        errs += schema_errors(f, "ask_sse.json", where=f"frame {i}")
+        errs += schema_errors(f, "ask_sse_v2.json" if protocol_version == 2 else "ask_sse.json", where=f"frame {i}")
     if errs:
         return errs
     if not frames:
@@ -380,6 +380,7 @@ def check_sse_sequence(frames: list[dict]) -> list[str]:
     if steps != sorted(set(steps)):
         errs.append("step i must strictly increase")
     calls, read_eids, claims = set(), set(), set()
+    evidence, observations = {}, {}
     final = next((f["data"]["final"] for f in frames if f["event"] == "status"), None)
     for f in frames:
         d = f["data"]
@@ -389,6 +390,20 @@ def check_sse_sequence(frames: list[dict]) -> list[str]:
             if d["call_id"] not in calls:
                 errs.append(f"tool_result {d['call_id']} without tool_call")
             read_eids |= {e["eid"] for e in d["evidence"]}
+            evidence.update({e['eid']: e for e in d['evidence']})
+        elif f['event'] == 'observation':
+            o = d['observation']
+            observations[o['observation_id']] = o
+            ev = evidence.get(o['eid'])
+            if not ev or ev['kind'] != 'model' or any(ev[k] != o[k] for k in ('scene_key','cam_id','t0_ms','t1_ms')):
+                errs.append('observation must cite a read model evidence with matching source and window')
+            elif ev.get('value') != o:
+                errs.append('observation content differs from the read model evidence')
+            if not o['t0_ms'] < o['t1_ms'] or any(r['cam_id'] != o['cam_id'] or not o['t0_ms'] <= r['t_ms'] < o['t1_ms'] for r in o['frame_refs']):
+                errs.append('observation frame is outside its input scope')
+            for fact in o['facts']:
+                if any(r not in o['frame_refs'] for r in fact['frame_refs']):
+                    errs.append('observation fact cites an unread frame')
         elif f["event"] == "hits":
             if final in ABSTAIN and d["moments"]:
                 errs.append(f"final {final} but hits carried moments")
@@ -405,6 +420,23 @@ def check_sse_sequence(frames: list[dict]) -> list[str]:
                 errs.append(f"answer {d['sentence_id']} cites eids outside read_eids")
             if not set(d["claim_ids"]) <= claims:
                 errs.append(f"answer {d['sentence_id']} cites unknown claims")
+            for ref in d.get('model_refs', []):
+                o = observations.get(ref['observation_id'])
+                index = int(ref['field'].split('.')[1])
+                if not o or ref['eid'] != o['eid'] or index >= len(o['facts']) or ref['eid'] not in d['cites']:
+                    errs.append('answer model_ref cites an unknown observation or fact')
+                elif o['facts'][index]['text'] not in d['text']:
+                    errs.append('answer model_ref text differs from the observed fact')
+            for ref in d['measure_refs']:
+                if protocol_version == 2 and evidence.get(ref['eid'], {}).get('method') == 'visual_observation':
+                    errs.append('visual observation cannot be a measurement reference')
+            last = 0
+            for span in d.get('text_spans', []):
+                if not last <= span['start'] < span['end'] <= len(d['text']) or span['eid'] not in read_eids:
+                    errs.append('answer text span has invalid offsets or unread evidence')
+                if not any(r['eid'] == span['eid'] and r['field'] == span['field'] for r in d['measure_refs']):
+                    errs.append('answer text span must identify a measurement reference')
+                last = span['end']
     return errs
 
 

@@ -13,3 +13,20 @@ CREATE TABLE IF NOT EXISTS zones(zone_id TEXT PRIMARY KEY, scene_key TEXT, kind 
 
 -- Local startup migrations; never mirrored to the evidence/index backend.
 CREATE TABLE IF NOT EXISTS app_migrations(name TEXT PRIMARY KEY, applied TIMESTAMP);
+
+-- Durable investigations. Model observations are assertions with provenance,
+-- never promoted to measured world state by persistence alone.
+CREATE TABLE IF NOT EXISTS investigations(session_id TEXT PRIMARY KEY, title TEXT, revision INTEGER,
+  release_id TEXT, created TIMESTAMP, updated TIMESTAMP);
+CREATE TABLE IF NOT EXISTS investigation_turns(turn_id TEXT PRIMARY KEY, session_id TEXT, parent_turn_id TEXT,
+  request_id TEXT, q TEXT, context JSON, job_id TEXT, run_id TEXT, status TEXT, final TEXT, created TIMESTAMP,
+  UNIQUE(session_id,request_id));
+CREATE TABLE IF NOT EXISTS investigation_jobs(job_id TEXT PRIMARY KEY, session_id TEXT, turn_id TEXT,
+  request_json JSON, status TEXT, attempt INTEGER, last_seq INTEGER, current_attempt_start_seq INTEGER,
+  run_id TEXT, spent_ms INTEGER, tools_used INTEGER, lease_started TIMESTAMP, cancel_requested BOOLEAN,
+  error TEXT, created TIMESTAMP, updated TIMESTAMP);
+CREATE TABLE IF NOT EXISTS investigation_events(event_id TEXT PRIMARY KEY, job_id TEXT, seq INTEGER,
+  attempt INTEGER, frame_json JSON, created TIMESTAMP, UNIQUE(job_id,seq));
+CREATE TABLE IF NOT EXISTS investigation_observations(observation_id TEXT PRIMARY KEY, session_id TEXT,
+  turn_id TEXT, job_id TEXT, run_id TEXT, scene_key TEXT, cam_id TEXT, t0_ms BIGINT, t1_ms BIGINT,
+  observation_json JSON, created TIMESTAMP);

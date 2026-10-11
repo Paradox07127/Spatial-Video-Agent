@@ -3,13 +3,15 @@ from contextlib import asynccontextmanager
 import hashlib
 import json
 from pathlib import Path
+from threading import Event, Thread
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import actions, agent, assets, fleet, health, scenes, search
+from app.api import actions, agent, assets, fleet, health, scenes, search, investigations
+from app.core.investigations import Investigations
 from app.core.store import Store
 from app.core.vss import VSS
 from app.settings import Settings
@@ -50,15 +52,33 @@ def create_app():
                                 backend=settings.data_backend, allow_duckdb_fallback=settings.allow_duckdb_fallback)
         if maps is not None and app.state.store.backend == 'vastdb':
             app.state.store.load_vss_collection(maps)
+        app.state.investigations = Investigations(app.state.store, vss=app.state.vss)
+        app.state.investigations.start()
+        maintenance_stop = Event()
+        def maintain():
+            while not maintenance_stop.wait(10):
+                try:
+                    app.state.store.retry_blobs(limit=16, should_stop=maintenance_stop.is_set)
+                    app.state.store.retry_mirrors(limit=64, should_stop=maintenance_stop.is_set)
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).exception('Application outbox maintenance failed')
+        maintenance = Thread(target=maintain, name='application-outboxes', daemon=True)
+        maintenance.start()
         try:
             yield
         finally:
+            maintenance_stop.set()
+            app.state.investigations.close()
+            maintenance.join(50)
+            if maintenance.is_alive():
+                raise RuntimeError('Application outbox maintenance did not release the store')
             app.state.store.close()
 
     app = FastAPI(lifespan=lifespan)
     # fleet JSON is ~25 MB raw and ~2.3 MB gzipped; GZipMiddleware leaves 206 ranges (PMTiles), SSE and video uncompressed
     app.add_middleware(GZipMiddleware, minimum_size=1024)
-    for module in (health, scenes, fleet, assets, actions, search, agent):
+    for module in (health, scenes, fleet, assets, actions, search, agent, investigations):
         app.include_router(module.router)
 
     @app.exception_handler(FileNotFoundError)

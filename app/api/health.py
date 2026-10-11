@@ -120,5 +120,5 @@ def health(request: Request):
         app_ready = False
     ok = libs_ready and assets_ok and app_ready
     return JSONResponse({'ok': ok, 'mode': settings.mode, 'backend': store.backend, 'libs_ready': libs_ready,
-                         'index_rows': index_rows, 'assets_ok': assets_ok,
+                         'index_rows': index_rows, 'assets_ok': assets_ok, 'agent_protocols': [1, 2],
                          **({'asset_validation':asset_validation} if asset_validation is not None else {})}, status_code=200 if ok else 503)

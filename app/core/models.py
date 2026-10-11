@@ -9,7 +9,7 @@ import json
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCENE_KEY_RE = re.compile(r"^[a-z0-9_-]+$")
 ENTITY_ID_RE = re.compile(r"^[PFV][0-9]+$")
@@ -105,6 +105,46 @@ class ObservationRef(_M):
     cam_id: str
     local_track_id: int
     t_ms: int
+
+
+class VideoFrameRef(_M):
+    cam_id: str
+    t_ms: int = Field(strict=True, ge=0)
+
+
+class VisualFact(_M):
+    subject_ids: list[str]
+    text: str = Field(min_length=1, max_length=300)
+    frame_refs: list[VideoFrameRef] = Field(min_length=1)
+    uncertainty: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+
+class ModelObservation(_M):
+    observation_id: str = Field(pattern=r'^o_[0-9a-f]{24}$')
+    eid: str = Field(pattern=r'^e_[0-9a-f]{16}$')
+    scene_key: str
+    cam_id: str
+    t0_ms: int = Field(strict=True, ge=0)
+    t1_ms: int = Field(strict=True, ge=1)
+    frame_refs: list[VideoFrameRef] = Field(min_length=1)
+    subject_refs: list[EntityRef]
+    facts: list[VisualFact] = Field(max_length=6)
+    model_rev: str
+    prompt_rev: str
+    verification: Literal['unverified']
+    input_digest: str = Field(pattern=r'^sha256:[0-9a-f]{64}$')
+
+    @model_validator(mode='after')
+    def source_bounds(self):
+        if self.t1_ms <= self.t0_ms or any(f.cam_id != self.cam_id or not self.t0_ms <= f.t_ms < self.t1_ms for f in self.frame_refs):
+            raise ValueError('Observation frames must belong to its camera and half-open time window')
+        subjects = {s.entity_id for s in self.subject_refs}
+        if any(s.scene_key != self.scene_key for s in self.subject_refs):
+            raise ValueError('Observation subjects belong to another scene')
+        for fact in self.facts:
+            if not set(fact.subject_ids) <= subjects or any(f not in self.frame_refs for f in fact.frame_refs):
+                raise ValueError('Observation facts must cite read frames and known subjects')
+        return self
 
 
 def make_eid(scene_key: str, cam_id: str | None, t0_ms: int, t1_ms: int, observation_ids: list[ObservationRef],

@@ -306,3 +306,55 @@ Street count and peak bypass ranked retrieval and read the full requested scene/
 `EVIDENCE_REVISION` identifies a published corpus/calibration/sidecar release for answer-cache invalidation. Update it when evidence changes; S3/site deployments must set it explicitly.
 
 `WEBHOOK_URL` optionally enables the existing webhook action channel (five-second timeout, `Idempotency-Key=action_id`). `VDB_VERIFY` defaults to `S3_VERIFY`, or verification enabled when both are unset; VastDB no longer disables TLS verification unconditionally.
+# Protocol v2: observations and durable investigations
+
+The default ask protocol remains v1. `/health.agent_protocols` advertises `[1,2]`.
+Clients opt into v2 with `protocol_version: 2`; `schemas/ask_sse_v2.json` adds
+`observation` events, answer `model_refs`, and measurement `text_spans`.
+Offsets are Unicode code points, start-inclusive and end-exclusive. A span is
+produced while rendering a measurement placeholder, never guessed by matching
+the final numeric text. Visual observations use separate model references and
+cannot supply numeric measurements or upgrade a predicate to supported.
+
+Each observation has immutable content identity, scene/camera/half-open input
+window, actual frame references, selected subject references, model/prompt/input
+identity, and atomic facts with source frames. `verification: unverified` is
+mandatory. Model uncertainty is an uncalibrated score. Empty or unavailable
+observations preserve unknown; missing video does not authorize a wider input.
+
+`POST /api/agent/sessions` creates a session. GET the collection or one session
+to list investigations and read their turns, answers and current-attempt model
+observations. A persistent v2 ask supplies `session_id`, `expected_revision`,
+`request_id`, and optionally `parent_turn_id`. The same request ID with the same
+body returns the same job; a changed body or stale revision returns 409. A parent
+must belong to the session and be terminal. Omitted context fields inherit from
+that parent; explicit null clears a field. Changing source clears inherited
+selection, time and zone. Historical assertions are not treated as newly read
+evidence. A source manifest release change requires a new investigation. This
+guard hashes declared manifests; it is not an immutable media release registry.
+Observation identity additionally hashes decoded input pixels. Replacing assets
+in place does not yet preserve historical media bytes; versioned media releases
+remain a separate H/D6 work package.
+
+The ask response includes `X-SVA-Session`, `X-SVA-Turn`, and `X-SVA-Job`. SSE `id`
+is a job-local increasing sequence number. GET `/api/agent/jobs/{id}` returns
+status, attempt, run ID, `last_seq`, and `current_attempt_start_seq`. GET its
+`/events?after_seq=N` replays committed frames and follows new ones. A reconnecting
+client checks attempt first and replays only the current attempt when it changes.
+Disconnecting a subscriber does not cancel execution. POST `/cancel` explicitly
+requests cancellation; a blocking model call exits at the next execution boundary,
+and no later answer or observation is committed. Cancelled/failed jobs may close
+without a protocol `done` frame; clients read the job snapshot for the reason.
+
+One process owns the bounded local worker and application database. Requests,
+turns, jobs, events and observations commit locally before delivery. Process
+recovery retries an unfinished turn in a new attempt with the original remaining
+time/tool budget; abandoned in-flight time is conservatively charged. Completed
+turns never rerun. This is turn recovery, not instruction-level continuation of a
+native model call. Old attempts remain audit history. State and run blobs require
+the same persistent volume and a verified clean backup/restore. A background
+maintenance loop drains local mirror/blob outboxes without blocking request SQL.
+
+This increment stores observations and investigations. It does not yet implement
+the H-plan world-state reducer, prediction ledger, learned observation policy,
+human correction propagation, or continuous media ingestion.
