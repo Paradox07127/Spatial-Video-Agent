@@ -58,7 +58,7 @@ test('step timeline: name, summary, elapsed ms, exec state; a step expands to in
   await expect(parse.locator('.ts-name')).toHaveText('parse');
   await expect(parse.locator('.ts-note')).toHaveText(ASKS.find((a) => a.ask_id === 'wh-main').events.find((f) => f.event === 'step').data.summary);
   await expect(parse.locator('.ts-ms')).toHaveText('5 ms');
-  await expect(parse.locator('.exec')).toHaveText('live');
+  await expect(parse.locator('.exec')).toHaveText('precomputed');
   const tool = page.locator('#runpage .trace-step[data-i="4"]');
   await expect(tool).toHaveClass(/child/);
   await expect(tool.locator('.ts-name')).toHaveText('tool.visibility');
@@ -83,6 +83,12 @@ test('claims before → after and the evidence rows with source, label, cams · 
   await expect(rows).toHaveCount(4);
   const dist = rp.locator('.rp-evrow[data-eid="e_5d60fc7e6ed93290"] > :not(pre)');
   await expect(dist).toHaveText(['Measured', 'Distance P1 to F1', 'ceiling_04 + eye_00 · 00:04.6', '1.55 m ±0.12', 'raw']);
+  // Ground-truth events keep their provenance label in the label column without a Measured badge.
+  const gt = rp.locator('.rp-evrow[data-eid="e_4a18f3e5e7eeb929"]');
+  await expect(gt.locator('.src-measure')).toHaveCount(0);
+  await expect(gt.locator('.rp-evlabel')).toHaveText('Dodge event (ground truth)');
+  const labelLeft = (row) => row.locator('.rp-evlabel').evaluate((e) => e.getBoundingClientRect().left);
+  expect(await labelLeft(gt)).toBeCloseTo(await labelLeft(rp.locator('.rp-evrow[data-eid="e_5d60fc7e6ed93290"]')), 1);
   await expect(rp.locator('.rp-weave')).toHaveCount(0);
   // a cite in a step detail flashes its evidence row
   await rp.locator('.trace-step[data-i="7"] .cite').click();

@@ -67,12 +67,17 @@ def replay(store, q, context):
         t.evidence([e.eid for e in source.evidence])
         t.output({'frames': len(frames)})
     store.add_evidence(run.run_id, source.evidence)
-    store.set_hits(run.run_id, source.hits)
+    store.set_hits(run.run_id, [m.model_copy(update={'exec_state':'cached'}) for m in source.hits])
     claims = [c.model_copy(update={'run_id': run.run_id}) for c in source.claims]
     for frame in frames:
         if frame['event'] == 'status':
             frame['data'].update(cached=True, source_run_id=source.run_id, weave_url=source.weave_url)
         if 'exec_state' in frame['data']:
             frame['data']['exec_state'] = 'cached'
+        if frame['event'] == 'tool_result':
+            frame['data']['envelope']['exec_state'] = 'cached'
+        if frame['event'] == 'hits':
+            for moment in frame['data']['moments']:
+                moment['exec_state'] = 'cached'
     trace.finish_run(run, source.status, final=source.final, claims=claims)
     return store.get_run(run.run_id), frames

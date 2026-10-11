@@ -73,6 +73,7 @@
                 "enum": [
                   "cached",
                   "live",
+                  "precomputed",
                   "waiting",
                   "failed"
                 ]
@@ -848,6 +849,7 @@
           "enum": [
             "cached",
             "live",
+            "precomputed",
             "waiting",
             "failed"
           ]
@@ -1036,6 +1038,7 @@
           "enum": [
             "cached",
             "live",
+            "precomputed",
             "waiting",
             "failed"
           ]

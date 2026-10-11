@@ -122,7 +122,7 @@ function evidence(src, ev) {
   };
   return `<div class="rp-ev">${[...ev.values()].map((e) => `
     <div class="rp-evrow" data-eid="${esc(e.eid)}">
-      ${source(e.kind)}<span class="rp-evlabel">${esc(label(e))}</span>
+      ${e.method.startsWith('event_gt') ? '<span aria-hidden="true"></span>' : source(e.kind)}<span class="rp-evlabel">${esc(label(e))}</span>
       <span class="mono rp-evwhere">${esc(camsOf(e).join(' + ') || e.method)} · ${tc(e.t0_ms)}</span>
       <span class="mono rp-evval">${value(e)}</span>
       <button type="button" class="rp-raw-btn" aria-expanded="false">raw</button>

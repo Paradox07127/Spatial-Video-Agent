@@ -196,7 +196,9 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
     with (trace.traced(run, f"vlm.{task}", {"scene_key": scene_key, "t_ms": t_ms, "cam_id": cam, "actor_ids": ids,
                                             "record_id": rid}, state="inspect") if run is not None else nullcontext()) as st:
         # only C1 looks at a window around t_ms; C2 must see nothing after its own t_ms and C3-C5 are keyed by their window
-        rec, state = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None,identity), "cached"
+        cache_source = []
+        rec = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None,identity,cache_source)
+        state = cache_source[0] if cache_source else "precomputed"
         if rec is None:
             rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
                                region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
@@ -210,6 +212,8 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
                     os.replace(tmp,p)
                 finally:
                     tmp.unlink(missing_ok=True)
+        # Runtime-only metadata: not part of the Cosmos schema or persisted payload.
+        object.__setattr__(rec, '_sva_exec_state', state)
         if st is not None:
             st.exec_state(state)
             st.output(rec.model_dump())
@@ -278,7 +282,7 @@ def _cache_identity(scene_key):
     return {'model':model,'endpoint':os.environ.get('VLM_URL',''),'source':source} if source and model else None
 
 
-def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None) -> CosmosRecord | None:
+def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=None) -> CosmosRecord | None:
     if identity is None:
         return None
     p = _cache_dir() / f"{rid}.json"
@@ -288,6 +292,8 @@ def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None) -> Cosmos
             if cached.get('identity')==identity:
                 rec = CosmosRecord.model_validate(cached['record'])
                 if rec.model_rev==identity['model']:
+                    if source is not None:
+                        source.append('cached')
                     return rec
         except (ValueError,KeyError,TypeError):
             pass  # old, incomplete or corrupt caches are misses
@@ -299,7 +305,11 @@ def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None) -> Cosmos
         return None
     near = [r for r in published['records'] if r.get('model_rev')==identity['model'] and
             (r['record_id']==rid or (id_at and abs(r['t_ms']-t_ms)<=NEAR_MS and r['record_id']==id_at(r['t_ms'])))]
-    return CosmosRecord.model_validate(min(near,key=lambda r:abs(r['t_ms']-t_ms))) if near else None
+    if near:
+        if source is not None:
+            source.append('precomputed')
+        return CosmosRecord.model_validate(min(near,key=lambda r:abs(r['t_ms']-t_ms)))
+    return None
 
 
 def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid, region, run_id, deadline):

@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import bisect
+import logging
 import math
 import time
 
 from shapely.geometry import Point, Polygon
 
-from app.core import geo, geometry, street, vlm
-from app.core.deadline import remaining
+from app.core import geo, geometry, live_measure, street, vlm
+from app.core.deadline import DeadlineExceeded, remaining
 from app.core.models import Envelope, Evidence, InputRange, ObservationRef, ToolResult, capabilities
+from app.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def result(key, t0, t1, output, *, cam=None, evidence=(), pts_read=0, model_rev=None, gaps=(),
-           coverage=None, quality='ok', exec_state='live', error=None, started=None):
+           coverage=None, quality='ok', exec_state='precomputed', error=None, started=None):
     return ToolResult(envelope=Envelope(input_range=InputRange(scene_key=key,cam_id=cam,t0_ms=t0,t1_ms=t1),
                                        pts_read=pts_read,model_rev=model_rev,output=output,coverage=coverage,
                                        gaps=list(gaps),quality=quality,elapsed_ms=round((time.monotonic()-started)*1000) if started else 0,
@@ -83,7 +87,8 @@ def detections_2d(store, scene_key, cam, t0_ms, t1_ms, groups):
     ev = evidence(store,scene_key,cam,t0_ms,t1_ms,'measure','yolo_coco_2d',value,params={'cam':cam,'groups':groups})
     missing = sum(b-a for a, b, _ in dets['gaps'])
     return result(scene_key,t0_ms,t1_ms,value,cam=cam,evidence=[ev],pts_read=dets['frames_read'],gaps=[tuple(g) for g in dets['gaps']],
-                  coverage=(t1_ms-t0_ms-missing)/(t1_ms-t0_ms) if t1_ms>t0_ms else 0,started=started)
+                  coverage=(t1_ms-t0_ms-missing)/(t1_ms-t0_ms) if t1_ms>t0_ms else 0,
+                  exec_state=dets['exec_state'],started=started)
 
 
 def visibility(store, scene_key, t_ms, target, *, cam=None):
@@ -251,6 +256,54 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
                   **({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point',
                       'distance_from':'entity_ground_point'} if kind=='distance' else {})})
     return result(scene_key,t_ms,t_ms+1,{'value':value,'sigma':sigma,'method':method,'observation_role':'aligned_detection_not_position_inputs',**({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point'} if kind=='distance' else {})},cam=cam,evidence=[ev],pts_read=1,coverage=1)
+
+
+def ego_distance(store, scene_key, cam, t0_ms, t1_ms, *, rows):
+    """Fleet: ground distance from the ego camera to the closest pedestrian ahead in [t0_ms, t1_ms). Live from the VSS YOLO
+    sidecars (live_measure, rows = site-map rows); without a live value, the precomputed ego frames with the live reason."""
+    started = time.monotonic()
+    m = store.manifest(scene_key)
+    cap = capabilities(m)['distance']
+    if not cap['ok']:
+        return result(scene_key,t0_ms,t1_ms,{'status':'UNRESOLVED','reason':cap['reason']},cam=cam,
+                      gaps=[(t0_ms,t1_ms,cap['reason'])],started=started)
+    peds, precomputed_gaps = [], []
+    ego_dir = m['assets'].get('ego_dir')
+    for chunk in range(t0_ms//10000,(t1_ms-1)//10000+1):
+        remaining(30)
+        try:
+            frames = store.asset_json(scene_key,f'{ego_dir}/{chunk:05d}.json')['frames'] if ego_dir else []
+        except FileNotFoundError:
+            frames = []
+            precomputed_gaps.append((max(t0_ms,chunk*10000),min(t1_ms,(chunk+1)*10000),'missing_precomputed_ego'))
+        peds.extend((f['t_ms'],p,math.hypot(p['x'],p['y'])) for f in frames if t0_ms<=f['t_ms']<t1_ms
+                    for p in f['peds'] if p['x']>0)
+    near = min((x for x in peds if x[2]<=live_measure.MAX_RANGE_M),key=lambda x:(x[2],x[0]),default=None)
+    precomputed = {'value_m':round(near[2],3),'sigma_m':near[1]['sigma_m'],'t_ms':near[0],'entity_id':near[1]['entity_id']} if near else None
+    try:
+        live = live_measure.measure(store,scene_key,cam,t0_ms,t1_ms,pair=('person','vehicle'),rows=rows)
+    except DeadlineExceeded:
+        raise
+    except Exception as exc:
+        logger.exception('live_measure failed for %s/%s [%s, %s)',scene_key,cam,t0_ms,t1_ms)
+        live = {'value_m':None,'reason':f'{type(exc).__name__}: {exc}'}
+    output = {'live':live,'precomputed':precomputed,'minimum_basis':'valid observed samples',
+              'distance_from':'ego_ground_origin','distance_to':'pedestrian_ground_point',
+              'coverage_basis':'full-window coverage not measured','precomputed_gaps':precomputed_gaps}
+    if live['value_m'] is not None:
+        t = live['t_ms']
+        ev = evidence(store,scene_key,cam,t,t+1,'measure','ego_distance',live['value_m'],unit='m',sigma=live['sigma_m'],
+                      params={'source':'live_measure','source_uris':live['source_uris']})
+        return result(scene_key,t0_ms,t1_ms,{**output,'value':live['value_m'],'sigma':live['sigma_m'],'t_ms':t},cam=cam,
+                      evidence=[ev],pts_read=live['n_frames'],coverage=None,exec_state='live',started=started)
+    if precomputed is None:
+        return result(scene_key,t0_ms,t1_ms,{**output,'status':'UNRESOLVED','reason':live['reason']},cam=cam,
+                      gaps=[(t0_ms,t1_ms,'missing_measurement')],started=started)
+    t = precomputed['t_ms']
+    ev = evidence(store,scene_key,cam,t,t+1,'measure','ego_distance',precomputed['value_m'],unit='m',sigma=precomputed['sigma_m'],
+                  params={'source':'ego_frames','entity_id':precomputed['entity_id']})
+    return result(scene_key,t0_ms,t1_ms,{**output,'value':precomputed['value_m'],'sigma':precomputed['sigma_m'],'t_ms':t,
+                                          'reason':live['reason']},cam=cam,evidence=[ev],pts_read=len(peds),coverage=None,started=started)
 
 
 def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
@@ -474,6 +527,8 @@ def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
     t0, t1 = max(0,t_ms-(2000 if prefix else 3000)), t_ms if prefix else min(m['t1_ms'],t_ms+3000)
     if task=='localize':
         t0, t1 = max(m['t0_ms'],args['t0_ms']), min(m['t1_ms'],args['t1_ms'])
+    cache = vlm._cache_dir()
+    stored = {p.name for p in cache.glob('*.json')}
     try:
         if circuit['failures']>=2:
             raise vlm.VLMUnavailable('circuit_open')
@@ -492,8 +547,11 @@ def cosmos(store, task, scene_key, t_ms, args, *, run=None, circuit=None):
         t1=max(f.t_ms for f in record.input_frame_refs)+1
     ev = evidence(store,scene_key,record.cam_id,t0,t1,'model','cosmos_'+record.task,record.payload,
                   params={'record_id':record.record_id})
+    name = record.record_id+'.json'
+    state = getattr(record, '_sva_exec_state', 'cached' if name in stored else 'live' if (cache/name).is_file() else 'precomputed')
     return result(scene_key,t0,t1,{'record':record.model_dump(mode='json')},cam=record.cam_id,evidence=[ev],
-                  pts_read=len(record.input_frame_refs),model_rev=record.model_rev,started=started)
+                  pts_read=len(record.input_frame_refs),model_rev=record.model_rev,
+                  exec_state=state,started=started)
 
 
 def situation(store, scene_key, t_ms, actor_refs, *, run=None, circuit=None):
@@ -519,4 +577,5 @@ def describe_region(store, scene_key, cam, t_ms, region_ref, *, run=None, circui
 def trigger(store, req):
     from app.api.actions import trigger as action_trigger
     action = action_trigger(store,req)
-    return result(req.scene_key,0,0,action.model_dump())
+    alert = Settings().mode=='site' and action.delivered and not action.existing
+    return result(req.scene_key,0,0,action.model_dump(),exec_state='live' if alert else 'precomputed')

@@ -2,7 +2,7 @@
 import { esc } from './format.js';
 
 const SRC = { measure: ['Measured', 'ruler'], map: ['Map', 'map'], model: ['Model', 'cpu'], human: ['Human', 'user-check'] };
-const EXEC = { cached: 'cached', live: 'live', waiting: 'waiting', failed: 'failed' };
+const EXEC = { cached: 'cached', precomputed: 'precomputed', live: 'live', waiting: 'waiting', failed: 'failed' };
 const SAY = { SUPPORTED: 'Supported', CONTRADICTED: 'Contradicted', UNRESOLVED: 'Unresolved', NO_MATCH: 'No match', OUT_OF_RANGE: 'Out of range', UNSUPPORTED: 'Out of scope' };
 
 export const icon = (id) => `<svg class="i" aria-hidden="true"><use href="icons.svg#${id}"/></svg>`;

@@ -1222,3 +1222,138 @@ def test_b1_completed_measurement_survives_budget_boundary(setup, monkeypatch, b
     assert of(frames, 'claim')[-1]['predicates'][0]['status']=='supported'
     assert frames[-2]['data']['final']=='SUPPORTED' and frames[-2]['data']['stop_reason']=='budget_exhausted'
     assert check_sse_sequence(frames)==[]
+
+
+FLEET_Q = 'Did a pedestrian cross in front of the car?'
+
+
+def tool_results(frames):
+    names = {f['data']['call_id']:f['data']['name'] for f in frames if f['event']=='tool_call'}
+    return [(names[f['data']['call_id']],f['data']) for f in frames if f['event']=='tool_result']
+
+
+@pytest.mark.parametrize('embed', [True, False])
+def test_steps_and_tools_are_live_only_for_live_calls(setup, monkeypatch, tmp_path, embed):
+    _, store = setup
+    monkeypatch.setenv('RUNS_DIR', str(tmp_path/'runs'))
+    if embed:
+        monkeypatch.setenv('EMBED_URL', 'http://embed.test')
+    else:
+        monkeypatch.delenv('EMBED_URL', raising=False)
+    frames = list(agent.ask_frames(store, agent.AskRequest(q=WH_MAIN['q'], context=WH_MAIN['context'])))
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    retrieval = 'live' if embed else 'precomputed'
+    states = [(name,r['envelope']['exec_state']) for name, r in tool_results(frames)]
+    # the measured distance, the Cosmos record and the action read only scene asset files in dev
+    assert states[0]==('search',retrieval) and {s for _, s in states[1:]}=={'precomputed'}
+    assert {'measure','situation','actions.trigger'}<={n for n, _ in states}
+    assert {f['data']['exec_state'] for f in frames if f['event']=='step'}=={'waiting'}
+    steps = [s for s in store.get_run(frames[0]['data']['run_id']).steps if not s.name.startswith('tool.')]
+    assert [s.exec_state for s in steps if s.name=='retrieve']==[retrieval]
+    assert {s.exec_state for s in steps if s.name!='retrieve'}=={'precomputed'}
+
+
+def test_special_path_hits_are_precomputed(setup):
+    _, store = setup
+    frames = list(agent.ask_frames(store, agent.AskRequest(q=BLIND_Q, context=WH_MAIN['context'])))
+    moments = next(f['data']['moments'] for f in frames if f['event']=='hits')
+    assert moments and {m['exec_state'] for m in moments}=={'precomputed'}
+
+
+@pytest.mark.parametrize('site', [False, True])
+def test_fleet_top_hit_measures_the_ego_distance_live(setup, monkeypatch, site):
+    _, store = setup
+    seen = []
+    def measure(store, key, cam, t0, t1, pair=('person','forklift'), *, rows):
+        seen.append((key,cam,pair,rows))
+        return {'value_m':7.5,'sigma_m':.325,'t_ms':t0,'track_ids':[3],'n_frames':30,'n_boxes':12,
+                'source_uris':['s3://bucket/detections/seg.json.gz'],'timing_ms':{'total':120.0}}
+    monkeypatch.setattr(tools.live_measure, 'measure', measure)
+    monkeypatch.setattr(agent, 'site_rows', lambda: ['site row'])
+    vss = SimpleNamespace(search=lambda q, k, f: {'sql_query':'SELECT 1','hits':[]}) if site else None
+    frames = list(agent.ask_frames(store, agent.AskRequest(q=FLEET_Q, context={'workspace':'fleet'}), vss=vss))
+    assert check_sse_sequence(frames)==[] and next(f for f in frames if f['event']=='status')['data']['final']=='SUPPORTED'
+    assert seen==[('fl-pie-fixture-01','dashcam',('person','vehicle'),['site row'] if site else [])]
+    (_, r), = [(n, r) for n, r in tool_results(frames) if n=='ego_distance']
+    ev, = r['evidence']
+    assert r['envelope']['exec_state']=='live' and (ev['method'],ev['value'],ev['unit'])==('ego_distance',7.5,'m')
+    assert r['envelope']['output']['live']['source_uris']==['s3://bucket/detections/seg.json.gz']
+    run = store.get_run(frames[0]['data']['run_id'])
+    assert ev['eid'] in [e.eid for e in run.evidence]
+    assert [s.exec_state for s in run.steps if s.name=='assess' and s.state=='inspect']==['live']
+
+
+def test_fleet_ego_distance_without_a_live_value_is_the_precomputed_one(setup, monkeypatch):
+    _, store = setup
+    monkeypatch.setattr(tools.live_measure, 'measure', lambda *a, **kw: {'value_m':None,'reason':'no live segment covers it'})
+    frames = list(agent.ask_frames(store, agent.AskRequest(q=FLEET_Q, context={'workspace':'fleet'})))
+    (_, r), = [(n, r) for n, r in tool_results(frames) if n=='ego_distance']
+    assert r['envelope']['exec_state']=='precomputed' and r['envelope']['output']['reason']=='no live segment covers it'
+    assert r['evidence'][0]['method']=='ego_distance' and r['evidence'][0]['value']==r['envelope']['output']['precomputed']['value_m']
+
+
+def test_scene_question_assesses_at_most_three_moments_and_stops_with_a_reason(setup, monkeypatch):
+    _, store = setup
+    original = tools.search
+    def five(*a, **kw):
+        res = original(*a, **kw)
+        m = res.envelope.output['moments'][0]
+        res.envelope.output['moments'] = [{**m,'moment_id':f"{m['moment_id']}_{i}",'t0_ms':m['t0_ms']+100*i} for i in range(5)]
+        return res
+    monkeypatch.setattr(tools, 'search', five)
+    frames = list(agent.ask_frames(store, agent.AskRequest(q=FLEET_Q, context={'workspace':'fleet'})))
+    assert check_sse_sequence(frames)==[]
+    assert len(next(f['data']['moments'] for f in frames if f['event']=='hits'))==5
+    assert len({f['data']['moment_id'] for f in frames if f['event']=='claim'})==3
+    assert frames[-2]['data']['stop_reason']!='budget_exhausted'
+
+
+@pytest.mark.parametrize('q,constraint',[(FLEET_Q,{'selection':['P1']}),(FLEET_Q,{'zone':[(-100,-100),(100,-100),(100,100),(-100,100)]}),('Did P1 cross in front of the car?',{})])
+def test_fleet_auxiliary_ego_distance_does_not_ignore_actor_or_zone_constraints(setup,monkeypatch,q,constraint):
+    _,store=setup
+    def unbound(*a,**kw):
+        raise AssertionError('An unbound nearest-pedestrian measurement cannot answer a selected actor or zone')
+    monkeypatch.setattr(tools,'ego_distance',unbound)
+    if 'zone' in constraint:
+        # Supply a candidate so this tests the downstream guard independently of fixture zone coverage.
+        search=tools.search
+        def candidate(s,q,filters,**kw):
+            return search(s,q,{**filters,'zone':None},**{**kw,'parsed':kw['parsed'].model_copy(update={'zone':None})})
+        monkeypatch.setattr(tools,'search',candidate)
+    frames=list(agent.ask_frames(store,agent.AskRequest(q=q,context={'workspace':'fleet',**constraint})))
+    assert check_sse_sequence(frames)==[]
+    assert any(f['event']=='claim' for f in frames)
+    assert not any(f['event']=='tool_call' and f['data']['name']=='ego_distance' for f in frames)
+
+
+@pytest.mark.parametrize('mixed_event_eids',[False,True])
+def test_model_conflict_keeps_independent_numeric_distance_but_not_event_proof(setup,monkeypatch,mixed_event_eids):
+    _,store=setup
+    original=vlm.situation
+    def conflict(*a,**kw):
+        record=original(*a,**kw)
+        return record.model_copy(update={'verification':record.verification.model_copy(update={'status':'conflict'})})
+    monkeypatch.setattr(vlm,'situation',conflict)
+    if mixed_event_eids:
+        measure,predicate=tools.measure,agent.Predicate
+        measured=[]
+        def capture(*a,**kw):
+            result=measure(*a,**kw);measured[:]=[e.eid for e in result.evidence if e.method=='ground_distance'];return result
+        def mixed(**kw):
+            if kw.get('operator')=='event':kw['eids']=[*kw.get('eids',[]),*measured]
+            return predicate(**kw)
+        monkeypatch.setattr(tools,'measure',capture)
+        monkeypatch.setattr(agent,'Predicate',mixed)
+    frames=wh_main(store)
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='UNRESOLVED'
+    claim=of(frames,'claim')[-1]
+    evidence={e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data'].get('evidence',[])}
+    distance=next(p for p in claim['predicates'] if p['operator']=='measured')
+    assert distance['status']=='supported' and all(evidence[e]['method']=='ground_distance' for e in distance['eids'])
+    assert any(p['operator']=='event' and p['status']=='unknown' for p in claim['predicates'])
+    answer=of(frames,'answer')[-1]
+    assert [r['field'] for r in answer['measure_refs']]==['value','sigma']
+    assert set(answer['cites'])==set(distance['eids'])
+    value=evidence[distance['eids'][0]]['value']
+    assert format(value,'.4g') in answer['text'] and '±' in answer['text'] and 'forklift center' in answer['text']
+    assert 'actions.trigger' not in [f['data']['name'] for f in frames if f['event']=='tool_call']

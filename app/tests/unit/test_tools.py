@@ -174,3 +174,129 @@ def test_blind_presence_splits_at_visible_samples(tmp_path, monkeypatch):
     monkeypatch.setattr(tools.geometry,'floor_visibility',flicker)
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_00',0,10000)
     assert [(e.value['entity_id'],e.t0_ms,e.t1_ms) for e in r.evidence]==[('P2',3600,4800),('P1',4000,4800),('P1',5100,6000),('P2',5100,9300)]
+
+
+WH, FL = 'wh-sdg-fixture-01', 'fl-pie-fixture-01'
+
+
+@pytest.mark.parametrize('task', ['situation','predict_next','ground_objects','localize','describe_region'])
+def test_cosmos_state_follows_where_the_record_came_from(tmp_path, monkeypatch, task):
+    s=fixture_store(tmp_path)
+    install_vlm(monkeypatch)
+    monkeypatch.setenv('RUNS_DIR',str(tmp_path/'runs'))
+    actors=[EntityRef(scene_key=WH,entity_id='P1',kind='person'),EntityRef(scene_key=WH,entity_id='F1',kind='forklift')]
+    args={'situation':(WH,4600,actors),'predict_next':(WH,4500,actors[1]),
+          'ground_objects':(WH,'ceiling_00',4500,['shelf']),
+          'localize':(WH,'ceiling_04',1500,7500,'worker steps back'),
+          'describe_region':(WH,'eye_00',4500,'F1')}
+    call=lambda:getattr(tools,task)(s,*args[task])
+    # the scene's pre-run file
+    assert call().envelope.exec_state=='precomputed'
+    recorded=getattr(vlm,task)
+    def live(*a,**kw):
+        rec=recorded(*a,**kw)
+        path=vlm._cache_dir()/f'{rec.record_id}.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(rec.model_dump_json())
+        return rec
+    monkeypatch.setattr(vlm,task,live)
+    assert call().envelope.exec_state=='live'
+    monkeypatch.setattr(vlm,task,recorded)
+    # the disk cache an earlier live call wrote
+    assert call().envelope.exec_state=='cached'
+
+
+@pytest.mark.parametrize('mode, delivered, existing, state', [('site',True,False,'live'),('site',False,False,'precomputed'),
+                                                              ('site',True,True,'precomputed'),('dev',True,False,'precomputed')])
+def test_trigger_is_live_only_when_it_sends_the_alert(tmp_path, monkeypatch, mode, delivered, existing, state):
+    from app.api import actions
+    from app.core.models import TriggerRequest, TriggerResult
+    s=fixture_store(tmp_path)
+    monkeypatch.setenv('MODE',mode)
+    monkeypatch.setattr(actions,'trigger',lambda store,req:TriggerResult(action_id='a1',delivered=delivered,review_task_id=None,
+                                                                        zone_id=None,existing=existing))
+    r=tools.trigger(s,TriggerRequest(scene_key=WH,auto=True,actions=['wandb_alert']))
+    assert r.envelope.exec_state==state
+
+
+LIVE={'value_m':7.5,'sigma_m':0.325,'t_ms':3400,'track_ids':[3],'n_frames':30,'n_boxes':12,
+      'source_uris':['s3://bucket/detections/seg.json.gz'],'timing_ms':{'sidecar':40.0,'total':120.0}}
+
+
+def test_ego_distance_uses_the_live_value(tmp_path, monkeypatch):
+    s=fixture_store(tmp_path)
+    seen=[]
+    def measure(store, key, cam, t0, t1, pair=('person','forklift'), *, rows):
+        seen.append((key,cam,t0,t1,pair,rows))
+        return LIVE
+    monkeypatch.setattr(tools.live_measure,'measure',measure)
+    r=tools.ego_distance(s,FL,'dashcam',3000,4000,rows=['row'])
+    assert seen==[(FL,'dashcam',3000,4000,('person','vehicle'),['row'])]
+    ev,=r.evidence
+    assert r.envelope.exec_state=='live' and (ev.kind,ev.method,ev.value,ev.sigma,ev.unit,ev.t0_ms)==('measure','ego_distance',7.5,.325,'m',3400)
+    assert r.envelope.output['live']['source_uris']==LIVE['source_uris'] and r.envelope.output['live']['timing_ms']['total']==120
+    # P1 is closest at 3.9 s in the ego frames
+    assert r.envelope.output['precomputed']=={'value_m':24.168,'sigma_m':1.252,'t_ms':3900,'entity_id':'P1'}
+
+
+@pytest.mark.parametrize('live', [{**LIVE,'value_m':None,'reason':'no live segment covers it'},RuntimeError('no such key')])
+def test_ego_distance_falls_back_to_the_precomputed_value(tmp_path, monkeypatch, live):
+    s=fixture_store(tmp_path)
+    def measure(*a, **kw):
+        if isinstance(live,Exception):
+            raise live
+        return live
+    monkeypatch.setattr(tools.live_measure,'measure',measure)
+    r=tools.ego_distance(s,FL,'dashcam',3000,4000,rows=[])
+    ev,=r.evidence
+    assert r.envelope.exec_state=='precomputed' and (ev.method,ev.value,ev.sigma,ev.t0_ms)==('ego_distance',24.168,1.252,3900)
+    assert r.envelope.output['reason']==('no live segment covers it' if isinstance(live,dict) else 'RuntimeError: no such key')
+
+
+@pytest.mark.parametrize('metric', [True, False])
+def test_ego_distance_without_live_or_precomputed_pedestrian_is_unresolved(tmp_path, monkeypatch, metric):
+    s=fixture_store(tmp_path)
+    manifest=s.manifest
+    monkeypatch.setattr(s,'manifest',lambda key:{**manifest(key),'metric':metric})
+    calls=[]
+    def measure(*a,**kw):
+        calls.append(1)
+        return {'value_m':None,'reason':'no frame has both'}
+    monkeypatch.setattr(tools.live_measure,'measure',measure)
+    r=tools.ego_distance(s,FL,'dashcam',0,2000,rows=[])
+    assert not r.evidence and r.envelope.exec_state=='precomputed'
+    assert r.envelope.output['status']=='UNRESOLVED'
+    assert r.envelope.output['reason']==('no frame has both' if metric else 'scene_not_metric')
+    assert calls==([1] if metric else [])
+
+
+@pytest.mark.parametrize('name', ['get_synced_views','visibility','blind_presence','measure','closest_approach',
+                                 'geocode','find_passes','searched_passes','facade','gps_position','speed_limit',
+                                 'speeding_candidates','events','detections_2d','search'])
+def test_asset_tools_are_precomputed_not_live(tmp_path, monkeypatch, name):
+    from app.tests.unit.test_agent import corpus_store
+    from app.tests.unit.a5_fakes import L1_CAM, L1_KEY
+    s = corpus_store(tmp_path)
+    monkeypatch.delenv('EMBED_URL', raising=False)
+    person = EntityRef(scene_key=WH,entity_id='P1',kind='person')
+    forklift = EntityRef(scene_key=WH,entity_id='F1',kind='forklift')
+    place = tools.geo.geocode(s,'Queen and Spadina')
+    passes = tools.geo.find_passes(s,place['place_id'],100,360)
+    calls = {
+        'get_synced_views': lambda:tools.get_synced_views(s,WH,4600),
+        'visibility': lambda:tools.visibility(s,WH,4600,'P1'),
+        'blind_presence': lambda:tools.blind_presence(s,WH,'ceiling_00',0,10000),
+        'measure': lambda:tools.measure(s,WH,4600,person,forklift,'distance'),
+        'closest_approach': lambda:tools.closest_approach(s,[s.manifest(WH)]),
+        'geocode': lambda:tools.geocode(s,'Queen and Spadina'),
+        'find_passes': lambda:tools.find_passes(s,place['place_id'],100,360),
+        'searched_passes': lambda:tools.searched_passes(s,passes),
+        'facade': lambda:tools.facade(s,[p for p in passes if s.manifest(p['trip_id'])['cams']],place['lat'],place['lon'],None),
+        'gps_position': lambda:tools.gps_position(s,FL,3000),
+        'speed_limit': lambda:tools.speed_limit(s,FL,3000),
+        'speeding_candidates': lambda:tools.speeding_candidates(s,[s.manifest(FL)]),
+        'events': lambda:tools.events(s,WH,0,10000),
+        'detections_2d': lambda:tools.detections_2d(s,L1_KEY,L1_CAM,0,5000,{'person':['person']}),
+        'search': lambda:tools.search(s,'Find a person',{'workspace':'warehouse'}),
+    }
+    assert calls[name]().envelope.exec_state=='precomputed'
