@@ -573,6 +573,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     requested_cams=[c for c in manifest['cams'] if re.search(
                         r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)]
                     cameras=([c for c in manifest['cams'] if c['id']==hard_cam] if hard_cam else requested_cams or manifest['cams'][:1])
+                    # A single source may have been resolved only here. Validate
+                    # explicit camera references before choosing its default view.
+                    camera_refs={token.split(':',1)[0].lower() for token in re.findall(r'\b[a-z]+_\d+(?::\d+)?\b',body.q,re.I)}
+                    if camera_refs-{c['id'].lower() for c in manifest['cams']}:
+                        cameras=[]
                     lo,hi=parsed.t_range or (manifest['t0_ms'],min(manifest['t1_ms'],manifest['t0_ms']+6000))
                     lo,hi=max(lo,manifest['t0_ms']),min(hi,manifest['t1_ms'])
                     known={e.entity_id:e for e in store.entities(key)} if manifest['workspace']!='street' else {}

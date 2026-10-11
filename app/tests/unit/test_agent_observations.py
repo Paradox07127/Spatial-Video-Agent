@@ -132,9 +132,10 @@ def test_explicit_source_names_bind_unscoped_visual_observations(store,monkeypat
     assert any(f['event']=='observation' for f in frames)
 
 
-def test_unknown_text_camera_cannot_fall_back_to_default_camera(store,monkeypatch):
+@pytest.mark.parametrize('scoped',[False,True])
+def test_unknown_text_camera_cannot_fall_back_to_default_camera(store,monkeypatch,scoped):
     monkeypatch.setattr(vlm,'observe_window',lambda *a,**k:(_ for _ in ()).throw(AssertionError('Unknown camera must not reach model')),raising=False)
-    frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe P1 in eye_98',protocol_version=2,
-        context={'workspace':'warehouse','scene_key':'wh-sdg-fixture-01'})))
+    frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe the scene in eye_98',protocol_version=2,
+        context={'workspace':'warehouse',**({'scene_key':'wh-sdg-fixture-01'} if scoped else {})})))
     assert next(f['data']['final'] for f in frames if f['event']=='status')=='UNRESOLVED'
     assert not any(f['event']=='observation' for f in frames)
