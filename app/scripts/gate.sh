@@ -11,7 +11,7 @@ FAIL=0
 step() { echo; echo "== $1"; }
 check() { if [ "$1" -eq 0 ]; then echo "-- ok: $2"; else echo "-- FAIL: $2"; FAIL=1; fi; }
 
-[ -x "$PY" ] || { echo "missing $PY (uv venv -p 3.12 .venv && uv pip install -r app/requirements.txt)"; exit 2; }
+[ -x "$PY" ] || { echo "missing $PY (uv sync)"; exit 2; }
 
 step "pytest"
 if [ "$MODE" = "--w0" ]; then "$PY" -m pytest app/tests/contract -q; else "$PY" -m pytest app/tests -q; fi

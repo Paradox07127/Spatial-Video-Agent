@@ -11,7 +11,7 @@ Status: approved by the user on 2026-10-09 (including all deviations in §12). W
 ## 1. Environment and commands (run all of them in `sva/`)
 
 ```bash
-uv venv -p 3.12 .venv && VIRTUAL_ENV=.venv uv pip install -r app/requirements.txt   # app venv
+uv sync                                                                             # app venv
 (cd app && npm install && npx playwright install chromium)                          # e2e
 .venv/bin/python -m pytest app/tests/contract -q                                    # contract tests
 .venv/bin/python pipeline/common/schema_check.py fixtures/                          # artifact check (also for ws artifacts)
@@ -21,7 +21,7 @@ bash app/scripts/gate.sh --w0 | bash app/scripts/gate.sh                        
 ```
 
 - `pytest.ini` adds `sva/` to `sys.path`: app code uses `from app.core.models import ...`, pipeline code uses `from pipeline.common import ...`.
-- The pipeline venv is on ws: `~/sva/.venv`, `pipeline/requirements.txt` (torch needs `--extra-index-url https://download.pytorch.org/whl/cu128`).
+- The pipeline venv is on ws: `~/sva/.venv`, a symlink to `pipeline/.venv`. Build it with `uv sync --project pipeline` (`pipeline/pyproject.toml` + `pipeline/uv.lock`).
 
 ## 2. Directories and ownership (spec §5, §14.3)
 

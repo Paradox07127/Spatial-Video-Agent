@@ -271,11 +271,10 @@ The real scene artifacts (`sva-out/`), the index and the source videos are not i
 
 ## Development run
 
-Run all commands from the repository root. Python 3.12. `app/requirements.txt` pins the dependencies.
+Run all commands from the repository root. Python 3.14 (uv-managed). `pyproject.toml` and `uv.lock` pin the dependencies; `app/requirements.txt` carries the same pins for the deploy bootstrap.
 
 ```bash
-uv venv -p 3.12 .venv
-VIRTUAL_ENV=.venv uv pip install -r app/requirements.txt
+uv sync
 .venv/bin/python app/scripts/vendor.py
 .venv/bin/python app/scripts/vendor.py --check
 ```
@@ -307,7 +306,7 @@ The e2e specs in `app/tests/e2e/` describe each interaction of the UI above: `ho
 
 ## Pipeline
 
-The GPU pipeline produces the scene artifacts offline: warehouse depth points, visibility, pose and triangulation, forklift and events; fleet trip selection, detection and tracking, GPS map matching, building facades; then Cosmos records, the index and the schema check. Each step writes to `sva-out/_tmp/<card>/<scene_key>/`. Only `pipeline/common/publish.py` moves a scene that passes `schema_check.py` to `sva-out/<scene_key>/`. `pipeline/common/upload.py` copies the artifacts to S3, and `pipeline/common/index_build.py --vastdb` writes the index tables to VastDB. `pipeline/requirements.txt` lists the pipeline dependencies (torch needs the CUDA wheel index). The input data sets are not in this repository.
+The GPU pipeline produces the scene artifacts offline: warehouse depth points, visibility, pose and triangulation, forklift and events; fleet trip selection, detection and tracking, GPS map matching, building facades; then Cosmos records, the index and the schema check. Each step writes to `sva-out/_tmp/<card>/<scene_key>/`. Only `pipeline/common/publish.py` moves a scene that passes `schema_check.py` to `sva-out/<scene_key>/`. `pipeline/common/upload.py` copies the artifacts to S3, and `pipeline/common/index_build.py --vastdb` writes the index tables to VastDB. `pipeline/pyproject.toml` lists the pipeline dependencies (`uv sync --project pipeline`). The input data sets are not in this repository.
 
 ## Site deployment
 
