@@ -39,6 +39,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 - **Views**: Free and Top, plus the view from any camera.
 - **Layers** popover: People + skeletons, Forklift, Agent measures, Blind spots, Point cloud, Camera frustums, and the source legend. The choice is kept across reloads.
 - **Blind spots**: from the per-second visibility grid, floor cells that no camera sees are hatched and cells that fewer cameras see get a stronger tint. A person seen by one camera only is tagged "single view".
+- Warehouse distance lines join the person’s ground point to the forklift center. Rule near-miss clearance has a separate definition; center distance does not prove or disprove that clearance threshold.
 - **Distances**: a measured ground distance is drawn as a line between the two actors, labelled with value and sigma (for example `3.208 m ±0.09`), for the time span of the moment.
 - **Explore | Answer** modes. Answer mode is the default; it keeps the cited actors at full strength, dims the rest, frames them, and docks the source frame of the camera the evidence was read from (with a **clip** button that plays from 2.5 s before). A focus chip names the evidence; its x returns to Explore.
 - **Worth a look** pins mark rule events of severity 2 or more; a click seeks to them.

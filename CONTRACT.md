@@ -200,6 +200,8 @@ Within a claim, any `contradicted` → CONTRADICTED; all `supported` → SUPPORT
 
 Speeding evidence includes camera-free GPS/OBD trips as map-only cards (`cams=[]`, `primary_cam=""`, `thumb=null`). A known over-limit sample supports an existential speeding claim; contradiction requires full speed/limit coverage of the requested interval across selected trips. With incomplete coverage and no verified speeding, the answer is UNRESOLVED, reports the maximum measured speed with its own map limit for the covered part, and `explain.note` names the unchecked intervals and reasons. The fixture speeding preset is UNRESOLVED with a 4.0-7.0 s GPS gap; other preset statuses are unchanged. Link support requires a matching entity, valid association and actual detection observations in every requested camera or clip, with multiple relevant observations.
 
+Plain near-miss questions require independent rule/GT event evidence. Center distance is a separate quantity and never inherits a footprint-clearance threshold. Ambiguous near-miss comparisons and unsupported footprint/edge/net-clearance requests remain UNRESOLVED; explicit center-distance comparisons remain available.
+
 Metric comparisons preserve `gt`, `ge`, `lt` and `le` and use the measurement's sigma interval; overlapping uncertainty leaves the comparison unknown. Point-time questions (`at 5 s`, `at 5 seconds`, `at second 5`) request the half-open one-second interval starting there. Structured measurement capability reasons appear in `explain.abstain` and the answer using §3 texts. Completed tool results are assessed and current claims published before the budget prevents another call. Runs with failed tools or unavailable model/detection evidence are not cached.
 
 ### 8.3 Trace
