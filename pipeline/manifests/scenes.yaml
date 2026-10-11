@@ -10,7 +10,7 @@ scenes:
   yolo_vehicle_recall: 0.0267
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-005bc639_run_21
   scene_id: wh/sdg/005bc639_run_21
   source: 005bc639df8c4a2b36e0_run_21_seed_1062601381
@@ -21,7 +21,7 @@ scenes:
   yolo_vehicle_recall: 0.1756
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-00e0991f_run_4
   scene_id: wh/sdg/00e0991f_run_4
   source: 00e0991fbc61ad24102b_run_4_seed_1246964153
@@ -32,7 +32,7 @@ scenes:
   yolo_vehicle_recall: 0.1289
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-00f2bbb8_run_25
   scene_id: wh/sdg/00f2bbb8_run_25
   source: 00f2bbb80d7badad0134_run_25_seed_750796930
@@ -43,7 +43,7 @@ scenes:
   yolo_vehicle_recall: 0.0733
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-01021d39_run_10
   scene_id: wh/sdg/01021d39_run_10
   source: 01021d3989e38beb3395_run_10_seed_213384163
@@ -54,7 +54,7 @@ scenes:
   yolo_vehicle_recall: 0.0911
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-0137e00c_run_2
   scene_id: wh/sdg/0137e00c_run_2
   source: 0137e00c677a4118e887_run_2_seed_1276653305
@@ -65,7 +65,7 @@ scenes:
   yolo_vehicle_recall: 0.1578
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-014f5a0f_run_13
   scene_id: wh/sdg/014f5a0f_run_13
   source: 014f5a0f9461dfae29d5_run_13_seed_587824276
@@ -76,7 +76,7 @@ scenes:
   yolo_vehicle_recall: 0.0689
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-016c1396_run_3
   scene_id: wh/sdg/016c1396_run_3
   source: 016c1396912bfc432997_run_3_seed_1053328212
@@ -87,7 +87,7 @@ scenes:
   yolo_vehicle_recall: 0.0
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-018461e5_run_7
   scene_id: wh/sdg/018461e5_run_7
   source: 018461e5b5cf7a482d3f_run_7_seed_659607876
@@ -98,7 +98,7 @@ scenes:
   yolo_vehicle_recall: 0.0156
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-01ce771b_run_13
   scene_id: wh/sdg/01ce771b_run_13
   source: 01ce771b887143b4a592_run_13_seed_1930806231
@@ -109,7 +109,7 @@ scenes:
   yolo_vehicle_recall: 0.0333
   status: published
   note: ''
-  updated: 2026-10-09 02:30
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-01d845d2_run_11
   scene_id: wh/sdg/01d845d2_run_11
   source: 01d845d245e362161c7e_run_11_seed_2081127967
@@ -120,7 +120,7 @@ scenes:
   yolo_vehicle_recall: 0.1733
   status: published
   note: ''
-  updated: 2026-10-09 02:32
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-01ef74f9_run_10
   scene_id: wh/sdg/01ef74f9_run_10
   source: 01ef74f98b72cc506daf_run_10_seed_618522198
@@ -131,18 +131,18 @@ scenes:
   yolo_vehicle_recall: 0.1089
   status: published
   note: ''
-  updated: 2026-10-09 02:34
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-01f95a36_run_17
   scene_id: wh/sdg/01f95a36_run_17
   source: 01f95a365901208d48d3_run_17_seed_1189260733
-  n_persons: 3
+  n_persons: 2
   n_events: 3
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0378
   status: published
   note: ''
-  updated: 2026-10-09 02:34
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-02191b34_run_19
   scene_id: wh/sdg/02191b34_run_19
   source: 02191b34f6b6e0ef2db4_run_19_seed_1390860058
@@ -153,7 +153,7 @@ scenes:
   yolo_vehicle_recall: 0.1333
   status: published
   note: ''
-  updated: 2026-10-09 02:34
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-027324c5_run_3
   scene_id: wh/sdg/027324c5_run_3
   source: 027324c52d159ed93f1d_run_3_seed_1515015089
@@ -164,7 +164,7 @@ scenes:
   yolo_vehicle_recall: 0.0511
   status: published
   note: ''
-  updated: 2026-10-09 02:34
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-030a3619_run_27
   scene_id: wh/sdg/030a3619_run_27
   source: 030a3619cbb8c73e15ee_run_27_seed_1264018830
@@ -173,9 +173,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.22
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-03346ff4_run_7
   scene_id: wh/sdg/03346ff4_run_7
   source: 03346ff432a0fe57151d_run_7_seed_428454731
@@ -184,9 +184,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.2733
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-036c3835_run_1
   scene_id: wh/sdg/036c3835_run_1
   source: 036c383522ca703ef6fd_run_1_seed_83132534
@@ -195,9 +195,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0244
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-03a29379_run_7
   scene_id: wh/sdg/03a29379_run_7
   source: 03a2937960b9e61f1c99_run_7_seed_900334964
@@ -206,9 +206,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.04
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-03ce3613_run_14
   scene_id: wh/sdg/03ce3613_run_14
   source: 03ce361363ed08a91e1c_run_14_seed_908913191
@@ -217,9 +217,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0356
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-03dde994_run_16
   scene_id: wh/sdg/03dde994_run_16
   source: 03dde99492fa6570fb42_run_16_seed_1305281951
@@ -228,9 +228,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0837
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-04573755_run_46
   scene_id: wh/sdg/04573755_run_46
   source: 04573755960a76f10119_run_46_seed_1402403531
@@ -239,9 +239,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1511
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-047fca61_run_4
   scene_id: wh/sdg/047fca61_run_4
   source: 047fca619ecf7a56b2e4_run_4_seed_795834165
@@ -250,9 +250,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.0556
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-049c83ec_run_20
   scene_id: wh/sdg/049c83ec_run_20
   source: 049c83ec42a34cacaff4_run_20_seed_2118878844
@@ -261,20 +261,20 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1022
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-04ea2364_run_27
   scene_id: wh/sdg/04ea2364_run_27
   source: 04ea23649a6f7cb2eea7_run_27_seed_523198994
   n_persons: 1
-  n_events: 1
+  n_events: 2
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1444
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-04eb0ba1_run_12
   scene_id: wh/sdg/04eb0ba1_run_12
   source: 04eb0ba18568ad567724_run_12_seed_2001147106
@@ -283,9 +283,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-0505436a_run_4
   scene_id: wh/sdg/0505436a_run_4
   source: 0505436ac678a28890be_run_4_seed_359878350
@@ -294,9 +294,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-050ce71e_run_9
   scene_id: wh/sdg/050ce71e_run_9
   source: 050ce71e92100771ae46_run_9_seed_1794414351
@@ -305,20 +305,20 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0499
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-054b0c8f_run_5
   scene_id: wh/sdg/054b0c8f_run_5
   source: 054b0c8fbf9231bb5e64_run_5_seed_1298670252
-  n_persons: 3
+  n_persons: 2
   n_events: 5
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.2867
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-05601faa_run_5
   scene_id: wh/sdg/05601faa_run_5
   source: 05601faa87d2b873def5_run_5_seed_2048712839
@@ -327,9 +327,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-05761a14_run_21
   scene_id: wh/sdg/05761a14_run_21
   source: 05761a14cf211fdb7562_run_21_seed_742094177
@@ -338,9 +338,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1289
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-059b6b08_run_6
   scene_id: wh/sdg/059b6b08_run_6
   source: 059b6b0837427d36a85f_run_6_seed_811801615
@@ -349,9 +349,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.046
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-05f91749_run_19
   scene_id: wh/sdg/05f91749_run_19
   source: 05f91749a05e847d3508_run_19_seed_1136414482
@@ -360,9 +360,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0422
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:11
 - scene_key: wh-sdg-0624a7b3_run_53
   scene_id: wh/sdg/0624a7b3_run_53
   source: 0624a7b397510500ee00_run_53_seed_418875157
@@ -371,9 +371,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.2244
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0729fd10_run_26
   scene_id: wh/sdg/0729fd10_run_26
   source: 0729fd108949f741ded8_run_26_seed_477965812
@@ -382,9 +382,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0222
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0763f0bf_run_22
   scene_id: wh/sdg/0763f0bf_run_22
   source: 0763f0bfb0b8ef31b433_run_22_seed_1428948870
@@ -393,9 +393,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0556
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-076bf43a_run_1
   scene_id: wh/sdg/076bf43a_run_1
   source: 076bf43ac88345054f2b_run_1_seed_1139543344
@@ -404,9 +404,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0533
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-07759db6_run_7
   scene_id: wh/sdg/07759db6_run_7
   source: 07759db658ac227f273c_run_7_seed_75976945
@@ -415,9 +415,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0644
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0816bfea_run_1
   scene_id: wh/sdg/0816bfea_run_1
   source: 0816bfeaaed9574d1675_run_1_seed_571015984
@@ -426,9 +426,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0333
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-081ed27c_run_2
   scene_id: wh/sdg/081ed27c_run_2
   source: 081ed27cb4c69e6595a2_run_2_seed_48263299
@@ -437,9 +437,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1111
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0835bfb5_run_12
   scene_id: wh/sdg/0835bfb5_run_12
   source: 0835bfb509452f1cd65f_run_12_seed_1723709528
@@ -448,9 +448,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1002
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-084d41bb_run_3
   scene_id: wh/sdg/084d41bb_run_3
   source: 084d41bb17513777f1ef_run_3_seed_359316568
@@ -459,9 +459,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1467
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-08aacd4f_run_52
   scene_id: wh/sdg/08aacd4f_run_52
   source: 08aacd4feb1789b1557d_run_52_seed_1415789552
@@ -470,9 +470,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0910eda0_run_17
   scene_id: wh/sdg/0910eda0_run_17
   source: 0910eda00930019b1eb8_run_17_seed_1092435159
@@ -481,9 +481,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.2267
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0975c6c6_run_7
   scene_id: wh/sdg/0975c6c6_run_7
   source: 0975c6c641d54dc09004_run_7_seed_573112048
@@ -492,9 +492,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1578
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:30
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-09789d14_run_1
   scene_id: wh/sdg/09789d14_run_1
   source: 09789d1476cddc454371_run_1_seed_584839674
@@ -503,9 +503,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1422
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0a11e2e6_run_1
   scene_id: wh/sdg/0a11e2e6_run_1
   source: 0a11e2e6527d066a1166_run_1_seed_1023987708
@@ -514,9 +514,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.12
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0a1e12e7_run_16
   scene_id: wh/sdg/0a1e12e7_run_16
   source: 0a1e12e729d2066572a0_run_16_seed_1252955059
@@ -525,9 +525,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0b1485eb_run_7
   scene_id: wh/sdg/0b1485eb_run_7
   source: 0b1485eba45e63b0f299_run_7_seed_2068441751
@@ -536,9 +536,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1289
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0b434eb2_run_12
   scene_id: wh/sdg/0b434eb2_run_12
   source: 0b434eb2cf5281d4df05_run_12_seed_1881395145
@@ -547,9 +547,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0444
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0b682159_run_13
   scene_id: wh/sdg/0b682159_run_13
   source: 0b6821590953b3df1958_run_13_seed_1172407334
@@ -558,9 +558,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.0467
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0b7c5e63_run_4
   scene_id: wh/sdg/0b7c5e63_run_4
   source: 0b7c5e635d2f2b9e4a7b_run_4_seed_1921451373
@@ -569,9 +569,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0bba20b8_run_4
   scene_id: wh/sdg/0bba20b8_run_4
   source: 0bba20b83c6dfdbdef84_run_4_seed_582800176
@@ -580,9 +580,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1111
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0bc572e9_run_5
   scene_id: wh/sdg/0bc572e9_run_5
   source: 0bc572e92ad209793c51_run_5_seed_1298508328
@@ -591,9 +591,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0939
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0c00e6ff_run_14
   scene_id: wh/sdg/0c00e6ff_run_14
   source: 0c00e6ffeb3267817b17_run_14_seed_370889604
@@ -602,9 +602,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0956
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0c0ccd29_run_9
   scene_id: wh/sdg/0c0ccd29_run_9
   source: 0c0ccd297b197eae156e_run_9_seed_100341715
@@ -613,9 +613,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.06
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0c1aef21_run_37
   scene_id: wh/sdg/0c1aef21_run_37
   source: 0c1aef216ec5fd0e8b68_run_37_seed_525185096
@@ -624,9 +624,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.16
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0c240296_run_3
   scene_id: wh/sdg/0c240296_run_3
   source: 0c240296e83b03e72fda_run_3_seed_535489503
@@ -635,9 +635,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0c5adf75_run_57
   scene_id: wh/sdg/0c5adf75_run_57
   source: 0c5adf753ae085bda990_run_57_seed_63362865
@@ -646,9 +646,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0178
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0cb68fc0_run_15
   scene_id: wh/sdg/0cb68fc0_run_15
   source: 0cb68fc045c6fd8ca9c5_run_15_seed_356596785
@@ -657,9 +657,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.2
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0cf209b8_run_8
   scene_id: wh/sdg/0cf209b8_run_8
   source: 0cf209b8477ddd9c3dd4_run_8_seed_1351242215
@@ -668,9 +668,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.22
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0d23e2e6_run_7
   scene_id: wh/sdg/0d23e2e6_run_7
   source: 0d23e2e65d926789901d_run_7_seed_532635653
@@ -679,9 +679,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1133
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0d3bcadc_run_42
   scene_id: wh/sdg/0d3bcadc_run_42
   source: 0d3bcadc238d9f6ce222_run_42_seed_1439785142
@@ -690,9 +690,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.1333
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0d91190f_run_7
   scene_id: wh/sdg/0d91190f_run_7
   source: 0d91190f3f7ee9f5c091_run_7_seed_1616153258
@@ -701,20 +701,20 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.0067
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0da71e07_run_4
   scene_id: wh/sdg/0da71e07_run_4
   source: 0da71e07a0d4f15c8a93_run_4_seed_308771981
-  n_persons: 2
-  n_events: 3
+  n_persons: 1
+  n_events: 2
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0dddad85_run_30
   scene_id: wh/sdg/0dddad85_run_30
   source: 0dddad851ec6279631a3_run_30_seed_1396237978
@@ -723,9 +723,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1578
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0e642664_run_4
   scene_id: wh/sdg/0e642664_run_4
   source: 0e64266429f3dd5bfd9d_run_4_seed_1346356842
@@ -734,9 +734,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.0533
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0ed5a06d_run_24
   scene_id: wh/sdg/0ed5a06d_run_24
   source: 0ed5a06d770847733684_run_24_seed_1673229932
@@ -745,9 +745,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0756
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0ef77f47_run_27
   scene_id: wh/sdg/0ef77f47_run_27
   source: 0ef77f474925ee75eab1_run_27_seed_1731001393
@@ -756,9 +756,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0356
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0f05d52d_run_17
   scene_id: wh/sdg/0f05d52d_run_17
   source: 0f05d52d60a337528b7b_run_17_seed_1910672968
@@ -767,9 +767,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0289
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0f788233_run_2
   scene_id: wh/sdg/0f788233_run_2
   source: 0f788233c15247e76f60_run_2_seed_934395929
@@ -778,9 +778,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0f8152cf_run_5
   scene_id: wh/sdg/0f8152cf_run_5
   source: 0f8152cfbf95a8bce1c2_run_5_seed_2057856093
@@ -789,9 +789,9 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.1244
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0f85d9f2_run_4
   scene_id: wh/sdg/0f85d9f2_run_4
   source: 0f85d9f2f8bf32a79461_run_4_seed_911620014
@@ -800,9 +800,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1311
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0f9d28ad_run_12
   scene_id: wh/sdg/0f9d28ad_run_12
   source: 0f9d28ada0d36d94a4e3_run_12_seed_38433030
@@ -811,9 +811,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.1511
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0fc4477f_run_4
   scene_id: wh/sdg/0fc4477f_run_4
   source: 0fc4477f0a60eb75f9b6_run_4_seed_506670939
@@ -822,9 +822,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.2111
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-0fe54b48_run_1
   scene_id: wh/sdg/0fe54b48_run_1
   source: 0fe54b489ef9011051fb_run_1_seed_1551555359
@@ -833,9 +833,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.18
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-1086edae_run_2
   scene_id: wh/sdg/1086edae_run_2
   source: 1086edae207553dcfca8_run_2_seed_1491287728
@@ -846,7 +846,7 @@ scenes:
   yolo_vehicle_recall: 0.1
   status: skipped
   note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-10c36c4b_run_4
   scene_id: wh/sdg/10c36c4b_run_4
   source: 10c36c4b0e66f6f2a128_run_4_seed_951733932
@@ -855,9 +855,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0067
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-111dac6b_run_4
   scene_id: wh/sdg/111dac6b_run_4
   source: 111dac6bf25696be9bfd_run_4_seed_684121238
@@ -866,9 +866,9 @@ scenes:
   max_severity: 3
   forklift_source: gt
   yolo_vehicle_recall: 0.0089
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-sdg-112008f8_run_22
   scene_id: wh/sdg/112008f8_run_22
   source: 112008f8496a70d555d3_run_22_seed_608841767
@@ -877,16 +877,16 @@ scenes:
   max_severity: 2
   forklift_source: gt
   yolo_vehicle_recall: 0.0
-  status: skipped
-  note: no P-W1 manifest.part.json yet
-  updated: 2026-10-09 02:31
+  status: published
+  note: ''
+  updated: 2026-10-11 18:12
 - scene_key: wh-ss-warehouse_017
   scene_id: wh/ss/warehouse_017
-  source: data/raw/smartspace/MTMC_Tracking_2025/test/Warehouse_017
-  n_persons: 150
+  source: /mnt/data/vast-hack/data/raw/smartspace/MTMC_Tracking_2025/test/Warehouse_017
+  n_persons: 145
   n_events: 0
   max_severity: 0
   forklift_source: none
   status: published
   note: ''
-  updated: 2026-10-09 02:31
+  updated: 2026-10-11 18:12
