@@ -27,6 +27,7 @@ def time_requirements(q):
               (rf'\bbetween\s+({N})\s*(?:{UNIT})?\s+and\s+({N})\s*{UNIT}','range'),
               (rf'\bduring\s+(?:(?:these|the)\s+)?({N})\s*{UNIT}','during'),
               (rf'\bwithin\s+({N})\s*{UNIT}','during'),
+              (rf'\bin\s+(?:these|the)\s+({N})\s*{UNIT}','during'),
               (rf'\b(at|before|after)\s+{TIME}','bound')]
     for pattern,kind in patterns:
         for m in re.finditer(pattern,q,re.I):
@@ -81,6 +82,8 @@ def build_task_spec(q):
               r'\bhow\s+far\s+(?:away|apart)\s+(?:is|are|was|were)\b',
               rf'\b(?:(?:within|under|over|(?:less|greater|more|farther|closer)\s+than|at\s+(?:least|most))\s+)?{N}\s*(?:meters?\b|m\b)',
               r'\b(?:distance|gap)\s+between\b',
+              # "between <cam or clip id> and <id>": the ids are already masked
+              r'\bbetween\s+(?:(?:clips?|cameras?|views?)\s+)?and\b',
               r'\bbuildings?\s+on\s+(?:the\s+)?(?:right|left)(?:\s+side)?\b']
     for pattern in patterns:
         for m in re.finditer(pattern,''.join(masked),re.I):

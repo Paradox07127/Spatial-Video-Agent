@@ -123,3 +123,9 @@ def test_or_between_nouns_is_not_a_disjunction():
               'Is the worker walking or standing at 3 s?']:
         assert not [r for r in build_task_spec(q).requirements if r.kind == 'disjunction' or r.span.lower() == 'or']
     assert [r.kind for r in build_task_spec('Find P1 or P2').requirements].count('disjunction') == 1
+
+
+def test_link_between_ids_and_in_these_seconds_are_consumed():
+    assert not [r for r in build_task_spec('Link P1 between ceiling_04 and eye_00').requirements if r.kind == 'unconsumed']
+    rs = build_task_spec('Was anyone where ceiling_00 cannot see in these 10 seconds?').requirements
+    assert [(r.kind, r.span) for r in rs if r.kind in ('time', 'unconsumed')] == [('time', 'in these 10 seconds')]
