@@ -168,6 +168,13 @@ function fixtureWorkspaces() {
 
 async function mockApi(page) {
   if (LIVE) return;
+  // This helper serves v1 ask fixtures without durable job/session headers. Its
+  // capability advertisement must match that contract even on a v2 backend.
+  // Durable investigation specs explicitly override health with [1, 2].
+  await page.route(/\/health$/, route=>route.fulfill({json:{
+    ok:true, mode:'dev', backend:'duckdb', agent_protocols:[1],
+    libs_ready:true, assets_ok:true, index_rows:{scenes:scenes().length,clips:6,events:3},
+  }}));
   await page.route(/\/api\//, async (route) => {
     const url = new URL(route.request().url());
     const p = url.pathname.replace(/^.*?\/api\//, '');
