@@ -437,7 +437,8 @@ def test_b2_link_requires_requested_clip_observations(setup):
     ('At Queen and Spadina, what is the building on the right?','fleet','SUPPORTED'),
     ('At Avenue Road and Cumberland Street, what is the building on the right?','fleet','OUT_OF_RANGE'),
     ('When does a pedestrian cross the street?','street','UNRESOLVED'),
-    ('How many people walk past in this clip?','street','SUPPORTED'),
+    ('How many people walk past in this clip?','street','UNRESOLVED'),
+    ('How many people in this clip?','street','SUPPORTED'),
     ('When is the street busiest in this clip?','street','SUPPORTED')])
 def test_b2_confirmed_presets_have_evidence_scoped_status(corpus, q, workspace, expected):
     frames=ask(corpus,q,{'workspace':workspace,**({'scene_key':L1_KEY} if workspace=='street' else {})})

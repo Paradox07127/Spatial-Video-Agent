@@ -66,7 +66,7 @@ def build_task_spec(q):
     for a,b in time_spans: masked[a:b]=' '*(b-a)
     for m in re.finditer(r'\b(?:[PFV]\d+|[a-z]+_\d+(?::\d+)?|(?:wh|fl|st)-[a-z0-9_:-]+)\b',q,re.I):
         masked[m.start():m.end()]=' '*(m.end()-m.start())
-    for m in re.finditer(r'\b(?:near|at)\s+([A-Z][A-Za-z.\' ]*(?:&\s*[A-Z][A-Za-z.\' ]*)?)(?=[?,.]|$)',q):
+    for m in re.finditer(r'\b(?i:near|at)\s+([A-Z][A-Za-z.\' ]*(?:&\s*[A-Z][A-Za-z.\' ]*)?)(?=[?,.]|$)',q):
         a,b=m.span(1); masked[a:b]=' '*(b-a)
     for m in re.finditer(r"[A-Za-z]+(?:['’][A-Za-z]+)?",''.join(masked)):
         if m[0].lower() not in GRAMMAR:

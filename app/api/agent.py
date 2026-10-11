@@ -143,7 +143,7 @@ def abstained(claim):
 def quantity_name(predicate):
     if predicate.operator=='measured' and predicate.unit=='m':
         return 'distance'
-    return {'located':'position','measured_speed':'speed','present_in_blind_zone':'sampled blind-zone presence'}.get(
+    return {'located':'position','measured_speed':'speed','present_in_blind_zone':'sampled blind-zone presence','visual_zone':'selected zone'}.get(
         predicate.operator,predicate.operator.replace('_',' '))
 
 
@@ -487,11 +487,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             parsed=parsed.model_copy(update={'scene_key':named_key,'scope':'scene'})
             parsed, constraint_reason = apply_constraints(body.q,context,parsed)
             constraint_reason=constraint_reason or source_reason
+            if body.protocol_version==2 and parsed.template=='what_happened' and parsed.zone:
+                parsed=parsed.model_copy(update={'constraints':list(dict.fromkeys([*parsed.constraints,'visual_zone']))})
             if parsed.scene_key:
                 source=store.manifest(parsed.scene_key)
                 source_cams={c['id'] for c in source['cams']}
                 named_cams={c for c in source_cams if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c)+r'(?![A-Za-z0-9_])',body.q,re.I)}
-                opaque_refs={token.lower() for token in re.findall(r'\b[a-z]+_\d+(?::\d+)?\b',body.q,re.I)}
+                opaque_refs={token.split(':',1)[0].lower() for token in re.findall(r'\b[a-z]+_\d+(?::\d+)?\b',body.q,re.I)}
                 if opaque_refs-{c.lower() for c in source_cams}:
                     constraint_reason=constraint_reason or 'unknown_reference_constraint'
                 if hard_cam and (hard_cam not in source_cams or named_cams and named_cams!={hard_cam}):
@@ -1593,8 +1595,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if facts:
                     unmet=list(dict.fromkeys(quantity_name(p) for c in claims for p in c.predicates
                                               if p.status=='unknown' and p.operator!='visual_observation'))
-                    answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+
-                                  '. These sampled visual observations do not independently verify the full question or a geometric measurement.'+
+                    zone_note=(' These observations cover full camera frames; the selected zone was not visually localized or verified.' if parsed.zone else '')
+                    answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+'.'+zone_note+
+                                  ' These sampled visual observations do not independently verify the full question or a geometric measurement.'+
                                   (' Unverified conditions: '+', '.join(unmet)+'.' if unmet else ''),
                                   claim_ids=[c.claim_id for c in claims],cites=list(dict.fromkeys(record['eid'] for record,_,_ in facts)),
                                   measure_refs=[],text_spans=[],model_refs=[{'observation_id':record['observation_id'],

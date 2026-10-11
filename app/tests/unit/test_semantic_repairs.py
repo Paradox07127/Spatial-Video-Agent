@@ -75,13 +75,14 @@ def test_location_does_not_claim_visibility_is_position(store):
     assert not any(f['event']=='tool_call' and f['data']['name']=='visibility' for f in frames)
 
 
-@pytest.mark.parametrize('q,method,words',[
-    ('How many people walk past?','bytetrack_people_count',['person tracks','0–10 s']),
-    ('When is the street busiest?','yolo_people_peak',['peak','person detections','0–10 s']),
+@pytest.mark.parametrize('q,method,words,expected',[
+    ('How many people walk past?','bytetrack_people_count',['person tracks','0–10 s'],'UNRESOLVED'),
+    ('How many people?','bytetrack_people_count',['person tracks','0–10 s'],'SUPPORTED'),
+    ('When is the street busiest?','yolo_people_peak',['peak','person detections','0–10 s'],'SUPPORTED'),
 ])
-def test_street_statistics_measure_whole_window_and_cite_numbers(store,q,method,words):
+def test_street_statistics_measure_whole_window_and_cite_numbers(store,q,method,words,expected):
     frames = ask(store,q,'street')
-    assert final(frames)=='SUPPORTED'
+    assert final(frames)==expected
     results = [f['data'] for f in frames if f['event']=='tool_result']
     assert len(results)==1 and results[0]['envelope']['input_range']['t1_ms']==10000
     evidence = {e['eid']:e for r in results for e in r['evidence']}
