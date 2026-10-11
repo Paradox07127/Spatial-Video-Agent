@@ -5,7 +5,7 @@
 Reads pose2d/<cam>.json (pose2d.py) and the run's camera_params. Writes <scene>/skeleton.json and
 _work/<scene_key>/persons.json = {entities: [...], tracks: [...], boxes: {cam: [[t_ms, tid, cls, x1, y1, x2, y2, conf]]}}
 for run_all.py. Joints come from >= 2 views (DLT + RANSAC, reprojection < 8 px, bone-length check, Savitzky-Golay
-smoothing); frames with one view get a root only (ankle or box bottom) and xyz null.
+smoothing); frames with one view get a root only from a confident ankle (else no root) and xyz null.
 """
 from __future__ import annotations
 
