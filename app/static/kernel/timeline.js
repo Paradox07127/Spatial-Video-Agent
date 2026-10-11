@@ -7,7 +7,7 @@ import { icon } from './badges.js';
 import { esc, span, tc } from './format.js';
 import { state } from './state.js';
 
-const TICK_STEPS = [100, 200, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000, 1800000, 3600000];
+const TICK_STEPS = [100, 200, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000, 1800000, 3600000, 7200000, 10800000, 21600000, 43200000, 86400000];
 
 export function createTimeline(el, { t0, t1 }) {
   document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./timeline.css', import.meta.url).href }));
@@ -62,12 +62,27 @@ export function createTimeline(el, { t0, t1 }) {
     ruler.setAttribute('aria-valuetext', `${(value / 1000).toFixed(1)} seconds`);
   }
   function renderRuler() {
-    const step = TICK_STEPS.find((s) => (range.t1 - range.t0) / s <= 12) ?? TICK_STEPS.at(-1);
-    let html = '';
-    for (let t = Math.ceil(range.t0 / step) * step; t < range.t1; t += step) html += `<span class="tick" style="left:${pct(t)}">${esc(tc(t))}</span>`;
-    ruler.innerHTML = html;
     ruler.setAttribute('aria-valuemin', String(range.t0)); ruler.setAttribute('aria-valuemax', String(range.t1 - 1));
     rulerValue(clock.t);
+    const pixels = ruler.getBoundingClientRect().width, duration = range.t1 - range.t0;
+    if (!pixels || duration <= 0) return ruler.replaceChildren();
+    // Measure the actual tick font, padding and longest minute field; Fleet replay can span many hours.
+    const probe = document.createElement('span');
+    probe.className = 'tick'; probe.textContent = tc(range.t1 - 1); probe.style.visibility = 'hidden';
+    ruler.replaceChildren(probe);
+    const labelWidth = probe.getBoundingClientRect().width, needed = duration * (labelWidth + 12) / pixels;
+    let step = TICK_STEPS.find((s) => s >= needed);
+    if (!step) {
+      const days = needed / 86400000, scale = 10 ** Math.floor(Math.log10(days));
+      step = [1, 2, 5, 10].find((n) => n * scale >= days) * scale * 86400000;
+    }
+    let html = '';
+    for (let t = Math.ceil(range.t0 / step) * step; t < range.t1; t += step) {
+      // Labels grow to the right of their true tick; don't clip the final label at the ruler edge.
+      if ((t - range.t0) / duration * pixels + labelWidth > pixels) continue;
+      html += `<span class="tick" style="left:${pct(t)}">${esc(tc(t))}</span>`;
+    }
+    ruler.innerHTML = html || `<span class="tick" style="left:0">${esc(tc(range.t0))}</span>`;
   }
   function renderLane(lane) {
     lane.track.innerHTML = lane.items
@@ -296,6 +311,10 @@ export function createTimeline(el, { t0, t1 }) {
     },
   };
   renderAll();
+  // Resize only the ruler's decorative ticks. Paused clocks, evidence marks and an active brush stay intact.
+  const rulerSize = new ResizeObserver(renderRuler);
+  rulerSize.observe(ruler);
+  document.fonts.ready.then(renderRuler);
   now.textContent = tc(clock.t);
   return tl;
 }

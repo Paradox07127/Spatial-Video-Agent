@@ -99,3 +99,45 @@ test('the timeline is 72 px high, 84 px while the Evidence lane is shown', async
   await expect(lane(page)).toBeHidden();
   expect(await height(page)).toBe(72);
 });
+
+test('long Fleet ruler labels fit at 486px and redraw on paused desktop/narrow resize without moving evidence or brush scope', async ({ page }) => {
+  await mockAsk(page, 'fl-where');
+  await page.goto('#/fleet');
+  await expect(page.locator('.fl-car')).toHaveCount(2);
+  await page.locator('#ask-input').fill('Did a pedestrian cross near Queen and Spadina?');
+  await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-run', 'done');
+  await kernel(page, 'clock', '(k.clock.pause(), k.clock.setRange(0, 36000000), k.clock.seek(3000))');
+  const ruler = page.locator('#timeline .tl-ruler .tl-track');
+  const labels = () => ruler.evaluate((el) => {
+    const r = el.getBoundingClientRect(), boxes = [...el.querySelectorAll('.tick')].map((tick) => {
+      const b = tick.getBoundingClientRect(); return { left: b.left, right: b.right };
+    });
+    return { count: boxes.length, readable: boxes.length >= 2 && boxes.every((b, i) => b.left >= r.left - 1 && b.right <= r.right + 1 && (!i || b.left >= boxes[i - 1].right + 8)) };
+  });
+  await expect.poll(async () => (await labels()).readable).toBe(true);
+  const desktopCount = (await labels()).count;
+  const evidence = page.locator('.tl-evm[data-eid="e_da97463cc6587a96"]');
+  const evidencePercent = await evidence.evaluate((e) => e.style.left);
+  await page.setViewportSize({ width: 486, height: 900 });
+  await expect.poll(async () => (await labels()).readable).toBe(true);
+  const narrowCount = (await labels()).count;
+  expect(narrowCount).toBeLessThan(desktopCount);
+  expect(await kernel(page, 'clock', 'k.clock.playing')).toBe(false);
+  expect(await kernel(page, 'clock', 'k.clock.t')).toBe(3000);
+  expect(await evidence.evaluate((e) => e.style.left)).toBe(evidencePercent);
+
+  const track = await page.locator('#timeline [data-lane="agent"] .tl-track').boundingBox();
+  await page.mouse.move(track.x + track.width * .2, track.y + track.height / 2); await page.mouse.down();
+  await page.mouse.move(track.x + track.width * .6, track.y + track.height / 2); await page.mouse.up();
+  const brush = page.locator('.tl-brush');
+  await expect(brush).toBeVisible();
+  const scope = await brush.evaluate((e) => [e.style.left, e.style.width]);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect.poll(async () => (await labels()).count).toBe(desktopCount);
+  await expect.poll(async () => (await labels()).readable).toBe(true);
+  await expect(brush).toBeVisible();
+  expect(await brush.evaluate((e) => [e.style.left, e.style.width])).toEqual(scope);
+  expect(await evidence.evaluate((e) => e.style.left)).toBe(evidencePercent);
+  expect(await kernel(page, 'clock', 'k.clock.t')).toBe(3000);
+});

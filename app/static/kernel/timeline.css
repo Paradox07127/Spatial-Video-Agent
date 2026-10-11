@@ -3,6 +3,7 @@
 .tl.has-ev { min-height: 84px; }
 .tl [hidden] { display: none; }
 .tl .tl-ruler { height: 22px; }
+.tl .tick { white-space: nowrap; }
 .tl .tl-lanes, body[data-ws] .tl .tl-lanes { display: flex; flex-direction: column; max-height: none; overflow: visible; }
 .tl-lanes > .tl-row { order: 2; }
 .tl-lanes > .lane-agent { order: 0; }
