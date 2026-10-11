@@ -10,7 +10,7 @@ const MEASURE = '#56B4E9';
 // Commands on objects or the 3D camera; an L1 scene has neither track ids nor geometry.
 const IGNORED = new Set(['highlight', 'annotate', 'focus', 'setView', 'showTrack']);
 
-let ctx, root, video, media, ovl, S = null, ready = null, offs = [];
+let ctx, root, video, media, ovl, S = null, ready = null, offs = [], resetFrames = () => {};
 
 // Detection rows of the 10 s window holding t, fetched once per window, as {times (sorted), at: Map(t_ms -> rows)}.
 function dets(s, t) {
@@ -58,6 +58,7 @@ function sync(t) {
     S.cur = k;
     S.presented = null;
     video.src = ctx.api.url(c.url);
+    resetFrames();
     // play() rejects when a pause() interrupts it; that is expected here.
     if (ctx.clock.playing) video.play().catch(() => {});
   }
@@ -108,26 +109,44 @@ export async function mount(el, c) {
   root = el.firstElementChild;
   video = root.querySelector('video');
   ovl = root.querySelector('.st-ovl').getContext('2d');
-  let alive = true;
-  const onFrame = (now, md) => {
-    if (!alive) return;
-    if (S && !video.seeking && media.present()) {
-      S.presented = Math.round(md.mediaTime * 1000) + S.chunks[S.cur].t0_ms;
-      tick(ctx.clock.t);
-    }
-    video.requestVideoFrameCallback(onFrame);
+  let alive = true, generation = 0, frameHandle = null, pending = null;
+  const v = video;
+  const publish = (deferred = false) => {
+    const p = pending;
+    if (!p || !S || !media.available || v.seeking || v.readyState < 2 || v.error) return;
+    pending = null;
+    if (p.scene !== S || p.chunk !== S.cur || p.generation !== generation || p.source !== v.src) return;
+    if (deferred && Math.abs(p.mediaTime - v.currentTime) > 1 / S.mf.fps) return;
+    S.presented = Math.round(p.mediaTime * 1000) + S.chunks[S.cur].t0_ms;
   };
-  video.requestVideoFrameCallback(onFrame);
-  // A seek while paused need not present a new frame callback; the seeked position is the presented frame.
-  video.addEventListener('seeked', () => {
-    if (!alive || !S || ctx.clock.playing || !media.present()) return;
-    S.presented = Math.round(video.currentTime * 1000) + S.chunks[S.cur].t0_ms;
-    tick(ctx.clock.t);
-  });
+  const requestFrame = () => {
+    const source = v.src, epoch = generation;
+    frameHandle = v.requestVideoFrameCallback((now, md) => onFrame(now, md, source, epoch));
+  };
+  const invalidate = () => {
+    generation++; pending = null;
+    if (frameHandle != null) v.cancelVideoFrameCallback(frameHandle);
+    frameHandle = null;
+    if (alive) requestFrame();
+  };
+  resetFrames = invalidate;
+  const onFrame = (now, md, source, epoch) => {
+    if (!alive || epoch !== generation || source !== v.src) return;
+    frameHandle = null;
+    if (S) pending = { scene: S, chunk: S.cur, generation, source, mediaTime: md.mediaTime };
+    if (media.present()) publish();
+    requestFrame();
+    if (S) tick(ctx.clock.t);
+  };
+  v.addEventListener('seeking', invalidate);
+  v.addEventListener('loadstart', invalidate);
+  requestFrame();
   media = createMediaStatus(video, {
     host: root.querySelector('.st-vbox'),
     onUnavailable() { if (S) { S.presented = null; draw([]); } else ovl.clearRect(0, 0, ovl.canvas.width, ovl.canvas.height); },
-    onReady() { if (alive && S) queueMicrotask(() => alive && S && tick(ctx.clock.t)); },
+    // A real frame callback can precede seeked/canplay. Readiness must publish
+    // that pending metadata rather than substitute the requested currentTime.
+    onReady() { if (alive && S) queueMicrotask(() => { if (alive && S) { publish(true); tick(ctx.clock.t); } }); },
   });
   const onPlay = (on) => (on ? video.play().catch(() => {}) : video.pause());
   ctx.bus.on('clock:play', onPlay);
@@ -137,6 +156,10 @@ export async function mount(el, c) {
   offs = [() => ctx.bus.off('evidence:focus', onFocus), () => ctx.bus.off('stage:mode', onMode), ctx.clock.onTick(tick), () => ctx.bus.off('clock:play', onPlay), () => css.remove()];
   const dispose = () => {
     alive = false;
+    invalidate();
+    v.removeEventListener('seeking', invalidate);
+    v.removeEventListener('loadstart', invalidate);
+    if (resetFrames === invalidate) resetFrames = () => {};
     media.dispose();
     offs.forEach((off) => off());
     video.pause();

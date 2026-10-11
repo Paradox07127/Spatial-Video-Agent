@@ -34,7 +34,13 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
   const vids = cams.map((c) => {
     const fig = el.querySelector(`.wh-vcell[data-cam="${CSS.escape(c.id)}"]`);
     const x = { c, fig, v: fig.querySelector('video'), cv: fig.querySelector('canvas'), nov: fig.querySelector('.wh-nov'), ms: null, generation: 0, pending: null };
-    const invalidate = () => { x.generation++; x.pending = null; };
+    let frameHandle = null;
+    const invalidate = () => {
+      x.generation++; x.pending = null;
+      if (frameHandle != null) x.v.cancelVideoFrameCallback(frameHandle);
+      frameHandle = null;
+      if (alive) requestFrame();
+    };
     x.v.addEventListener('seeking', invalidate);
     x.v.addEventListener('loadstart', invalidate);
     x.invalidate = invalidate;
@@ -51,17 +57,16 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
       draw(x);
     };
     const requestFrame = () => {
-      const source = x.v.src;
-      x.v.requestVideoFrameCallback((now, md) => onFrame(now, md, source));
+      const source = x.v.src, generation = x.generation;
+      frameHandle = x.v.requestVideoFrameCallback((now, md) => onFrame(now, md, source, generation));
     };
-    const onFrame = (now, md, source) => {
-      if (!alive) return;
-      if (source === x.v.src) {
-        // Chromium may deliver this callback before seeked while paused. Keep
-        // that real frame until readiness returns, even if no second callback follows.
-        x.pending = { mediaTime: md.mediaTime, generation: x.generation, source };
-        if (x.media.present()) publish();
-      }
+    const onFrame = (now, md, source, generation) => {
+      if (!alive || generation !== x.generation || source !== x.v.src) return;
+      frameHandle = null;
+      // Chromium may deliver this callback before seeked while paused. Keep
+      // that real frame until readiness returns, even if no second callback follows.
+      x.pending = { mediaTime: md.mediaTime, generation, source };
+      if (x.media.present()) publish();
       requestFrame();
     };
     requestFrame();

@@ -8,8 +8,9 @@ async function controlledVideo(page) {
   await page.goto('#/');
   await page.evaluate(async () => {
     const { createVideos } = await import(new URL('warehouse/videos.js', document.baseURI).href);
-    const callbacks = [];
-    const request = (callback) => { callbacks.push(callback); return callbacks.length; };
+    const callbacks = []; let serial = 0;
+    const request = (callback) => { callbacks.push({ callback, id: ++serial, canceled: false }); return serial; };
+    const cancel = (id) => { const item = callbacks.find((x) => x.id === id); if (item) item.canceled = true; };
     const original = HTMLVideoElement.prototype.requestVideoFrameCallback;
     HTMLVideoElement.prototype.requestVideoFrameCallback = request;
     const clock = { t: 5184, playing: false, rate: 1 };
@@ -33,11 +34,13 @@ async function controlledVideo(page) {
       configurable: true, get: () => state[name], set: (value) => { state[name] = value; },
     });
     video.requestVideoFrameCallback = request;
+    video.cancelVideoFrameCallback = cancel;
     document.body.append(videos.el);
     const event = (name) => video.dispatchEvent(new Event(name));
     window.videoSync = {
       seek(ms) { clock.t = ms; state.currentTime = ms / 1000; state.seeking = true; state.readyState = 1; event('seeking'); },
-      presented(seconds) { callbacks.shift()(performance.now(), { mediaTime: seconds }); },
+      presented(seconds) { const index = callbacks.findIndex((x) => !x.canceled); const [item] = callbacks.splice(index, 1); item.callback(performance.now(), { mediaTime: seconds }); },
+      stale(seconds) { const index = callbacks.findLastIndex((x) => x.canceled); const [item] = callbacks.splice(index, 1); item.callback(performance.now(), { mediaTime: seconds }); },
       seeked() { state.seeking = false; state.readyState = 2; event('seeked'); },
       source() { video.src = new URL('replacement.mp4', document.baseURI).href; event('loadstart'); },
       snapshot() { return { sceneMs: video.dataset.sceneMs ?? null, currentTime: video.currentTime, state: video.parentElement.dataset.mediaState }; },
@@ -58,17 +61,23 @@ test('paused seek publishes its actual presented frame when rVFC precedes seeked
 test('a later seek or source replacement cancels pending presented-frame metadata', async ({ page }) => {
   await controlledVideo(page);
   // Even a new seek to the same timestamp must cancel the previous pending frame.
-  await page.evaluate(() => { videoSync.seek(5184); videoSync.presented(5.166667); videoSync.seek(5184); videoSync.seeked(); });
+  await page.evaluate(() => { videoSync.seek(5184); videoSync.presented(5.166667); videoSync.seek(5184); videoSync.stale(5.166667); videoSync.seeked(); });
   expect(await page.evaluate(() => videoSync.snapshot().sceneMs)).toBeNull();
   await page.evaluate(() => videoSync.presented(5.166667));
   expect(await page.evaluate(() => videoSync.snapshot().sceneMs)).toBe('5167');
   await page.evaluate(() => { videoSync.seek(8184); videoSync.presented(8.166667); videoSync.source(); videoSync.seeked(); });
   expect(await page.evaluate(() => videoSync.snapshot().sceneMs)).toBeNull();
-  // A callback registered for the old source is also rejected after replacement.
-  await page.evaluate(() => videoSync.presented(8.166667));
+  // An already queued callback for the old source must not replace the new subscription.
+  await page.evaluate(() => videoSync.stale(8.166667));
   expect(await page.evaluate(() => videoSync.snapshot().sceneMs)).toBeNull();
   await page.evaluate(() => videoSync.presented(8.166667));
   expect(await page.evaluate(() => videoSync.snapshot().sceneMs)).toBe('8167');
   await page.evaluate(() => { videoSync.seek(9184); videoSync.presented(9.166667); videoSync.dispose(); videoSync.seeked(); });
   await expect(page.locator('.wh-videos')).toHaveCount(0);
+});
+
+test('source replacement subscribes immediately and publishes its only initial frame', async ({ page }) => {
+  await controlledVideo(page);
+  await page.evaluate(() => { videoSync.source(); videoSync.presented(5.166667); });
+  expect(await page.evaluate(() => videoSync.snapshot())).toEqual({ sceneMs: '5167', currentTime: 5.184, state: 'ready' });
 });
