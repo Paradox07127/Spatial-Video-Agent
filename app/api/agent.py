@@ -772,7 +772,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if ev:
                             cams=store.manifest(key)['cams']
                             observed=[o.cam_id for o in ev.observation_ids if any(c['id']==o.cam_id for c in cams)]
-                            if world_position_q and hard_cam and hard_cam not in observed:
+                            # a world position is camera-independent: only a camera the question names constrains it
+                            if (world_position_q and hard_cam and hard_cam not in observed
+                                    and re.search(r'(?<![A-Za-z0-9_])'+re.escape(hard_cam)+r'(?![A-Za-z0-9_])',body.q,re.I)):
                                 predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[target],operator='camera_constraint',
                                                             value=hard_cam,unit=None,status='unknown',eids=[]))
                             cam=hard_cam or (observed[0] if observed else cams[0]['id'] if cams else '')

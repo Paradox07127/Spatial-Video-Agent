@@ -55,7 +55,7 @@ def test_application_durable_model_answers_inherit_scope_replay_and_restart(inde
         first = decode(response)
         assert check_sse_sequence(first,protocol_version=2) == []
         assert 'id: 1\n' in response.text
-        assert inputs == [(KEY,'eye_00',[2000,2001],['P1'])]
+        assert inputs == [(KEY,'eye_00',[2000,2034],['P1'])]
         assert response.headers['X-SVA-Session'] == sid
         jid, tid = response.headers['X-SVA-Job'], response.headers['X-SVA-Turn']
         observation = next(f['data']['observation'] for f in first if f['event']=='observation')

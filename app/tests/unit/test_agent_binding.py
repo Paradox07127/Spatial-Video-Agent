@@ -113,3 +113,10 @@ def test_braking_requirement_accepts_hard_brake_events(store,monkeypatch):
     frames=run(store,'When did the car brake?',workspace='fleet',scene_key='fl-pie-fixture-01')
     assert any(p['operator']=='event' and p['status']=='supported' for p in predicates(frames))
     assert not any(p['operator']=='requested_action:braking' and p['status']=='unknown' for p in predicates(frames))
+
+
+def test_active_camera_does_not_constrain_a_world_position(store):
+    frames=run(store,'Where is P1 at 4.6 seconds?',workspace='warehouse',scene_key='wh-sdg-fixture-01',cam_id='ceiling_00')
+    assert final(frames)=='SUPPORTED' and not [p for p in predicates(frames) if p['operator']=='camera_constraint']
+    named=run(store,'Where is P1 in ceiling_00 at 4.6 seconds?',workspace='warehouse',scene_key='wh-sdg-fixture-01',cam_id='ceiling_00')
+    assert final(named)=='UNRESOLVED' and [p for p in predicates(named) if p['operator']=='camera_constraint']
