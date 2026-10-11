@@ -231,14 +231,31 @@ def test_chat_timeout_follows_run_deadline(calls, steps, monkeypatch):
 
 def test_circuit_opens_after_two_failures(calls, steps):
     calls["queue"] += [httpx.ReadTimeout("slow"), 502]
+    run = _Run("r1")
     for _ in range(2):
         with pytest.raises(vlm.VLMUnavailable):
-            vlm.situation(K, 4600, [P1, F1], run=_Run("r1"))
+            vlm.situation(K, 4600, [P1, F1], run=run)
     with pytest.raises(vlm.VLMUnavailable, match="circuit open"):
-        vlm.situation(K, 4600, [P1, F1], run=_Run("r1"))
+        vlm.situation(K, 4600, [P1, F1], run=run)
     assert len(calls["bodies"]) == 2  # the open circuit sends nothing
     calls["queue"].append(REC["C1"])
     assert vlm.situation(K, 4600, [P1, F1], run=_Run("r2")).payload["label"] == "interaction"
+
+
+def test_run_circuit_state_ends_with_the_run(calls, steps):
+    calls["queue"] += [502, REC["C1"]]
+    run = _Run("r-end")
+    with pytest.raises(vlm.VLMUnavailable):
+        vlm.situation(K, 4600, [P1, F1], run=run)
+    vlm.situation(K, 4600, [P1, F1], run=run)
+    assert vlm._fails == {} and vlm._opened == {}
+
+
+def test_asset_http_status_error_is_unavailable(monkeypatch):
+    monkeypatch.setattr(vlm, "_asset", lambda key, rel: f"https://assets.test/{key}/{rel}")
+    monkeypatch.setattr(vlm.httpx, "get", lambda url, **kw: httpx.Response(503, request=httpx.Request("GET", url)))
+    with pytest.raises(vlm.VLMUnavailable):
+        vlm.situation(K, 4600, [P1, F1])
 
 
 @pytest.mark.parametrize("base", ["http://h:8101", "http://h:8101/", "http://h:8101/v1", "http://h:8101/v1/"])
@@ -353,6 +370,13 @@ def test_site_mode_reads_local_assets_when_asset_dir_is_set(monkeypatch, tmp_pat
     monkeypatch.setenv("ASSET_DIR", str(tmp_path))
     monkeypatch.setattr(vlm, "_s3", lambda: pytest.fail("site mode with ASSET_DIR must not call S3"))
     assert vlm._asset("wh-x", "manifest.json") == str(tmp_path / "wh-x" / "manifest.json")
+
+
+def test_dev_asset_root_follows_settings_without_asset_dir(monkeypatch):
+    from app.settings import Settings
+    monkeypatch.delenv("MODE", raising=False)
+    monkeypatch.delenv("ASSET_DIR", raising=False)
+    assert vlm._asset("wh-x", "manifest.json") == str(Settings().asset_dir / "wh-x" / "manifest.json")
 
 
 @pytest.mark.parametrize('change',['model','endpoint','release','source'])

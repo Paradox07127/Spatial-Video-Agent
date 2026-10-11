@@ -122,3 +122,84 @@ def test_cached_situation_wrong_camera_is_not_replayed(model,tmp_path):
     cache.write_text(json.dumps(saved))
     second=vlm.situation(K,1000,[],cam='eye',t_range=(1000,1001))
     assert second.input_frame_refs[0].cam_id=='eye' and second._sva_exec_state=='live'
+
+
+QUANTITIES=[('A dozen workers stand near the forklift.',False),('Two parked vehicles are visible.',False),
+            ('The vehicle moves at twenty miles per hour.',False),('Twelve people stand in the aisle.',False),
+            ('The person is half a meter from the vehicle.',False),('The person travels sixty kilometres per hour.',False),
+            ('A worker in a yellow vest walks past the forklift.',True)]
+
+
+@pytest.mark.parametrize('text,ok',QUANTITIES)
+def test_observe_window_rejects_spelled_quantities(model,text,ok):
+    frames,out=model
+    frames.append((1000,Image.new('RGB',(2,2))))
+    out.clear();out['facts']=[{'subject_ids':[],'text':text,'frame_indices':[0],'uncertainty':.2}]
+    if ok:
+        assert vlm.observe_window(K,'eye',(1000,1500),[])['facts'][0]['text']==text
+    else:
+        with pytest.raises(vlm.VLMUnavailable,match='invalid_model_observation'):
+            vlm.observe_window(K,'eye',(1000,1500),[])
+
+
+def _recording(monkeypatch):
+    seen=[]
+    def frames(key,m,cam,targets,*a,**kw):
+        seen.append((targets,kw));return [(t,Image.new('RGB',(2,2))) for t in targets]
+    monkeypatch.setattr(vlm,'_frames',frames)
+    return seen
+
+
+def test_situation_window_is_t_ms_neighbourhood_inside_hard_range(model,monkeypatch):
+    seen=_recording(monkeypatch)
+    vlm.situation(K,4600,[],cam='eye',t_range=(0,600000))
+    targets,kw=seen[0]
+    assert 1600<=min(targets) and max(targets)<7600 and kw['hard_window']==(1600,7600)
+
+
+def test_live_caps_frames_and_reads_inside_hard_window(model,monkeypatch):
+    frames,out=model
+    out.clear();out['segments']=[]
+    seen=_recording(monkeypatch)
+    vlm.localize(K,'eye',0,10000,'long window')
+    targets,kw=seen[0]
+    assert len(targets)<=vlm.MAX_FRAMES and kw['hard_window']==(0,10000)
+
+
+def test_observations_respect_association_validity(monkeypatch):
+    ents={'entities':[{'entity_id':'P1','association':{'valid':[2000,4000]},'observations':[
+        {'cam_id':'eye','local_track_id':1,'t0_ms':0,'t1_ms':5000},{'cam_id':'eye','local_track_id':2,'t0_ms':6000,'t1_ms':8000}]}]}
+    monkeypatch.setattr(vlm,'_json',lambda *a:ents)
+    assert vlm._observations(K,{'assets':{'entities':'entities.json'}})==[('P1','eye',1,2000,4000)]
+
+
+@pytest.mark.parametrize('segment,ok',[((1.0,2.6),False),((2.5,2.9),True),((1.0,1.4),True)])
+def test_c4_coverage_keeps_internal_gaps(model,segment,ok):
+    frames,out=model
+    frames.extend([(t,Image.new('RGB',(2,2))) for t in (1000,1250,2500,2750)])
+    out.clear();out['segments']=[{'start_s':segment[0],'end_s':segment[1],'text':'seen'}]
+    if ok:
+        assert vlm.localize(K,'eye',1000,3000,'gap').payload['segments'][0]['end_s']==segment[1]
+    else:
+        with pytest.raises(vlm.VLMUnavailable,match='invalid_model_localization'):
+            vlm.localize(K,'eye',1000,3000,'gap')
+
+
+def test_cache_write_failure_does_not_abort_the_model_call(model,monkeypatch,tmp_path):
+    frames,out=model
+    frames.append((1000,Image.new('RGB',(2,2))))
+    blocked=tmp_path/'blocked';blocked.write_text('not a directory')
+    monkeypatch.setenv('RUNS_DIR',str(blocked))
+    assert vlm.situation(K,1000,[],cam='eye',t_range=(1000,1001)).payload['label']=='passing'
+    out.clear();out['facts']=[]
+    assert vlm.observe_window(K,'eye',(1000,1500),[])['facts']==[]
+
+
+@pytest.mark.parametrize('error',[OSError('disk'),httpx.ReadError('reset')])
+def test_model_input_io_errors_are_unavailable(model,monkeypatch,error):
+    def broken(*a,**kw):raise error
+    monkeypatch.setattr(vlm,'_frames',broken)
+    with pytest.raises(vlm.VLMUnavailable):
+        vlm.situation(K,1000,[],cam='eye',t_range=(1000,1001))
+    with pytest.raises(vlm.VLMUnavailable):
+        vlm.observe_window(K,'eye',(1000,1500),[])

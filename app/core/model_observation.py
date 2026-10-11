@@ -8,6 +8,20 @@ from app.core import vlm
 from app.core.models import EntityRef, Evidence, ModelObservation
 from app.core.tools import result
 
+_NUMBER = (r'(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|'
+           r'seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|'
+           r'dozens?|half|halves|quarters?|couple|several|many|few)')
+_COUNTED = (r'(?:m|met(?:er|re)s?|km(?:/h)?|kilomet(?:er|re)s?|kph|mph|miles?|feet|foot|seconds?|minutes?|hours?|'
+            r'people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?|times)')
+# up to three words (adjectives, articles) may stand between the quantity and what it counts or measures
+QUANTITY = re.compile(rf'\b{_NUMBER}(?:\s+[\w-]+){{0,3}}?\s+{_COUNTED}\b', re.I)
+
+
+def quantified(text, ids=()):
+    """True when visual text carries a count, distance, speed or duration; entity ids are references, not numbers."""
+    stripped = re.sub(r'\b(?:' + '|'.join(map(re.escape, ids)) + r')\b', '', text) if ids else text
+    return bool(re.search(r'\d', stripped) or QUANTITY.search(stripped))
+
 
 def observe(store, key, cam, t_range, actor_refs, *, run=None):
     try:
@@ -36,11 +50,8 @@ def _observe(store, key, cam, t_range, actor_refs, *, run=None):
         raise ValueError('Observation contains an out-of-scope frame')
     facts = []
     for fact in raw['facts']:
-        text = fact['text']
-        # Entity identifiers are references. Every other numeric token belongs
-        # to the measurement channel, which has its own verifier.
-        stripped = re.sub(r'\b(?:' + '|'.join(re.escape(a.entity_id) for a in actors) + r')\b', '', text) if actors else text
-        if re.search(r'\d', stripped) or re.search(r'\b(?:one|two|three|four|five|six|seven|eight|nine|ten|several|many)\s+(?:people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?|met(?:er|re)s?|seconds?|times)\b', stripped, re.I):
+        # Numeric claims belong to the measurement channel, which has its own verifier.
+        if quantified(fact['text'], [a.entity_id for a in actors]):
             raise ValueError('Numeric visual claims require a measurement')
         if not fact['frame_refs'] or any(f not in frames for f in fact['frame_refs']):
             raise ValueError('Observation fact cites an unread frame')

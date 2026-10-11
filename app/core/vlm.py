@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -34,12 +35,14 @@ from app.core.models import ENTITY_ID_RE, CosmosRecord, EntityRef, make_record_i
 from app.core.street import _digest as street_digest
 from app.settings import Settings
 
+log = logging.getLogger(__name__)
 # prompt revision per task, part of every record_id: bump only the prompt that changed so other records stay found
 PROMPT_REV = {"C1": "px-2", "C1-fleet": "px-1", "C2": "px-1", "C3": "px-1", "C4": "px-1", "C5": "px-1",
               "C3-street": "st-1", "C4-street": "st-1"}
 STEP_MS = 250  # 4 fps, the rate Cosmos temporal prompts expect
 WINDOW_MS = 3000
 PREFIX_MS = 2000
+MAX_FRAMES = 24  # longer windows are sampled sparser, never sent as more frames
 FRAME_W = 640  # about 225 prompt tokens per frame; a 10 s window stays well inside the 32k context
 TIMEOUT_S = 120
 BOX_MATCH_MS = 100  # a track row counts for a frame when it is this close in time
@@ -72,7 +75,7 @@ _SCENE_FIELDS = {  # the fixed observation JSON of §2.5, asked for in C1 and C2
 }
 _fails: dict[Any, int] = {}
 _opened: dict[Any, float] = {}
-CIRCUIT_COOLDOWN_S = 30.0  # consecutive endpoint failures per run_id (None = calls without a run)
+CIRCUIT_COOLDOWN_S = 30.0  # consecutive endpoint failures per run handle (these dicts: calls without a run)
 
 
 class VLMUnavailable(RuntimeError):
@@ -87,6 +90,8 @@ def _budgeted(function):
                 return function(*args,**kwargs)
         except DeadlineExceeded as exc:
             raise VLMUnavailable(str(exc)) from exc
+        except (httpx.HTTPError, OSError, json.JSONDecodeError, UnicodeDecodeError, cv2.error) as exc:
+            raise VLMUnavailable(f"model input unavailable: {type(exc).__name__} {exc}") from exc
     return call
 
 
@@ -103,8 +108,13 @@ def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, cam: st
               "uncertainty is 0 (sure) to 1 (guess).")
     schema = _obj({**_SCENE_FIELDS, "label": {"enum": labels}, "reason": {"type": "string"},
                    "uncertainty": {"type": "number", "minimum": 0, "maximum": 1}})
-    window = tuple(t_range) if t_range is not None else (t_ms - WINDOW_MS, t_ms + WINDOW_MS)
-    if len(window) != 2 or window[0] < 0 and t_range is not None or window[1] <= window[0]:
+    window = (t_ms - WINDOW_MS, t_ms + WINDOW_MS)
+    if t_range is not None:
+        hard = tuple(t_range)
+        if len(hard) != 2 or hard[0] < 0 or hard[1] <= hard[0]:
+            raise VLMUnavailable("invalid_model_scope")
+        window = (max(window[0], hard[0]), min(window[1], hard[1]))
+    if window[1] <= window[0]:
         raise VLMUnavailable("invalid_model_scope")
     extra = [f"scope:{window[0]}:{window[1]}"] if t_range is not None else []
     return _call("C1", scene_key, cam, t_ms, actor_refs, window, extra, prompt, schema,
@@ -221,21 +231,24 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
         if rec is None:
             try:
                 rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
-                                   region, getattr(run, "run_id", None), getattr(run, "deadline", None)), "live"
+                                   region, run, getattr(run, "deadline", None)), "live"
             except VLMUnavailable as exc:
                 if st is not None and hasattr(exc, 'raw'):
                     st.output({'validation_error':str(exc),'raw':exc.raw})
                 raise
             p = _cache_dir() / f"{rid}.json"
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=p.parent, suffix='.tmp', delete=False) as f:
-                tmp = Path(f.name)
-                try:
-                    f.write(json.dumps({"identity":identity,"record":rec.model_dump(mode="json")}).encode())
-                    f.close()
-                    os.replace(tmp,p)
-                finally:
-                    tmp.unlink(missing_ok=True)
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=p.parent, suffix='.tmp', delete=False) as f:
+                    tmp = Path(f.name)
+                    try:
+                        f.write(json.dumps({"identity":identity,"record":rec.model_dump(mode="json")}).encode())
+                        f.close()
+                        os.replace(tmp,p)
+                    finally:
+                        tmp.unlink(missing_ok=True)
+            except OSError:
+                log.warning("VLM cache write failed for %s", rid, exc_info=True)
         # Runtime-only metadata: not part of the Cosmos schema or persisted payload.
         object.__setattr__(rec, '_sva_exec_state', state)
         if st is not None:
@@ -346,23 +359,30 @@ def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=No
     return None
 
 
-def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid, region, run_id, deadline):
+def _step(lo: int, hi: int) -> int:
+    """Sampling interval of a window: 4 fps unless that would exceed MAX_FRAMES."""
+    return max(STEP_MS, -(-(hi - lo) // MAX_FRAMES))
+
+
+def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid, region, run, deadline):
     m = _manifest(scene_key)
     lo, hi = max(window[0], m["t0_ms"]), min(window[1], m["t1_ms"])
     cam = cam or _pick_cam(scene_key, m, ids, lo, hi)
-    frames = [f for f in _frames(scene_key, m, cam, list(range(lo, hi, STEP_MS)), set(ids), region) if lo <= f[0] < hi]
+    step = _step(lo, hi)
+    frames = [f for f in _frames(scene_key, m, cam, list(range(lo, hi, step)), set(ids), region, hard_window=(lo, hi))
+              if lo <= f[0] < hi]
     if not frames:
         raise VLMUnavailable(f"{scene_key}/{cam}: no video frames in [{lo}, {hi})")
     if m["workspace"] == "street":
-        head = (f"These are {len(frames)} frames from street camera {cam} sampled at 4 fps from {frames[0][0] / 1000:.2f}s "
-                f"to {frames[-1][0] / 1000:.2f}s; each frame shows its time at the bottom; the time is an overlay, not part "
-                "of the scene. ")
+        head = (f"These are {len(frames)} frames from street camera {cam} sampled at {1000 / step:g} fps from "
+                f"{frames[0][0] / 1000:.2f}s to {frames[-1][0] / 1000:.2f}s; each frame shows its time at the bottom; the "
+                "time is an overlay, not part of the scene. ")
     else:
         head = (f"These are {len(frames)} frames from {'a dashcam' if _fleet(scene_key) else 'warehouse camera ' + cam} "
-                f"sampled at 4 fps from {frames[0][0] / 1000:.2f}s to {frames[-1][0] / 1000:.2f}s; each frame shows its time "
-                "at the bottom and tracked objects are boxed with their ids (P = person, F = forklift, V = vehicle); "
-                "these boxes, ids and times are overlays, not part of the scene. ")
-    out = _chat([_jpeg_b64(img) for _, img in frames], head + prompt + " Answer with JSON only.", schema, run_id, deadline)
+                f"sampled at {1000 / step:g} fps from {frames[0][0] / 1000:.2f}s to {frames[-1][0] / 1000:.2f}s; each frame "
+                "shows its time at the bottom and tracked objects are boxed with their ids (P = person, F = forklift, "
+                "V = vehicle); these boxes, ids and times are overlays, not part of the scene. ")
+    out = _chat([_jpeg_b64(img) for _, img in frames], head + prompt + " Answer with JSON only.", schema, run, deadline)
     try:
         payload = make_payload(out, frames)
     except (ValueError, LookupError, TypeError) as e:
@@ -384,6 +404,18 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
     return record
 
 
+def _coverage(times: list[int], window: tuple[int, int]) -> list[list[int]]:
+    """Contiguous [lo, hi] ms spans actually read: each frame covers one sampling step, never past the window; frames
+    more than 1.5 steps apart (a missing sample, beyond the lag of a decoded frame behind its target) leave a gap."""
+    step, spans = _step(*window), []
+    for t in sorted(times):
+        if spans and t - spans[-1][2] <= step * 3 // 2:
+            spans[-1][1:] = [min(window[1], t + step), t]
+        else:
+            spans.append([t, min(window[1], t + step), t])
+    return [s[:2] for s in spans]
+
+
 def _validate_record(record, window, cam, manifest):
     """One validator for decoded, local-cache and published model receipts."""
     errors = [e.message for e in _record_validator().iter_errors(record.model_dump(mode='json'))]
@@ -393,6 +425,7 @@ def _validate_record(record, window, cam, manifest):
     frames = record.input_frame_refs
     if not frames or record.cam_id != cam or any(f.cam_id != cam or not window[0] <= f.t_ms < window[1] for f in frames):
         raise VLMUnavailable("invalid_model_scope: frame camera/PTS outside requested window")
+    covered = lambda a, b: any(lo <= a*1000 and b*1000 <= hi for lo, hi in _coverage([f.t_ms for f in frames], window))  # noqa: E731
     if record.task in ('C1','C2') and isinstance(record.raw,dict):
         intervals=record.raw.get('source_intervals',[])
         if not isinstance(intervals,list):
@@ -401,15 +434,12 @@ def _validate_record(record, window, cam, manifest):
             if not isinstance(interval,(list,tuple)) or len(interval)!=2 or not all(type(v) in (int,float) and math.isfinite(v) for v in interval):
                 raise VLMUnavailable('invalid_model_localization: invalid source interval')
             a,b=interval
-            if a < 0 or b < a or a*1000 < min(f.t_ms for f in frames) or b*1000 > min(window[1],max(f.t_ms for f in frames)+STEP_MS):
+            if a < 0 or b < a or not covered(a,b):
                 raise VLMUnavailable('invalid_model_localization: source interval outside read window')
     if record.task == "C4":
-        # Localized times must be within actually read coverage (one sampling interval
-        # after the last frame is allowed, never beyond the hard requested window).
-        lo, hi = min(f.t_ms for f in frames), min(window[1], max(f.t_ms for f in frames) + STEP_MS)
         for seg in record.payload.get("segments", []):
             a, b = seg.get("start_s"), seg.get("end_s")
-            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (a, b)) or not 0 <= a <= b or a*1000 < lo or b*1000 > hi:
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (a, b)) or not 0 <= a <= b or not covered(a, b):
                 raise VLMUnavailable("invalid_model_localization: segment outside read window or reversed")
     if record.task == "C3":
         for obj in record.payload.get("objects", []):
@@ -418,13 +448,16 @@ def _validate_record(record, window, cam, manifest):
                 raise VLMUnavailable("invalid_model_grounding: invalid box")
 
 
-def _chat(images: list[str], prompt: str, schema: dict, run_id: str | None, deadline: float | None = None) -> dict:
+def _chat(images: list[str], prompt: str, schema: dict, run: Any, deadline: float | None = None) -> dict:
     settings = Settings()
-    circuit = run_id if run_id is not None else (settings.vlm_url, settings.vlm_model)
-    if _fails.get(circuit, 0) >= 2:
-        if time.monotonic() - _opened.get(circuit, 0) < CIRCUIT_COOLDOWN_S:
+    if run is None:
+        fails, opened, circuit = _fails, _opened, (settings.vlm_url, settings.vlm_model)
+    else:  # on the run handle, so the state ends with the run
+        fails, opened, circuit = vars(run).setdefault('vlm_fails', {}), vars(run).setdefault('vlm_opened', {}), None
+    if fails.get(circuit, 0) >= 2:
+        if time.monotonic() - opened.get(circuit, 0) < CIRCUIT_COOLDOWN_S:
             raise VLMUnavailable("circuit open after 2 consecutive endpoint failures")
-        _fails[circuit] = 0
+        fails[circuit] = 0
     timeout = TIMEOUT_S if deadline is None else min(TIMEOUT_S, deadline - time.monotonic())  # deadline: time.monotonic() s
     if timeout <= 0:
         raise VLMUnavailable("ask budget exhausted before the VLM call")
@@ -441,12 +474,12 @@ def _chat(images: list[str], prompt: str, schema: dict, run_id: str | None, dead
                        headers={"Authorization": f"Bearer {tok}"} if tok else None)
         r.raise_for_status()
     except (httpx.HTTPError, KeyError) as e:
-        _fails[circuit] = _fails.get(circuit, 0) + 1
-        if _fails[circuit] >= 2:
-            _opened[circuit] = time.monotonic()
+        fails[circuit] = fails.get(circuit, 0) + 1
+        if fails[circuit] >= 2:
+            opened[circuit] = time.monotonic()
         raise VLMUnavailable(f"VLM request failed: {type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')}") from e
-    _fails[circuit] = 0
-    _opened.pop(circuit, None)
+    fails[circuit] = 0
+    opened.pop(circuit, None)
     try:
         text = r.json()["choices"][0]["message"]["content"] or ""
     except (ValueError, LookupError, TypeError) as e:
@@ -473,8 +506,9 @@ def _record_validator() -> Draft202012Validator:
 
 def _asset(scene_key: str, rel: str) -> str:
     """Local path (dev, or site with a mirrored ASSET_DIR) or presigned URL (site) of one scene asset."""
-    if os.environ.get("MODE", "dev") != "site" or os.environ.get("ASSET_DIR"):
-        return str(Path(os.environ["ASSET_DIR"]) / scene_key / rel)
+    root = Settings().asset_dir
+    if root is not None:
+        return str(root / scene_key / rel)
     return _s3().generate_presigned_url("get_object", ExpiresIn=3600,
                                         Params={"Bucket": os.environ["ASSET_BUCKET"], "Key": f"sva/{scene_key}/{rel}"})
 
@@ -505,10 +539,13 @@ def _manifest(scene_key: str) -> dict:
 
 
 def _observations(scene_key: str, m: dict) -> list[tuple[str, str, int, int, int]]:
-    """(entity_id, cam_id, local_track_id, t0_ms, t1_ms) for every observation in entities.json."""
+    """(entity_id, cam_id, local_track_id, t0_ms, t1_ms) for every observation in entities.json, clipped to the time
+    its association is valid."""
     ents = _json(scene_key, m["assets"]["entities"]) if "entities" in m["assets"] else None
-    return [(e["entity_id"], o["cam_id"], o["local_track_id"], o["t0_ms"], o["t1_ms"])
-            for e in (ents or {"entities": []})["entities"] for o in e["observations"]]
+    return [(e["entity_id"], o["cam_id"], o["local_track_id"], t0, t1)
+            for e in (ents or {"entities": []})["entities"] for o in e["observations"]
+            for t0, t1 in [(max(o["t0_ms"], e["association"]["valid"][0]), min(o["t1_ms"], e["association"]["valid"][1]))]
+            if t0 < t1]
 
 
 def _pick_cam(scene_key: str, m: dict, ids: list[str], lo: int, hi: int) -> str:
@@ -709,10 +746,10 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
     lo,hi = max(lo,manifest['t0_ms']),min(hi,manifest['t1_ms'])
     if hi <= lo:
         raise VLMUnavailable('invalid_model_scope: empty window')
-    n = min(24,max(1,(hi-lo+STEP_MS-1)//STEP_MS))
+    n = min(MAX_FRAMES,max(1,(hi-lo+STEP_MS-1)//STEP_MS))
     targets = sorted({lo+(hi-lo-1)*i//max(1,n-1) for i in range(n)})
     ids = sorted({a.entity_id for a in actor_refs})
-    frames = [f for f in _frames(scene_key,manifest,cam,targets,set(ids),None,hard_window=(lo,hi)) if lo <= f[0] < hi][:24]
+    frames = [f for f in _frames(scene_key,manifest,cam,targets,set(ids),None,hard_window=(lo,hi)) if lo <= f[0] < hi][:MAX_FRAMES]
     if not frames:
         raise VLMUnavailable(f'{scene_key}/{cam}: no video frames in [{lo}, {hi})')
     frame_refs = [{'cam_id':cam,'t_ms':ms} for ms,_ in frames]
@@ -729,6 +766,7 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
                 'endpoint':settings.vlm_url,'prompt':revision}
     digest = hashlib.sha256(json.dumps(identity,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     cache = _cache_dir() / ('observation_'+digest+'.json')
+    from app.core.model_observation import quantified  # model_observation imports this module
     def validate(raw):
         if not isinstance(raw,dict) or set(raw)!= {'facts'} or not isinstance(raw['facts'],list) or len(raw['facts'])>6:
             raise VLMUnavailable('invalid_model_observation: expected at most six facts')
@@ -751,7 +789,7 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
                 raise VLMUnavailable('invalid_model_observation: invalid uncertainty')
             # The model may describe visible motion, never smuggle metric claims
             # into this nonmeasurement channel.
-            if re.search(r'\b\d+(?:\.\d+)?\s*(?:m(?:eters?|etres?)?|km/?h|m/?s|mph|seconds?|people|persons?|vehicles?)\b',text,re.I):
+            if quantified(text,ids):
                 raise VLMUnavailable('invalid_model_observation: numeric measurement in visual text')
             facts.append({**item,'frame_refs':[frame_refs[i] for i in dict.fromkeys(indices)]})
         return facts
@@ -774,7 +812,7 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
         schema=_obj({'facts':{'type':'array','maxItems':6,'items':_obj({
             'subject_ids':{'type':'array','items':{'type':'string'},'maxItems':len(ids)},
             'text':{'type':'string','maxLength':300},
-            'frame_indices':{'type':'array','items':{'type':'integer','minimum':0,'maximum':len(frames)-1},'minItems':1,'maxItems':24},
+            'frame_indices':{'type':'array','items':{'type':'integer','minimum':0,'maximum':len(frames)-1},'minItems':1,'maxItems':MAX_FRAMES},
             'uncertainty':{'type':'number','minimum':0,'maximum':1}})}})
         prompt=(f'Observe only the visible state, motion and interaction in these {len(frames)} frames from camera {cam}. '
                 f'Requested tracked subjects are {ids}. The visible bound subjects per frame_index are {bound_ids}. '
@@ -784,14 +822,17 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
                 'Describe what is visible, not inferred intent, blame, hidden objects, numeric distance, count, speed or time. Use non-quantified singular or plural descriptions; do not spell out counts such as one person, two vehicles, several people, or many cars. '
                 'An overlay ID is a reference, not proof of real-world identity. Empty facts is valid when evidence is insufficient. '
                 'uncertainty is zero for confident and one for uncertain. Answer JSON only.')
-        raw=_chat(images,prompt,schema,getattr(run,'run_id',None),getattr(run,'deadline',None))
+        raw=_chat(images,prompt,schema,run,getattr(run,'deadline',None))
         facts=validate(raw)
-        cache.parent.mkdir(parents=True,exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=cache.parent,delete=False) as handle:
-            temporary=Path(handle.name)
-            handle.write(json.dumps({'identity':identity,'raw':raw}).encode())
-        try:temporary.replace(cache)
-        finally:temporary.unlink(missing_ok=True)
+        try:
+            cache.parent.mkdir(parents=True,exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=cache.parent,delete=False) as handle:
+                temporary=Path(handle.name)
+                handle.write(json.dumps({'identity':identity,'raw':raw}).encode())
+            try:temporary.replace(cache)
+            finally:temporary.unlink(missing_ok=True)
+        except OSError:
+            log.warning('VLM observation cache write failed for %s',digest,exc_info=True)
     else:
         facts=validate(raw)
     return {'raw':raw,'facts':facts,'cam_id':cam,'t0_ms':lo,'t1_ms':hi,

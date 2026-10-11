@@ -11,6 +11,7 @@ import pytest
 from app.api.agent import AskRequest
 from app.core.investigations import Investigations
 from app.core.store import Store
+from app.tests.unit.test_vlm_scope_repairs import QUANTITIES
 
 ROOT = Path(__file__).resolve().parents[3]
 KEY = 'wh-sdg-fixture-01'
@@ -176,6 +177,17 @@ def test_visual_observation_is_typed_frame_evidence_and_never_measurement(store,
     receipt['facts'][0]['frame_refs'][0]['t_ms']=1100
     invalid=observe(store,KEY,'ceiling_00',[0,1000],[])
     assert invalid.envelope.exec_state=='failed' and invalid.evidence==[]
+
+
+@pytest.mark.parametrize('text,ok',QUANTITIES)
+def test_visual_observation_rejects_spelled_quantities(store,monkeypatch,text,ok):
+    from app.core.model_observation import observe
+    receipt=dict(cam_id='ceiling_00',t0_ms=0,t1_ms=1000,input_frame_refs=[{'cam_id':'ceiling_00','t_ms':0}],
+        facts=[dict(subject_ids=[],text=text,frame_refs=[{'cam_id':'ceiling_00','t_ms':0}],uncertainty=.2)],
+        model_rev='fixture-model',prompt_rev='observation-1',input_digest='sha256:'+'a'*64,exec_state='live')
+    monkeypatch.setattr('app.core.vlm.observe_window',lambda *a,**kw:receipt)
+    r=observe(store,KEY,'ceiling_00',[0,1000],[])
+    assert (r.envelope.exec_state!='failed')==ok
 
 
 def test_source_change_does_not_inherit_stale_actor_or_camera(store):
