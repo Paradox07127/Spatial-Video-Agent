@@ -18,8 +18,19 @@ def run(store,q,context):
     ('Is there anyone where ceiling_04 cannot see, from 4 to 10 seconds?','CONTRADICTED'),
     ('Is there anyone where eye_00 cannot see, from 6 to 7 seconds?','UNRESOLVED'),
 ])
-def test_blind_answer_limits_population_and_sampling(setup,q,expected):
+def test_blind_answer_limits_population_and_sampling(setup,monkeypatch,q,expected):
     _,store=setup
+    if expected=='SUPPORTED':
+        from app.core import tools
+        original=tools.blind_presence
+        def no_marked_camera(*a,**kw):
+            result=original(*a,**kw)
+            for interval in result.envelope.output['intervals']:
+                interval['seen_by']=[]
+            for evidence in result.evidence:
+                evidence.value['seen_by']=[]
+            return result
+        monkeypatch.setattr(tools,'blind_presence',no_marked_camera)
     frames=run(store,q,WH_MAIN['context'])
     assert of(frames,'status')[0]['final']==expected
     text=' '.join(a['text'] for a in of(frames,'answer')).lower()
@@ -27,6 +38,9 @@ def test_blind_answer_limits_population_and_sampling(setup,q,expected):
     assert 'known people' in text and 'sample' in text and 'floor' in text
     assert 'unobserved people' in text and 'between samples' in text
     assert all(c['explain']['not_measured'] for c in of(frames,'claim'))
+    if expected=='SUPPORTED':
+        assert 'no other camera marked visible' in text
+        assert 'not visible to any other camera' not in text
 
 
 def test_selected_blind_answer_identifies_limited_population(setup):

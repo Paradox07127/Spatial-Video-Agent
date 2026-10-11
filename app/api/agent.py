@@ -1216,7 +1216,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     if found:
                         text='Sampled ground points of '+('selected people' if selection else 'known people')+' fall in the floor blind cells of '+name(blind.value)+': '+'; '.join(
                             'the '+noun('person',workspace)+' '+name(e.value['entity_id'])+' at '+ref(e,'value.t0_s',e.value['t0_s'])+'–'
-                            +ref(e,'value.t1_s',e.value['t1_s'])+' s (floor cells '+('visible to '+name(', '.join(e.value['seen_by'])) if e.value['seen_by'] else 'not visible to any other camera')+')'
+                            +ref(e,'value.t1_s',e.value['t1_s'])+' s ('+('floor cells marked visible to '+name(', '.join(e.value['seen_by'])) if e.value['seen_by'] else 'no other camera marked visible')+')'
                             for e in found)+'.'
                     else:
                         text='No blind-zone presence was found among '+('selected people' if selection else 'known people')+' at checked ground-point sample times in the '+name(blind.value)+' floor visibility grid.'
