@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
@@ -160,3 +162,34 @@ def test_site_thumb_is_decoded_from_the_s3_chunk_once(tmp_path):
     assert abs(float(np.mean(image)) - float(np.mean(cv2.imread(str(street.thumb(store, L1_KEY, L1_CAM, 0)))))) > 5
     with pytest.raises(ValueError):
         street.thumb(store, L1_KEY, L1_CAM, 10000)
+
+
+def test_street_caches_are_keyed_by_the_evidence_release(tmp_path, monkeypatch):
+    store = fixture_l1_store(tmp_path, site=True)
+    gets = []
+    store.s3 = s3_with(lambda key: sidecar(50), gets)
+    monkeypatch.delenv('EVIDENCE_REVISION', raising=False)
+    street._sidecar(store, 's3://b/seg.mp4')
+    street._sidecar(store, 's3://b/seg.mp4')
+    assert len(gets) == 1
+    monkeypatch.setenv('EVIDENCE_REVISION', 'r2')
+    street._sidecar(store, 's3://b/seg.mp4')
+    assert len(gets) == 2
+    monkeypatch.setattr(street, 'local_chunk', lambda *a: Path('video'))
+    monkeypatch.setattr(street.cv2, 'VideoCapture', lambda *a: SimpleNamespace(set=lambda *a: None, release=lambda: None,
+                                                                               read=lambda: (True, np.zeros((360, 640, 3), np.uint8))))
+    first = street.thumb(store, L1_KEY, L1_CAM, 0)
+    monkeypatch.setenv('EVIDENCE_REVISION', 'r3')
+    assert street.thumb(store, L1_KEY, L1_CAM, 0) != first
+
+
+def test_street_cache_quota_evicts_least_recently_used(tmp_path, monkeypatch):
+    store = SimpleNamespace(runs_dir=tmp_path)
+    monkeypatch.setattr(street, 'CACHE_QUOTA', 25)
+    paths = [street._cache(store, 'chunks', f'{i}.mp4') for i in range(3)]
+    for i, p in enumerate(paths[:2]):
+        street._publish(store, p, b'x' * 10)
+        os.utime(p, (i, i))
+    assert street._cached(paths[0])
+    street._publish(store, paths[2], b'x' * 10)
+    assert [p.is_file() for p in paths] == [True, False, True]

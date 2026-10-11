@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from statistics import median
 from collections import Counter
@@ -67,7 +68,43 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:32]
 
 
-def _publish(path, data):
+# chunks are the bulk; the cache is disposable, so least recently used files go past this size
+CACHE_QUOTA = 8 << 30
+
+
+def _material(text: str) -> str:
+    """Cache key of a source object within the current evidence release."""
+    return _digest(text+('|' + os.environ['EVIDENCE_REVISION'] if os.environ.get('EVIDENCE_REVISION') else ''))
+
+
+def _cached(path) -> bool:
+    if not path.is_file():
+        return False
+    os.utime(path)
+    return True
+
+
+def _stat(p):
+    # concurrent requests evict the same directory, so a listed file can be gone by now
+    try:
+        return p.stat()
+    except FileNotFoundError:
+        return None
+
+
+def _evict(store, keep):
+    # tmp* are in-flight NamedTemporaryFile writes; cache names are hex digests or digits
+    files = [(st.st_mtime, st.st_size, p) for p in (Path(store.runs_dir) / 'street').rglob('*')
+             if not p.name.startswith('tmp') and p != keep and (st := _stat(p)) and stat.S_ISREG(st.st_mode)]
+    total = sum(n for _, n, _ in files) + (getattr(_stat(keep), 'st_size', 0))
+    for _, n, p in sorted(files, key=lambda f: f[0]):
+        if total <= CACHE_QUOTA:
+            break
+        p.unlink(missing_ok=True)
+        total -= n
+
+
+def _publish(store, path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, suffix=path.suffix, delete=False) as f:
         tmp = Path(f.name)
@@ -77,6 +114,7 @@ def _publish(path, data):
             os.replace(tmp,path)
         finally:
             tmp.unlink(missing_ok=True)
+    _evict(store, path)
 
 
 def availability_gaps(t0, t1, available, missing=()):
@@ -96,16 +134,16 @@ def availability_gaps(t0, t1, available, missing=()):
 
 def _sidecar(store, source: str) -> dict:
     """The segment's YOLO sidecar read from S3, as {source, video_shape, frame_count, frames [{time_sec, rows [label, x1, y1, x2, y2, conf]}]}."""
-    path = _cache(store, 'detections', _digest(source) + '.json')
+    path = _cache(store, 'detections', _material(source) + '.json')
     exec_state = 'precomputed'
-    if not path.is_file():
+    if not _cached(path):
         raw = live_measure.fetch_sidecar(store.s3(), live_measure.sidecar_uri(source))
         exec_state = 'live'
         doc = {'source': raw.get('source', 'yolo11_coco'), 'fps':raw['fps'], 'video_shape': raw['video_shape'][:2],
                'frame_count': raw.get('frame_count', len(raw['frames'])),
                'frames': [{'time_sec': f['frame_index'] / raw['fps'], 'rows': [[d['label'], *d['bbox'], d['confidence']] for d in f['detections']]}
                           for f in raw['frames']]}
-        _publish(path,json.dumps(doc).encode())
+        _publish(store,path,json.dumps(doc).encode())
     return {**json.loads(path.read_text()),'exec_state':exec_state}
 
 
@@ -196,7 +234,7 @@ def _download_object(store,bucket,key,path):
             raise FileNotFoundError('Media asset not found') from exc
         raise
     with closing(body):
-        _publish(path,body.read())
+        _publish(store,path,body.read())
 
 
 def local_chunk(store, scene_key: str, chunk: dict) -> Path:
@@ -208,8 +246,8 @@ def local_chunk(store, scene_key: str, chunk: dict) -> Path:
         if PurePosixPath(uri).is_absolute() or '..' in PurePosixPath(uri).parts:
             raise FileNotFoundError('Chunk not found')
         uri = f's3://{store.settings.asset_bucket}/sva/{scene_key}/{uri}'
-    path = _cache(store, 'chunks', _digest(uri+('|' + os.environ['EVIDENCE_REVISION'] if os.environ.get('EVIDENCE_REVISION') else '')) + '.mp4')
-    if not path.is_file():
+    path = _cache(store, 'chunks', _material(uri) + '.mp4')
+    if not _cached(path):
         bucket, key = uri[5:].split('/', 1)
         _download_object(store,bucket,key,path)
     return path
@@ -224,12 +262,12 @@ def thumb(store, scene_key: str, cam: str, t_ms: int) -> Path:
         rel = f"{scene_key}/{c['thumbs']}/{s:05d}.jpg"
         if store.asset_dir is not None:
             return store.local_asset(rel)
-        path = _cache(store,'thumbs',_digest(rel+'|'+os.environ.get('EVIDENCE_REVISION',''))+'.jpg')
-        if not path.is_file():
+        path = _cache(store,'thumbs',_material(rel)+'.jpg')
+        if not _cached(path):
             _download_object(store,store.settings.asset_bucket,'sva/'+rel,path)
         return path
-    path = _cache(store, 'thumbs', scene_key, cam, f'{s:05d}.jpg')
-    if not path.is_file():
+    path = _cache(store, 'thumbs', scene_key, cam, _material(f'{s:05d}') + '.jpg')
+    if not _cached(path):
         chunk = chunk_at(store, scene_key, cam, s * 1000)
         cap = cv2.VideoCapture(str(local_chunk(store, scene_key, chunk)))
         cap.set(cv2.CAP_PROP_POS_MSEC, s * 1000 - chunk['t0_ms'])
@@ -241,7 +279,7 @@ def thumb(store, scene_key: str, cam: str, t_ms: int) -> Path:
         ok, data = cv2.imencode('.jpg',cv2.resize(bgr, (ref['thumb_w'], ref['thumb_h'])))
         if not ok:
             raise OSError('Could not encode thumbnail')
-        _publish(path,data.tobytes())
+        _publish(store,path,data.tobytes())
     return path
 
 
