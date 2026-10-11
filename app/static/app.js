@@ -1088,7 +1088,10 @@ async function flash(eid, field = null) {
 }
 
 function focusEvidence(eid, e) {
-  bus.emit('evidence:focus', e);
+  // Tool parameters are not serialized in Evidence; retain the measured actor for camera-free focus.
+  const focused = e.kind === 'measure' && ['ground_position', 'track_speed'].includes(e.method)
+    ? { ...e, params: e.params ?? run.evCall.get(eid) } : e;
+  bus.emit('evidence:focus', focused);
   setStage('evidence', eid);
   document.querySelectorAll(`.ev[data-eid="${CSS.escape(eid)}"]`).forEach((row) => {
     row.classList.remove('flash');

@@ -363,10 +363,15 @@ function onStageMode({ mode, eid }) {
   else exitEvidence();
 }
 
-// Actors an evidence cites: the measured pair, else the owners of its observations.
+// Actors an evidence cites: a measured pair, observed owners, or a named actor from an explicit measured tool.
 function cited(e) {
   if (P.measure?.eid === e.eid) return P.measure.ids;
-  return [...new Set((e.observation_ids ?? []).map((o) => P.owner.get(`${o.cam_id}:${o.local_track_id}`)).filter(Boolean))];
+  const observed = [...new Set((e.observation_ids ?? []).map((o) => P.owner.get(`${o.cam_id}:${o.local_track_id}`)).filter(Boolean))];
+  if (observed.length || e.kind !== 'measure') return observed;
+  const ref = e.method === 'ground_position' ? e.value?.entity_id ?? e.params?.target : e.method === 'track_speed' ? e.params?.a : null;
+  const id = typeof ref === 'string' ? ref : ref?.entity_id;
+  if (typeof id !== 'string' || ref?.scene_key && ref.scene_key !== P.key) return [];
+  return P.entities.entities.some((actor) => actor.entity_id === id) ? [id] : [];
 }
 
 function focusLabel(e, ids) {
