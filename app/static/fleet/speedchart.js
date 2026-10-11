@@ -28,8 +28,10 @@ export function createSpeedChart(el, { trip, t_ms, moment, onSeek }) {
       return;
     }
 
-    const t0 = (curMoment?.t0_ms ?? curT) - 10000;
-    const t1 = (curMoment?.t1_ms ?? curT) + 10000;
+    // a moment without an end (explore) follows playback instead of pinning the window start
+    const span0 = curMoment?.t1_ms != null ? [curMoment.t0_ms, curMoment.t1_ms] : [curT, curT];
+    const t0 = span0[0] - 10000;
+    const t1 = span0[1] + 10000;
     const span = Math.max(1000, t1 - t0);
 
     const pts = curTrip.pts.filter((p) => p.t_ms >= t0 - 1000 && p.t_ms <= t1 + 1000);
@@ -137,8 +139,10 @@ export function createSpeedChart(el, { trip, t_ms, moment, onSeek }) {
     const clickX = ((e.clientX - rect.left) / rect.width) * W;
     const chartW = W - PAD.left - PAD.right;
     const frac = Math.max(0, Math.min(1, (clickX - PAD.left) / chartW));
-    const t0 = (curMoment?.t0_ms ?? curT) - 10000;
-    const t1 = (curMoment?.t1_ms ?? curT) + 10000;
+    // a moment without an end (explore) follows playback instead of pinning the window start
+    const span0 = curMoment?.t1_ms != null ? [curMoment.t0_ms, curMoment.t1_ms] : [curT, curT];
+    const t0 = span0[0] - 10000;
+    const t1 = span0[1] + 10000;
     const targetT = Math.round(t0 + frac * (t1 - t0));
     onSeek(targetT);
   });

@@ -343,6 +343,7 @@ export function swapViews() {
 export function setEvidenceTab(tab) {
   if (!ix) return;
   ix.evidenceTab = tab;
+  ix.el.querySelector('.fl-spatial').dataset.show = 'cell';
   ix.el.querySelectorAll('.fl-evidence-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
   ix.el.querySelectorAll('.fl-spatial-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
 
@@ -367,16 +368,11 @@ export function setSpatialTab(tab) {
   ix.spatialTab = tab;
   ix.el.querySelectorAll('.fl-spatial-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
 
-  const leftCell = ix.el.querySelector('.fl-spatial-left');
-  const rightCell = ix.el.querySelector('.fl-spatial-right');
-
+  // narrow layouts show one cell; the media query hides the other, so wide layouts are untouched
   if (tab === 'map') {
-    leftCell.style.display = '';
-    rightCell.style.display = 'none';
+    ix.el.querySelector('.fl-spatial').dataset.show = 'map';
     ov.map.resize();
   } else {
-    leftCell.style.display = 'none';
-    rightCell.style.display = '';
     setEvidenceTab(tab);
   }
 }
@@ -421,7 +417,7 @@ async function enterIx(trip, m, force = false) {
         <span class="fl-novid">No video at this time <button type="button" class="ghost fl-novid-swap">Show map</button></span>
       </div>
     </div>
-    <div class="fl-spatial">
+    <div class="fl-spatial" data-show="map">
       <nav class="seg fl-spatial-tabs" aria-label="Spatial view">
         <button type="button" data-tab="map" class="on">Map</button>
         <button type="button" data-tab="3d">3D</button>
@@ -481,7 +477,7 @@ async function enterIx(trip, m, force = false) {
   ov.result(trip.id);
   ov.setFollow(true);
   ov.setMoment(m, trip);
-  ov.setMode(state.mode ?? 'explore', trip.id);
+  ov.setMode(state.stageMode ?? 'explore', trip.id);
 
   const pick = (bid) => {
     card.focus(bid);
@@ -737,7 +733,7 @@ export async function mount(el, c) {
   const onMode = () => {
     ix?.video.redraw();
     if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids);
-    ov?.setMode(state.mode ?? 'explore', ix?.trip?.id);
+    ov?.setMode(state.stageMode ?? 'explore', ix?.trip?.id);
   };
   ctx.bus.on('stage:mode', onMode);
   const onEvidence = (e) => {

@@ -450,6 +450,7 @@ body[data-stage="evidence"] .fl-place-pane .fl-model { display: flex; }
     flex: 1 1 0;
     min-height: 200px;
   }
+  .fl-spatial[data-show="map"] .fl-spatial-right, .fl-spatial[data-show="cell"] .fl-spatial-left { display: none; }
 }
 
 /* ≤850 px: header facts wrap to two lines, video full width, segmented control [Map | 3D | Speed | Place] under video */
