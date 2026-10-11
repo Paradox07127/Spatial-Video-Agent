@@ -235,7 +235,7 @@ A question about a place or time outside the footage ends Out of range; a search
 
 ## Deployed version
 
-Validated on ws on 2026-10-11 (America/New_York), using real corpus data. UI and contract tests used `40baf92d79a1e2eb0333ad9194e39a20876a4a83`; the full backend suite used `746654ea32d69559c62b0b47bb5958907c268726`; `/api/dependencies` identifies the deployed commit, including later documentation-only updates.
+Validated on ws on 2026-10-11 (America/New_York), using real corpus data. UI and contract tests used `e70f9b87854f5b21c8f564cb1b0d9c6414f1d48c`; the full backend suite used `746654ea32d69559c62b0b47bb5958907c268726`; `/api/dependencies` identifies the deployed commit, including later documentation-only updates.
 
 | Item | Value |
 |---|---|
@@ -301,7 +301,7 @@ bash app/scripts/gate.sh
 
 `gate.sh` runs all pytest suites, the fixture schema check, the fixture determinism check, the vendor manifest check, the Playwright e2e (root path and `/app` prefix), the ConfigMap size check and a secret scan. Set `SVA_E2E_PORT` to give a parallel run its own port.
 
-Release validation: **1010 backend tests, 578 UI tests (root and `/app` prefix), 113 W0 contract tests and 68 pipeline tests passed** on independent verified snapshots. Backend used `746654ea32d69559c62b0b47bb5958907c268726`; final UI and W0/pipeline used `40baf92d79a1e2eb0333ad9194e39a20876a4a83`. The only changes between them are the first-visit investigation controller null guard and its real-browser regressions; all backend, schema, fixture and pipeline blobs/modes are identical. The W0 tests overlap the backend suite and are not an additional total. Schema validation, 31 generated fixture files with no differences, 19 local vendor hashes, ConfigMap size (3,950 bytes) and tracked-source/new-commit secret scans passed. All 395 tracked Git blobs and modes in each tested snapshot matched that snapshot's own commit; subsequent release documentation changes affect only this README.
+Release validation: **1010 backend tests, 584 UI tests (root and `/app` prefix), 113 W0 contract tests and 68 pipeline tests passed** on independent verified snapshots. Backend used `746654ea32d69559c62b0b47bb5958907c268726`; final UI and W0/pipeline used `e70f9b87854f5b21c8f564cb1b0d9c6414f1d48c`. The only changes between them are release documentation, the first-visit investigation controller null guard, restoration of persisted Run views and protection of explicit source navigation from automatic resume, plus their real-browser regressions; all backend, schema, fixture and pipeline blobs/modes are identical. The W0 tests overlap the backend suite and are not an additional total. Schema validation, 31 generated fixture files with no differences, 19 local vendor hashes, ConfigMap size (3,950 bytes) and tracked-source/new-commit secret scans passed. All 395 tracked Git blobs and modes in each tested snapshot matched that snapshot's own commit; subsequent release documentation changes affect only this README.
 
 The e2e specs in `app/tests/e2e/` describe each interaction of the UI above: `home.spec.js`, `shell.spec.js`, `kernel.spec.js`, `warehouse.spec.js`, `fleet.spec.js`, `fleet-intersection.spec.js`, `timeline.spec.js`, `run.spec.js`, `runpage.spec.js`.
 
