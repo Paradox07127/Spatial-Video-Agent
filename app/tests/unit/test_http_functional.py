@@ -1,5 +1,8 @@
 """HTTP boundary regressions using local files and fake S3 only."""
 import asyncio
+from threading import RLock
+
+import duckdb
 from types import SimpleNamespace
 
 import pytest
@@ -147,7 +150,10 @@ def health_client(tmp_path):
     (lib / 'vendor.js').write_bytes(b'export {};')
     m = {'scene_key': 'wh-test', 'workspace': 'warehouse', 'cams': [{'video': 'video.mp4'}],
          'assets': {'entities': 'entities.json', 'timeline': 'timeline.json', 'events': 'events.json'}}
-    store = SimpleNamespace(asset_dir=root, backend='duckdb', list_scenes=lambda: [m], index_counts=lambda: {'clips': 1})
+    app_db = duckdb.connect(':memory:')
+    app_db.execute('CREATE TABLE actions(action_id VARCHAR)')
+    store = SimpleNamespace(asset_dir=root, backend='duckdb', app=app_db, lock=RLock(),
+                            list_scenes=lambda: [m], index_counts=lambda: {'clips': 1})
     def asset_exists(key, rel):
         if store.asset_dir is None:
             pytest.fail('health must not perform S3-backed existence checks')
@@ -159,7 +165,8 @@ def health_client(tmp_path):
     app.state.settings = SimpleNamespace(lib_dir=lib, mode='dev')
     app.state.vendor_manifest = {'files': [{'name': 'vendor.js'}]}
     app.include_router(health.router)
-    return TestClient(app), store, m, root, lib
+    yield TestClient(app), store, m, root, lib
+    app_db.close()
 
 
 def test_health_retains_fields_when_ready(health_client):
@@ -240,3 +247,13 @@ def test_health_fleet_requires_shared_map_files(health_client):
     assert client.get('/health').status_code == 200
     (root / '_map/buildings.pmtiles').unlink()
     assert client.get('/health').status_code == 503
+
+
+def test_health_invalid_app_connection_is_unready_while_index_and_assets_remain_ready(health_client):
+    client, store, _, _, _ = health_client
+    store.app.close()
+    response = client.get('/health')
+    assert response.status_code == 503
+    assert response.json() == {'ok': False, 'mode': 'dev', 'backend': 'duckdb', 'libs_ready': True,
+                               'index_rows': {'clips': 1}, 'assets_ok': True}
+    assert 'connection' not in response.text.lower()

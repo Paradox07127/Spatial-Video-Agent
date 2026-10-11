@@ -110,7 +110,15 @@ def health(request: Request):
     except Exception:
         # A local index failure makes the app unready; keep the established response contract.
         assets_ok, index_rows = False, {}
-    ok = libs_ready and assets_ok
+    try:
+        # App state and the read-only index use separate DuckDB connections.
+        # A fatal app-state error must make readiness fail even if assets/index are healthy.
+        with store.lock:
+            store.app.execute('SELECT action_id FROM actions LIMIT 1').fetchone()
+        app_ready = True
+    except Exception:
+        app_ready = False
+    ok = libs_ready and assets_ok and app_ready
     return JSONResponse({'ok': ok, 'mode': settings.mode, 'backend': store.backend, 'libs_ready': libs_ready,
                          'index_rows': index_rows, 'assets_ok': assets_ok,
                          **({'asset_validation':asset_validation} if asset_validation is not None else {})}, status_code=200 if ok else 503)

@@ -151,6 +151,9 @@ def test_validation_timeout_stops_queue_and_bounds_concurrency(tmp_path,monkeypa
 
 
 def request(tmp_path,store,check=None):
+    # These tests isolate asset validation; the independent app connection is healthy.
+    store.lock = Lock()
+    store.app = SimpleNamespace(execute=lambda *a: SimpleNamespace(fetchone=lambda: None))
     state=SimpleNamespace(store=store,settings=settings(tmp_path),vendor_manifest={'files':[]})
     if check:
         state.remote_asset_readiness=check
