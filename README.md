@@ -54,6 +54,7 @@ Spatial Video Agent is an investigation workbench for multi-camera warehouse sur
 ![The fleet workspace before a question: all trips on the offline map of Toronto, each in its own colour, event clusters with counts, a car with its dashcam thumbnail, the simulated clock and trip lanes](docs/screenshots/06-fleet.png)
 
 - A full-bleed MapLibre map from local PMTiles (basemap and 3D building massing); the app requests no outside tiles.
+- Fleet requests are limited to six concurrent reads. The overview loads route data first; other trip details load when selected. A failed trip or detail asset has a local retry and does not discard the rest of the fleet.
 - **Trips**: each trip has its own colour on route, car arrow and timeline lane. Click a car or its trip tag to select it; the selected trip draws its trail and the others fade.
 - **Replay clock**: trips were not filmed at the same time, so they play on one simulated clock ("Simulated clock"). Cars move with it, and a trip outside its time hides its car. Cars with video show a dashcam thumbnail chip.
 - **GPS gaps**: a gap longer than 2 s is not interpolated. The car is drawn as last known, with its age ("last fix 1.5 s ago"); gaps also show on the trip lane.
