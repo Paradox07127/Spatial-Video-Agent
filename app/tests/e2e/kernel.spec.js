@@ -306,8 +306,8 @@ test('model line: situation and prediction with the measurement check by default
   const mp = page.locator('#modelpanel');
   await expect(mp.locator('.mp-summary')).toContainText('Situation yielding');
   await expect(mp.locator('.mp-summary')).toContainText('predicts continue');
-  await expect(mp.locator('.mp-summary')).toContainText('model says ≈4.75–5.60 s');
-  await expect(mp.locator('.mp-sub')).toHaveText('Checked by measure: yes · Model description · not measured');
+  await expect(mp.locator('.mp-summary')).toContainText('model says ≈00:04');
+  await expect(mp.locator('.mp-sub')).toHaveText('Checked by measure: yes · describes only, no numbers');
   await expect(mp.locator('.mp-row')).toHaveCount(0);
   await mp.locator('.mp-summary').click();
   await expect(mp.locator('.mp-row')).toHaveCount(4);

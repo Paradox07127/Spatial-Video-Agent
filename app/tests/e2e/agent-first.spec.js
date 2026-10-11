@@ -79,8 +79,8 @@ test('40 percent panel resizes within confirmed bounds and narrow workspace stac
   await expect.poll(ratio).toBeCloseTo(0.5, 2);
   await page.locator('.panel-resize').focus(); await page.keyboard.press('Home');
   await page.locator('.panel-resize').focus(); await page.keyboard.press('ArrowLeft');
-  await expect.poll(ratio).toBeCloseTo(0.42, 2);
-  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowLeft');
+  await expect.poll(ratio).toBeCloseTo(592 / 1440, 3);
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
   await expect.poll(ratio).toBeCloseTo(2/3, 2);
   await page.keyboard.press('Home'); await expect.poll(ratio).toBeCloseTo(0.4, 2);
   await page.setViewportSize({ width: 486, height: 900 });

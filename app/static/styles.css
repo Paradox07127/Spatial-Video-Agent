@@ -150,7 +150,7 @@ body[data-run="done"] .ask-hint { display: inline; }
 body:not([data-run="running"]) :is(.narration, .takeover), .takeover[hidden] { display: none; }
 
 /* ---- right panel: empty (presets) | running (answer slot, moments, claims) | done (pinned header, tabs, follow-up) */
-.panel { flex: none; display: flex; flex-direction: column; width: var(--panel-w); min-height: 0; background: var(--card); border-left: 1px solid var(--rule); }
+.panel { position: relative; flex: none; display: flex; flex-direction: column; width: var(--panel-w); min-height: 0; background: var(--card); border-left: 1px solid var(--rule); }
 .p-empty { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; color: var(--ink-2); }
 .p-empty p { margin: 0; }
 body:not([data-run=""]) .p-empty { display: none; }
@@ -187,6 +187,7 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .ans-time { padding: 0 2px; font: 500 var(--fs-16)/1 var(--font-mono); color: var(--ink); border-bottom: 1px solid var(--thread); }
 .ans-time:hover, .ans-time.hover { background: var(--thread); border-radius: 2px; }
 .ans-src { display: flex; align-items: center; gap: 12px; }
+.ans-not-measured { margin: 0; font-size: var(--fs-2); color: var(--ink-2); line-height: 1.5; }
 .ans-instead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
 .tabs { display: flex; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--rule); font-size: var(--fs-3); }
 .tabs:empty, body:not([data-run="done"]) .tabs { display: none; }
@@ -204,14 +205,20 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .kf-play:hover { color: var(--ink); }
 .kf-play .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
 #claims { display: flex; flex-direction: column; gap: 8px; }
-.claim-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius); }
+.verdict-card, .claim-card, .claim { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); }
 .claim-text { margin: 0; font-size: var(--fs-3); line-height: 1.5; }
 .claim-needs { margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
-.claim { display: flex; flex-direction: column; gap: 8px; }
 .claim-row, .claim-head { display: flex; align-items: center; }
-.claim-row { flex-wrap: wrap; gap: 6px; }
+.claim-row { flex-wrap: wrap; gap: 8px; }
 .claim-once { margin-left: 4px; font-size: var(--fs-2); color: var(--ink-2); }
-.preds { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px; font-size: var(--fs-2); }
+.preds { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pred-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-2); font-size: var(--fs-2); color: var(--ink); }
+.chip-sym { font-weight: 500; font-family: var(--font-mono); }
+.chip-supported .chip-sym { color: var(--ink); }
+.chip-contradicted .chip-sym { color: var(--danger); }
+.chip-unresolved .chip-sym { color: var(--neutral); }
+.chip-not-checked .chip-sym { color: var(--ink-2); }
+.chip-count { font-size: var(--fs-1); color: var(--ink-2); }
 .pt { color: var(--ink-3); }
 .pv { font-weight: 500; }
 .pv-measure { color: var(--src-measure); }
@@ -221,6 +228,9 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .pst-contradicted { color: var(--danger); }
 
 /* ---- model line (Answer tab) */
+.mp-box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--thread); border-radius: var(--radius); background: var(--paper); }
+.mp-header { font: 500 var(--fs-1) var(--font-mono); letter-spacing: 0.08em; color: var(--ink-2); }
+.mp-box .mp-summary { border: 0; padding: 0; background: none; }
 .mp-summary { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px; text-align: left; border: 1px dashed var(--thread); border-radius: var(--radius); font-size: var(--fs-2); }
 .mp-summary:hover { border-color: var(--ink-2); }
 .mp-summary > .i:first-child { margin-top: 2px; color: var(--src-model); }
@@ -318,6 +328,7 @@ body:not([data-run="done"]) .followup { display: none; }
 .exec-failed { color: var(--danger); }
 .exec-failed::before { border-radius: 1px; background: currentColor; }
 .verdict { display: inline-block; padding: 0 6px; font: 500 var(--fs-1)/18px var(--font-mono); letter-spacing: 0.04em; border: 1px solid var(--ink-2); border-radius: 3px; color: var(--ink); }
+.level { display: inline-flex; align-items: center; padding: 0 5px; font: 500 var(--fs-1)/18px var(--font-mono); border: 1px solid var(--rule); border-radius: 3px; color: var(--ink-3); background: var(--paper); }
 .v-supported { border-color: var(--ink); background: var(--ink); color: var(--paper); }
 .v-unresolved { border-style: dashed; color: var(--neutral); border-color: var(--neutral); }
 .v-contradicted { border-color: var(--danger); color: var(--danger); }
@@ -456,13 +467,14 @@ body[data-ws="fleet"][data-view="hit"] .tl-lanes { max-height: 18px; }
 .stage-controls { position: absolute; top: 12px; right: 12px; z-index: 6; background: var(--paper); }
 body[data-ws="warehouse"] .stage-controls, body[data-ws=""] .stage-controls, body[data-view="home"] .panel-resize { display: none; }
 .evidence-level { padding: 1px 6px; border: 1px solid var(--thread); border-radius: 3px; font-size: var(--fs-1); }
-.not-measured { margin: 0; color: var(--ink-2); font-size: var(--fs-2); line-height: 1.5; }
 .ans-src { flex-wrap: wrap; }
 .verdict-card { border: 1px solid var(--rule); border-left: 3px solid var(--neutral); border-radius: var(--radius); padding: 10px; }
 .verdict-card.card-supported { border-left-color: var(--src-measure); }
 .verdict-card.card-contradicted { border-left-color: var(--danger); }
-.condition-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.condition-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 6px; font-size: var(--fs-2); }
+.verdict-card.card-unresolved { border-left-color: var(--neutral); border-style: dashed; }
+.claim-card.card-supported { border-color: var(--src-measure); }
+.claim-card.card-contradicted { border-color: var(--danger); }
+.claim-card.card-unresolved { border-style: dashed; }
 .condition-chip small { color: var(--ink-2); font-size: var(--fs-1); }
 .fu-box { height: auto; min-height: 36px; flex-wrap: wrap; padding-top: 5px; padding-bottom: 5px; }
 .fu-ctx { display: flex; flex-wrap: wrap; gap: 5px; border: 0; padding: 0; max-width: 100%; }
