@@ -23,7 +23,7 @@ export function createInvestigations({ restore, attach, reset }) {
       const { sessions } = await api.get('api/agent/sessions');
       const selected = selectedSession ?? current?.session_id;
       const detail = selected ? await session(selected) : null;
-      if (detail?.session_id === current?.session_id) { current.revision = detail.revision; save(); }
+      if (current && detail && detail.session_id === current.session_id) { current.revision = detail.revision; save(); }
       host.innerHTML = `<header><b>Investigations</b><button type="button" data-new>New investigation</button><button type="button" data-close aria-label="Close investigations">Close</button></header>
         <p class="muted">Observations and answers persist on the server. Reopen a turn to continue its investigation.</p>
         <div class="investigation-columns"><nav aria-label="Saved investigations">${sessions.map(s=>`<button type="button" data-session="${esc(s.session_id)}" ${s.session_id===selected?'aria-current="true"':''}>${esc(s.title || s.session_id)}<small>${esc(s.updated ?? s.created ?? '')}</small></button>`).join('') || '<p>No investigations yet.</p>'}</nav>

@@ -3,10 +3,41 @@
 const {test,expect}=require('@playwright/test');
 const {mockApi}=require('./mockapi');
 
-test('actual v2 backend persists and replays a browser investigation across refresh',async({page})=>{
+
+async function realInvestigationApi(page) {
   await mockApi(page);
   await page.route(/\/health$/,route=>route.continue());
   await page.route(/\/api\/agent\/(?:sessions|jobs|ask)(?:\/|\?|$)/,route=>route.continue());
+}
+
+test('fresh browser opens an empty investigation list without an active local session',async({page})=>{
+  await realInvestigationApi(page);
+  await page.route(/\/api\/agent\/sessions$/,route=>route.fulfill({json:{sessions:[]}}));
+  await page.goto('#/');
+  expect(await page.evaluate(()=>localStorage.getItem('sva.investigation'))).toBeNull();
+  await page.locator('#investigations-btn').click();
+  await expect(page.locator('#investigations')).toContainText('No investigations yet.');
+  await expect(page.locator('#investigations [role="alert"]')).toHaveCount(0);
+  await expect(page.locator('#investigations [data-new]')).toBeVisible();
+});
+
+test('fresh browser browses an API-created session without creating local current state',async({page},testInfo)=>{
+  await realInvestigationApi(page);
+  const endpoint=new URL('api/agent/sessions',testInfo.project.use.baseURL).href;
+  const response=await page.request.post(endpoint,{data:{title:`Created outside browser ${testInfo.project.name}`}});
+  expect(response.status()).toBe(201);const created=await response.json();
+  await page.goto('#/');
+  expect(await page.evaluate(()=>localStorage.getItem('sva.investigation'))).toBeNull();
+  await page.locator('#investigations-btn').click();
+  const saved=page.locator(`#investigations [data-session="${created.session_id}"]`);
+  await expect(saved).toBeVisible();await saved.click();
+  await expect(page.locator('#investigations [aria-label="Investigation turns"]')).toContainText('Ask a question to begin.');
+  await expect(page.locator('#investigations [role="alert"]')).toHaveCount(0);
+  expect(await page.evaluate(()=>localStorage.getItem('sva.investigation'))).toBeNull();
+});
+
+test('actual v2 backend persists and replays a browser investigation across refresh',async({page})=>{
+  await realInvestigationApi(page);
   const question="Where is P1 at 4 seconds?";
   await page.goto('#/warehouse/wh-sdg-fixture-01');
   await expect(page.locator('.wh')).toBeVisible();
