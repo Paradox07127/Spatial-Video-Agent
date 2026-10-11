@@ -5,6 +5,11 @@ from app.core.store import nearest
 router = APIRouter()
 
 
+def period(times, default):
+    # The smallest spacing is the nominal sample period; wider spacings are gaps.
+    return min((b - a for a, b in zip(times, times[1:]) if b > a), default=default)
+
+
 @router.get('/api/fleet/trips')
 def trips(request: Request):
     store = request.app.state.store
@@ -23,19 +28,22 @@ def moment(trip_id: str, request: Request, t: int):
     if 'ego_dir' not in m['assets']:
         raise FileNotFoundError('Trip has no ego frames')
     frames = store.asset_json(trip_id, f"{m['assets']['ego_dir']}/{t // 10000:05d}.json")['frames']
-    i = nearest([f['t_ms'] for f in frames], t)
-    if i is None:
+    times = [f['t_ms'] for f in frames]
+    i = nearest(times, t)
+    if i is None or abs(times[i] - t) > period(times, 1000 / m['fps']):
         raise FileNotFoundError('No ego frame')
-    rows = store.rows(store.index, 'SELECT place_id FROM gps WHERE trip_id=? ORDER BY abs(t_ms-?),t_ms LIMIT 1', [trip_id, t])
+    frame = frames[i]
+    gps = store.rows(store.index, 'SELECT t_ms,place_id,state FROM gps WHERE trip_id=? ORDER BY t_ms', [trip_id])
+    gps_times = [g['t_ms'] for g in gps]
+    j = nearest(gps_times, frame['t_ms'])
     place = None
-    if rows and rows[0]['place_id']:
-        places = store.rows(store.index, 'SELECT * FROM places WHERE place_id=?', [rows[0]['place_id']])
+    if j is not None and abs(gps_times[j] - frame['t_ms']) <= period(gps_times, 0) and gps[j]['state'] == 'observed' and gps[j]['place_id']:
+        places = store.rows(store.index, 'SELECT * FROM places WHERE place_id=?', [gps[j]['place_id']])
         if places:
             import json
             place = places[0]
             if place['geom'] is not None:
                 place['geom'] = json.loads(place['geom'])
-    frame = frames[i]
     return {**frame, 'place': place, 'gps_sigma_m': frame['ego']['sigma_m']}
 
 

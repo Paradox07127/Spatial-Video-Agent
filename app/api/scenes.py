@@ -2,7 +2,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 import cv2
 import numpy as np
 from shapely.geometry import Point, Polygon
@@ -16,11 +16,21 @@ router = APIRouter()
 
 
 class ZoneRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     cam: str | None = None
     polygon_px: list[tuple[float, float]] | None = None
     polygon_world: list[tuple[float, float]] | None = None
     t_range: tuple[int, int] | None = None
+
+    @model_validator(mode='after')
+    def check(self):
+        if any(p is not None and len(p) < 3 for p in (self.polygon_px, self.polygon_world)):
+            raise ValueError('Polygon needs at least three points')
+        if self.polygon_world is not None and not ((shape := Polygon(self.polygon_world)).is_valid and shape.area > 0):
+            raise ValueError('Invalid polygon')
+        if self.t_range is not None and self.t_range[0] >= self.t_range[1]:
+            raise ValueError('t_range must be increasing')
+        return self
 
 
 @router.get('/api/workspaces')
@@ -230,6 +240,8 @@ def zone(scene_key: str, body: ZoneRequest, request: Request):
         cam = next((c for c in m['cams'] if c['id'] == body.cam), None)
         if cam is None:
             raise ValueError('Unknown camera')
+        if 'K' not in cam or 'cam2world' not in cam:
+            raise ValueError('Camera has no calibration for ground projection')
         fx, fy, cx, cy = cam['K']
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=float)
         coords = np.array(body.polygon_px, dtype=float).reshape(-1, 1, 2)

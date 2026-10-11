@@ -1,3 +1,5 @@
+from functools import lru_cache
+import json
 from pathlib import Path
 import socket
 import time
@@ -45,6 +47,12 @@ def dependencies(request: Request):
     return cached[1]
 
 
+@lru_cache(maxsize=1024)
+def manifest_rev(path, mtime_ns, size):
+    # Keyed by file identity so a probe re-reads a mirrored manifest only after it changes.
+    return json.loads(Path(path).read_text()).get('analysis_rev')
+
+
 def local_assets_ready(store, scenes):
     # Readiness must not make a HEAD call per file or recursively scan the mirror on each probe.
     # Only check indexed manifests and their direct required references in the local release.
@@ -62,6 +70,9 @@ def local_assets_ready(store, scenes):
         for scene in scenes:
             base = root / scene['scene_key']
             if not exists(base / 'manifest.json'):
+                return False
+            stat = (base / 'manifest.json').stat()
+            if manifest_rev(str(base / 'manifest.json'), stat.st_mtime_ns, stat.st_size) != scene.get('analysis_rev'):
                 return False
             for name, rel in scene.get('assets', {}).items():
                 # L1 dets and thumbnails are generated from existing sidecars/chunks on demand.

@@ -67,7 +67,7 @@ def test_assets_range_and_paths(client):
 def test_fleet_and_actions(client):
     trips = client.get('/api/fleet/trips').json()
     assert len(trips) == 2 and sum(t['full'] for t in trips) == 1
-    frame = client.get(f'/api/fleet/trip/{FL}/moment?t=6500').json()
+    frame = client.get(f'/api/fleet/trip/{FL}/moment?t=7000').json()
     place, sigma = frame.pop('place'), frame.pop('gps_sigma_m')
     assert place['place_id'] == 'pl_queen_spadina' and sigma == frame['ego']['sigma_m']
     doc = json.loads((SVA / f'fixtures/sva-out/{FL}/ego/00000.json').read_text())
