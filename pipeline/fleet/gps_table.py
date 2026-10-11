@@ -29,8 +29,7 @@ def trip_doc(vid: str, replay_start_ms: int) -> tuple[dict, list[dict]]:
     osm = pie.osm()
     pts, matches = [], []
     for f, g in zip(frames, pie.gps_at(o, frames)):
-        stale = g["state"] in ("last_known", "unknown") or g["sigma_m"] > map_match.JUNCTION_M
-        m = dict.fromkeys(MAP_KEYS) if stale else map_match.match(osm, g["lat"], g["lon"], g["heading"])
+        m = map_match.match(osm, g["lat"], g["lon"], g["heading"]) if map_match.trusted(g) else dict.fromkeys(MAP_KEYS)
         lat, lon = round(g["lat"], 7), round(g["lon"], 7)
         pts.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]},
                     "properties": {"kind": "gps", "t_ms": pie.t_ms(f), "lat": lat, "lon": lon, "heading": round(g["heading"], 2),

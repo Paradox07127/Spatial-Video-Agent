@@ -34,6 +34,11 @@ def maxspeed_kmh(tag: str | None) -> float | None:
     return round(float(num) * (MPH_KMH if unit else 1.0), 1)
 
 
+def trusted(g: dict) -> bool:
+    """A pie.gps_at position is good enough for way, junction, place and facade facts."""
+    return g["state"] not in ("last_known", "unknown") and g["sigma_m"] <= JUNCTION_M
+
+
 def match(o: dict, lat: float, lon: float, heading: float) -> dict:
     """{way_id, node_id, place_id, maxspeed_kmh, residual_m, road, junction, junction_m} for one GPS point."""
     p0 = np.array(pie.xy(lat, lon), float)

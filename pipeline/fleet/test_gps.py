@@ -72,3 +72,10 @@ def test_a_stale_position_near_a_junction_yields_no_map_facts(monkeypatch):
     near = pts[pie.t_ms(75)]  # observed, 9 m before the junction
     assert near["state"] == "observed" and near["place_id"] == "pl_bay_street_king_street" and near["node_id"] == 7
     assert mm[pie.t_ms(75)]["junction"] == ["Bay Street", "King Street"] and mm[pie.t_ms(75)]["state"] == "observed"
+
+
+def test_map_facts_need_a_fresh_and_tight_position():
+    ok = {"state": "interpolated", "sigma_m": map_match.JUNCTION_M}
+    assert map_match.trusted(ok)
+    assert not map_match.trusted({**ok, "sigma_m": map_match.JUNCTION_M + 0.1})
+    assert not any(map_match.trusted({**ok, "state": s}) for s in ("last_known", "unknown"))

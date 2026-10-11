@@ -21,7 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.common import lease  # noqa: E402
-from pipeline.fleet import facades, pie  # noqa: E402
+from pipeline.fleet import facades, map_match, pie  # noqa: E402
 
 STEP_FRAMES = 3  # 10 fps of the 30 fps video
 CHUNK_MS = 10000
@@ -155,7 +155,7 @@ def run(key: str) -> Path:
                                  "dims": DIMS[r[2]], "sigma_m": s})
             blds = [{"bid": bid, "u0": u0, "u1": u1}
                     for bid, (u0, u1, _) in sorted(facades.facades(osm, g["lat"], g["lon"], g["heading"], cal).items(),
-                                                   key=lambda kv: kv[1][0])]
+                                                   key=lambda kv: kv[1][0])] if map_match.trusted(g) else []
             ego = {"lat": round(g["lat"], 7), "lon": round(g["lon"], 7), "heading": round(g["heading"], 2),
                    "sigma_m": round(g["sigma_m"], 2), "state": g["state"]}
             chunks.setdefault(t // CHUNK_MS * CHUNK_MS, []).append(
