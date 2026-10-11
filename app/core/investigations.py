@@ -86,16 +86,18 @@ class Investigations:
         return self.rows('investigations', 'ORDER BY updated DESC LIMIT 100')
 
     def session(self, sid):
-        session = self.one('investigations', 'session_id', sid)
-        turns = self.rows('investigation_turns', 'WHERE session_id=? ORDER BY created,turn_id', [sid])
-        for turn in turns:
-            job = self.job(turn['job_id'])
-            turn.update(status=job['status'], attempt=job['attempt'], last_seq=job['last_seq'])
-            frames = self.rows('investigation_events', 'WHERE job_id=? AND attempt=? AND seq>=? ORDER BY seq',
-                               [job['job_id'], job['attempt'],job['current_attempt_start_seq']])
-            turn['answers'] = [r['frame_json']['data'] for r in frames if r['frame_json']['event'] == 'answer']
-            turn['observations'] = [r['observation_json'] for r in self.rows('investigation_observations',
-                                    'WHERE turn_id=? AND run_id=? ORDER BY created,observation_id', [turn['turn_id'],job['run_id']])]
+        # Writers commit under the same lock, so one snapshot cannot mix job states.
+        with self.store.lock:
+            session = self.one('investigations', 'session_id', sid)
+            turns = self.rows('investigation_turns', 'WHERE session_id=? ORDER BY created,turn_id', [sid])
+            for turn in turns:
+                job = self.job(turn['job_id'])
+                turn.update(status=job['status'], attempt=job['attempt'], last_seq=job['last_seq'])
+                frames = self.rows('investigation_events', 'WHERE job_id=? AND attempt=? AND seq>=? ORDER BY seq',
+                                   [job['job_id'], job['attempt'],job['current_attempt_start_seq']])
+                turn['answers'] = [r['frame_json']['data'] for r in frames if r['frame_json']['event'] == 'answer']
+                turn['observations'] = [r['observation_json'] for r in self.rows('investigation_observations',
+                                        'WHERE turn_id=? AND run_id=? ORDER BY created,observation_id', [turn['turn_id'],job['run_id']])]
         session['turns'] = turns
         return session
 
@@ -135,7 +137,7 @@ class Investigations:
                 changed_source = any(k in supplied and request['context'].get(k) != previous_context.get(k)
                                      for k in ('workspace', 'scene_key', 'scene_id', 'sources'))
                 for key, value in previous_context.items():
-                    if key not in supplied and not (changed_source and key in ('scene_key','scene_id','cam_id','t_ms','t_range','selection','zone')):
+                    if key not in supplied and not (changed_source and key in ('scene_key','scene_id','place','cam_id','t_ms','t_range','selection','zone','scope','sources')):
                         request['context'][key] = value
             from app.api.agent import AskContext
             context = AskContext.model_validate(request['context']).model_dump(mode='json')

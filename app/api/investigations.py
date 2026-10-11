@@ -1,5 +1,5 @@
 """Durable session/history/job APIs for protocol v2."""
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,9 +32,13 @@ def job(job_id: str, request: Request):
 
 
 @router.get('/jobs/{job_id}/events')
-def events(job_id: str, request: Request, after_seq: int = Query(default=0, ge=0)):
+def events(job_id: str, request: Request, after_seq: int = Query(default=0, ge=0),
+           attempt: int | None = Query(default=None, ge=0)):
     service = request.app.state.investigations
-    service.job(job_id)
+    job = service.job(job_id)
+    # A cursor from another attempt would splice two executions into one stream.
+    if attempt is not None and attempt != job['attempt']:
+        raise HTTPException(409, 'Job attempt changed; reload its history')
     return StreamingResponse(service.stream(job_id, after_seq), media_type='text/event-stream',
                              headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 

@@ -105,4 +105,6 @@ def test_application_durable_model_answers_inherit_scope_replay_and_restart(inde
         assert all(t['status']=='done' and len(t['observations']) == 1 for t in restored['turns'])
         replay = decode(client.get('/api/agent/jobs/'+third_jid+'/events?after_seq=0'))
         assert replay == third
+        assert decode(client.get('/api/agent/jobs/'+third_jid+'/events?after_seq=0&attempt=1')) == third
+        assert client.get('/api/agent/jobs/'+third_jid+'/events?after_seq=0&attempt=2').status_code == 409
         assert len(inputs) == call_count

@@ -202,6 +202,31 @@ def test_source_change_does_not_inherit_stale_actor_or_camera(store):
     assert context['selection'] is None and context['t_range'] is None
 
 
+def test_source_change_does_not_inherit_corpus_scope_sources_or_place(store):
+    s=Investigations(store,runner=frames);session=s.create()
+    first=AskRequest.model_validate(dict(q='Which aisles are blocked?',protocol_version=2,
+      session_id=session['session_id'],expected_revision=0,request_id='request-1',
+      context={'workspace':'warehouse','scope':'corpus','sources':['warehouse'],'place':'loading dock'}))
+    job=s.submit(first)
+    s.execute(s.one('investigation_jobs','job_id',job['job_id']))
+    second=AskRequest.model_validate(dict(q='Describe this trip',protocol_version=2,
+      session_id=session['session_id'],parent_turn_id=job['turn_id'],expected_revision=1,
+      request_id='request-2',context={'workspace':'fleet','scene_key':'fl-pie-fixture-01'}))
+    context=s.one('investigation_turns','turn_id',s.submit(second)['turn_id'])['context']
+    assert context['scope']=='scene' and context['sources'] is None and context['place'] is None
+
+
+def test_session_history_is_read_under_the_store_lock(store):
+    s=Investigations(store,runner=frames);session=s.create();job=s.submit(body(session))
+    s.execute(s.one('investigation_jobs','job_id',job['job_id']))
+    seen=[];rows=s.rows
+    def spy(*a,**kw):
+        seen.append(store.lock._is_owned());return rows(*a,**kw)
+    s.rows=spy
+    assert s.session(session['session_id'])['turns'][0]['answers'][0]['text']=='A visible vehicle moves.'
+    assert seen and all(seen)
+
+
 def test_clean_backup_restores_sessions_jobs_and_events(store,tmp_path):
     from app.scripts.state_backup import backup, restore
     s=Investigations(store,runner=frames);session=s.create();job=s.submit(body(session))
