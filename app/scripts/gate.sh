@@ -66,8 +66,8 @@ if [ "$MODE" != "--w0" ]; then
 fi
 
 step "secrets"
-HITS="$(grep -rInE '(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|(api[_-]?key|secret[_-]?key|password|token)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{16,})' \
-  --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=.e2e --exclude-dir=lib --exclude='*.mp4' --exclude='*.jpg' --exclude='*.bin' . || true)"
+# Scan what git would publish: tracked plus untracked files not ignored (.gitignore and .git/info/exclude).
+HITS="$(git ls-files -z -co --exclude-standard | xargs -0 grep -InE '(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|(api[_-]?key|secret[_-]?key|password|token)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{16,})' || true)"
 if [ -n "$HITS" ]; then echo "$HITS" | cut -c1-160; check 1 "no secrets in sva/"; else check 0 "no secrets in sva/"; fi
 
 echo
