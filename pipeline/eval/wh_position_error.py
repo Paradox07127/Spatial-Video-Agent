@@ -7,6 +7,7 @@ the camera's person box matches the GT 2D box (IoU > 0.3), that box has a confid
 triangulated (root_method tri, >= 2 views). On it: box bottom on z=0, ankle on the ankle plane (single view), and the
 triangulated root of the same frame. Split by camera and by horizontal camera-to-worker distance. Forklift: forklift.json
 track vs GT on runs 40-79 (run order = sorted run directory names), with the YOLO car/bus/truck recall that chose the source.
+Production table: per-axis sigma of the published skeleton.json root on the frames where each root_method was chosen.
 Reads _tmp/P-W2 products of every run that has them.
 """
 from __future__ import annotations
@@ -58,6 +59,52 @@ def run_rows(rd: Path) -> list[dict]:
     return rows
 
 
+def sigma_stats(err_xy) -> dict:
+    """Per-axis sigma and radial quantiles of (dx, dy) errors in m."""
+    e = np.asarray(err_xy, float).reshape(-1, 2)
+    r = np.hypot(e[:, 0], e[:, 1])
+    dev = np.abs(e - np.median(e, axis=0)).ravel()
+    return {"n": len(e), "sigma_axis_rms": float(np.sqrt(np.mean(np.sum(e ** 2, axis=1)) / 2)),
+            "sigma_axis_mad": float(1.4826 * np.median(dev)),  # 1.4826 * MAD = sigma for a Gaussian
+            "radial_median": float(np.median(r)), "radial_p90": float(np.percentile(r, 90))}
+
+
+def pair_production(sk: dict, owner: dict, poses: dict, gts: dict, centres: list) -> list[dict]:
+    """Published person frames whose entity owns the GT-matched camera track at that time, with the worker GT error."""
+    match: dict[int, set] = {}
+    for cam, pz in poses.items():
+        for t, dets in pz["frames"]:
+            w = forklift.agent(gts[cam][round(t * forklift.GT_FPS / 1000)], "Worker")
+            gb = forklift.box2d(w) if w else None
+            people = [d for d in dets if d[1] == "person"]
+            if gb is None or not people:
+                continue
+            d = max(people, key=lambda d: forklift.iou(gb, d[2:6]))
+            if forklift.iou(gb, d[2:6]) > IOU_GT and (cam, d[0]) in owner:
+                match.setdefault(t, set()).add(owner[(cam, d[0])])
+    rows = []
+    for pid, p in sk.items():
+        for t, xy, m in zip(p["t_ms"], p["root_world"], p["root_method"]):
+            if pid not in match.get(t, ()):
+                continue
+            i = round(t * forklift.GT_FPS / 1000)
+            w = next(a for a in (forklift.agent(g[i], "Worker") for g in gts.values()) if a)
+            truth = forklift.bottom(w)[0]
+            rows.append({"method": m, "dx": float(xy[0] - truth[0]), "dy": float(xy[1] - truth[1]),
+                         "dist": float(min(np.linalg.norm(np.asarray(c) - truth) for c in centres))})
+    return rows
+
+
+def production_rows(rd: Path) -> list[dict]:
+    key = pose2d.scene_key(rd)
+    poses = pose2d.load(key, sdg.DISPLAY_CAMS)
+    centres = [triangulate.Geo(e).C[:2] for e in triangulate.sdg_cams(rd, sdg.DISPLAY_CAMS).values()]
+    owner = {(o["cam_id"], o["local_track_id"]): e["entity_id"]
+             for e in json.loads((pose2d.WORK / key / "persons.json").read_text())["entities"] for o in e["observations"]}
+    sk = json.loads((pose2d.OUT_ROOT / "_tmp" / pose2d.OWNER / key / "skeleton.json").read_text())["persons"]
+    return pair_production(sk, owner, poses, {c: forklift.gt_lines(rd, c) for c in sdg.DISPLAY_CAMS}, centres)
+
+
 def pct(v: list[float]) -> str:
     return f"{np.median(v):.3f} / {np.percentile(v, 90):.3f}" if v else "–"
 
@@ -68,11 +115,12 @@ def main() -> None:
     a = ap.parse_args()
     runs = sorted(p for p in sdg.SDG_ROOT.iterdir() if sdg.RUN_RE.match(p.name))
     done = [(i, rd) for i, rd in enumerate(runs) if (pose2d.OUT_ROOT / "_tmp" / pose2d.OWNER / pose2d.scene_key(rd) / "forklift.json").is_file()]
-    rows, fk_err, rec = [], [], []
+    rows, prod, fk_err, rec = [], [], [], []
     with lease.acquire(cpu=2, owner=pose2d.OWNER):
         for i, rd in done:
             key = pose2d.scene_key(rd)
             rows += run_rows(rd)
+            prod += production_rows(rd)
             fo = json.loads((pose2d.WORK / key / "forklift_obs.json").read_text())
             rec.append((i, fo["n_gt"], fo["n_hit"]))
             if 40 <= i <= 79:
@@ -81,10 +129,22 @@ def main() -> None:
                 for q in fk["track"]:
                     g = truth[round(q["t_ms"] * forklift.GT_FPS / 1000)]
                     fk_err.append((q["source"], float(np.hypot(q["x"] - g["x"], q["y"] - g["y"]))))
-    L = ["# Person root and forklift position error (SDG)", "",
-         f"Runs with products: {len(done)} of {len(runs)}. Paired samples: N = {len(rows)} (run x pose2d frame x camera; "
-         "box matched to GT IoU > 0.3, confident ankle, triangulated root in the same frame). Error in m, median / p90.", "",
-         "| split | N | box bottom | ankle (single view) | triangulated |", "|---|---|---|---|---|"]
+    L = ["# Person root and forklift position error (SDG)", "", "## Production root error by method", "",
+         "Per-axis standard deviations (m) on the frames where the method was the production choice in skeleton.json, "
+         f"person matched to the GT worker box (IoU > {IOU_GT}); dist = truth to the nearest display camera.", "",
+         "| method | split | N | sigma_axis_rms | sigma_axis_mad | radial median / p90 |", "|---|---|---|---|---|---|"]
+    for m in triangulate.ROOT_SIGMA:
+        R = [r for r in prod if r["method"] == m]
+        bins = [(f"dist {lo:g}-{hi:g} m", [r for r in R if lo <= r["dist"] < hi]) for lo, hi in zip(DIST_BINS, DIST_BINS[1:])]
+        for name, B in bins + [("all", R)]:
+            s = sigma_stats([(r["dx"], r["dy"]) for r in B]) if B else None
+            cells = (f"{s['sigma_axis_rms']:.3f} | {s['sigma_axis_mad']:.3f} | {s['radial_median']:.3f} / {s['radial_p90']:.3f}"
+                     if s else "– | – | –")
+            L.append(f"| {m} | {name} | {len(B)} | {cells} |")
+    L += ["", "## Paired samples", "",
+          f"Runs with products: {len(done)} of {len(runs)}. Paired samples: N = {len(rows)} (run x pose2d frame x camera; "
+          "box matched to GT IoU > 0.3, confident ankle, triangulated root in the same frame). Error in m, median / p90.", "",
+          "| split | N | box bottom | ankle (single view) | triangulated |", "|---|---|---|---|---|"]
     splits = [(c, [r for r in rows if r["cam"] == c]) for c in sdg.DISPLAY_CAMS]
     splits += [(f"dist {lo:g}-{hi:g} m", [r for r in rows if lo <= r["dist"] < hi]) for lo, hi in zip(DIST_BINS, DIST_BINS[1:])]
     for name, R in splits + [("all", rows)]:
