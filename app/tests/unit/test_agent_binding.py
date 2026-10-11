@@ -58,10 +58,12 @@ def test_v2_instant_observation_covers_one_frame_period(store,monkeypatch):
     assert seen[0][1:3]==('eye_00',[1501,1535])
 
 
-def test_context_camera_constrains_closest_distance(store):
-    frames=run(store,'How far is P1 from F1?',workspace='warehouse',scene_key='wh-sdg-fixture-01',cam_id='ceiling_00')
-    assert final(frames)=='UNRESOLVED'
-    assert calls(frames,'measure') and all(c.get('cam')=='ceiling_00' for c in calls(frames,'measure'))
+def test_only_a_named_camera_constrains_the_closest_distance(store):
+    ambient=run(store,'How far is P1 from F1?',workspace='warehouse',scene_key='wh-sdg-fixture-01',cam_id='ceiling_00')
+    assert final(ambient)=='SUPPORTED' and all(c.get('cam') is None for c in calls(ambient,'measure'))
+    named=run(store,'How far is P1 from F1 in ceiling_00?',workspace='warehouse',scene_key='wh-sdg-fixture-01',cam_id='ceiling_00')
+    assert final(named)=='UNRESOLVED'
+    assert calls(named,'measure') and all(c.get('cam')=='ceiling_00' for c in calls(named,'measure'))
 
 
 @pytest.mark.parametrize('q,workspace,cam',[('How many people were tracked?','street','no_such_cam'),

@@ -626,6 +626,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             statistic = next((c for c in parsed.constraints if c in {'tracked_count','peak_count'}),None)
             warehouse = [s for s in tagged if s['workspace']=='warehouse']
             fleet = [s for s in tagged if s['workspace']=='fleet']
+            # measurements are world-frame: only a camera the question names constrains them, not the active view in context
+            named_cam = hard_cam if hard_cam and re.search(r'(?<![A-Za-z0-9_])'+re.escape(hard_cam)+r'(?![A-Za-z0-9_])',body.q,re.I) else None
             blind_cam = None
             if warehouse and re.search(r"can'?t see|cannot see|blind",body.q,re.I):
                 blind_cam = next((c['id'] for s in warehouse for c in s['cams']
@@ -838,8 +840,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     with trace.traced(run,'assess',{'scene_key':key,'t_ms':requested_time,'entity_id':entity_id},state='measure') as t:
                         yield step_frame(t,'measure','Measure tracked speed' if scalar_speed_q else 'Read the measured world ground position')
                         res=yield from call(t,'measure' if scalar_speed_q else 'ground_position','measure',
-                                            {'scene_key':key,'t_ms':requested_time,**({'a':target.model_dump(),'kind':'speed','cam':hard_cam} if scalar_speed_q else {'target':target.model_dump(),'zone':parsed.zone})},
-                                            lambda:tools.measure(store,key,requested_time,target,None,'speed',cam=hard_cam) if scalar_speed_q
+                                            {'scene_key':key,'t_ms':requested_time,**({'a':target.model_dump(),'kind':'speed','cam':named_cam} if scalar_speed_q else {'target':target.model_dump(),'zone':parsed.zone})},
+                                            lambda:tools.measure(store,key,requested_time,target,None,'speed',cam=named_cam) if scalar_speed_q
                                             else tools.ground_position(store,key,requested_time,target,zone=parsed.zone))
                         ev=next((e for e in res.evidence if e.kind=='measure' and e.method==('track_speed' if scalar_speed_q else 'ground_position')),None)
                         missing_uncertainty=bool(ev and not finite_sigma(ev))
@@ -865,11 +867,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if ev:
                             cams=store.manifest(key)['cams']
                             observed=[o.cam_id for o in ev.observation_ids if any(c['id']==o.cam_id for c in cams)]
-                            # a world position is camera-independent: only a camera the question names constrains it
-                            if (world_position_q and hard_cam and hard_cam not in observed
-                                    and re.search(r'(?<![A-Za-z0-9_])'+re.escape(hard_cam)+r'(?![A-Za-z0-9_])',body.q,re.I)):
+                            if world_position_q and named_cam and named_cam not in observed:
                                 predicates.append(Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=[target],operator='camera_constraint',
-                                                            value=hard_cam,unit=None,status='unknown',eids=[]))
+                                                            value=named_cam,unit=None,status='unknown',eids=[]))
                             cam=hard_cam or (observed[0] if observed else cams[0]['id'] if cams else '')
                             hit=MomentCard(moment_id=f'm_{key}_{requested_time}',scene_key=key,t0_ms=requested_time,t1_ms=requested_time+1,
                                            cams=[cam] if cam else [],primary_cam=cam,actor_refs=[target],evidence_ids=[ev.eid],score=1,
@@ -1002,15 +1002,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
                     yield step_frame(t,'measure','Scan worker and forklift tracks for the largest sampled distance')
                     scan = yield from call(t,'farthest_sample','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
-                                           lambda:farthest_sample(store,[s for s in warehouse if not hard_cam or any(c['id']==hard_cam for c in s['cams'])],
+                                           lambda:farthest_sample(store,[s for s in warehouse if not named_cam or any(c['id']==named_cam for c in s['cams'])],
                                                                   parsed.t_range,parsed.zone,selection=selection or None))
                     farthest = scan.envelope.output['farthest']
                     if farthest:
                         key, tm = farthest['scene_key'], farthest['t_ms']
                         person = EntityRef(scene_key=key,entity_id=farthest['a'],kind='person')
                         vehicle = EntityRef(scene_key=key,entity_id=farthest['b'],kind='forklift')
-                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':hard_cam},
-                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=hard_cam))
+                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':named_cam},
+                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=named_cam))
                         ev = res.evidence[0] if res.evidence else None
                         predicates[0] = predicates[0].model_copy(update={'subject_refs':[person,vehicle],'status':distance_status(ev,operator,value),
                                                                          'eids':[e.eid for e in res.evidence]})
@@ -1038,7 +1038,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 with trace.traced(run,'assess',{'scene_key':parsed.scene_key,'t_range':parsed.t_range},state='measure') as t:
                     yield step_frame(t,'measure','Scan worker and forklift tracks to measure the closest distance')
                     scan = yield from call(t,'closest_approach','measure',{'scene_key':parsed.scene_key,'t_range':parsed.t_range,'zone':parsed.zone},
-                                           lambda:tools.closest_approach(store,[s for s in warehouse if not hard_cam or any(c['id']==hard_cam for c in s['cams'])],
+                                           lambda:tools.closest_approach(store,[s for s in warehouse if not named_cam or any(c['id']==named_cam for c in s['cams'])],
                                                                          parsed.t_range,parsed.zone,**({'selection':selection} if selection else {})))
                     nearest = scan.envelope.output['closest']
                     closest = {'missing':scan.envelope.output['missing'],'scan':scan.evidence[0] if scan.evidence else None}
@@ -1046,8 +1046,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         key, tm = nearest['scene_key'], nearest['t_ms']
                         person = EntityRef(scene_key=key,entity_id=nearest['a'],kind='person')
                         vehicle = EntityRef(scene_key=key,entity_id=nearest['b'],kind='forklift')
-                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':hard_cam},
-                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=hard_cam))
+                        res = yield from call(t,'measure','measure',{'scene_key':key,'t_ms':tm,'a':person.model_dump(),'b':vehicle.model_dump(),'kind':'distance','cam':named_cam},
+                                              lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=named_cam))
                         ev = res.evidence[0] if res.evidence else None
                         _, operator, value, unit = spatial
                         reason = res.envelope.output.get('reason')
