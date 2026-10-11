@@ -310,7 +310,9 @@ def street_dir(tmp_path):
 @pytest.mark.parametrize("video", [True, False])
 def test_street_localize_uses_the_street_prompt(calls, street_dir, monkeypatch, video):
     monkeypatch.setenv("ASSET_DIR", str(street_dir(video)))
-    calls["queue"].append(REC["C4"])
+    # The warehouse recording spans 1.52–7.25s and is invalid for this
+    # street request; keep prompt assertions, inject a segment actually read.
+    calls["queue"].append(_resp(json.dumps({"segments": [{"start_s": 2.0, "end_s": 6.75, "text": "car passes"}]})))
     r = vlm.localize(ST, ST_CAM, 2000, 7000, "when does a car pass the person")
     assert r.prompt_rev == vlm.PROMPT_REV["C4-street"] != vlm.PROMPT_REV["C4"]
     assert r.record_id == make_record_id(ST, "C4", 4500, ST_CAM, ["when does a car pass the person", "2000-7000"], vlm.PROMPT_REV["C4-street"])

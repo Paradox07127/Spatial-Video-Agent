@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import os
 import re
 import time
@@ -31,6 +32,7 @@ from app.core import trace
 from app.core.deadline import DeadlineExceeded, remaining, scope
 from app.core.models import ENTITY_ID_RE, CosmosRecord, EntityRef, make_record_id
 from app.core.street import _digest as street_digest
+from app.settings import Settings
 
 # prompt revision per task, part of every record_id: bump only the prompt that changed so other records stay found
 PROMPT_REV = {"C1": "px-2", "C1-fleet": "px-1", "C2": "px-1", "C3": "px-1", "C4": "px-1", "C5": "px-1",
@@ -68,7 +70,9 @@ _SCENE_FIELDS = {  # the fixed observation JSON of §2.5, asked for in C1 and C2
     "source_intervals": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2,
                                                     "maxItems": 2}, "maxItems": 4},
 }
-_fails: dict[str | None, int] = {}  # consecutive endpoint failures per run_id (None = calls without a run)
+_fails: dict[Any, int] = {}
+_opened: dict[Any, float] = {}
+CIRCUIT_COOLDOWN_S = 30.0  # consecutive endpoint failures per run_id (None = calls without a run)
 
 
 class VLMUnavailable(RuntimeError):
@@ -87,7 +91,8 @@ def _budgeted(function):
 
 
 @_budgeted
-def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, run: Any = None) -> CosmosRecord:
+def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, cam: str | None = None, t_range: tuple[int, int] | list[int] | None = None,
+              run: Any = None) -> CosmosRecord:
     """C1: label in situation_map labels + one-sentence reason + uncertainty."""
     labels = FL_LABELS if _fleet(scene_key) else WH_LABELS
     ids = [a.entity_id for a in actor_refs]
@@ -98,7 +103,11 @@ def situation(scene_key: str, t_ms: int, actor_refs: list[EntityRef], *, run: An
               "uncertainty is 0 (sure) to 1 (guess).")
     schema = _obj({**_SCENE_FIELDS, "label": {"enum": labels}, "reason": {"type": "string"},
                    "uncertainty": {"type": "number", "minimum": 0, "maximum": 1}})
-    return _call("C1", scene_key, None, t_ms, actor_refs, (t_ms - WINDOW_MS, t_ms + WINDOW_MS), [], prompt, schema,
+    window = tuple(t_range) if t_range is not None else (t_ms - WINDOW_MS, t_ms + WINDOW_MS)
+    if len(window) != 2 or window[0] < 0 and t_range is not None or window[1] <= window[0]:
+        raise VLMUnavailable("invalid_model_scope")
+    extra = [f"scope:{window[0]}:{window[1]}"] if t_range is not None else []
+    return _call("C1", scene_key, cam, t_ms, actor_refs, window, extra, prompt, schema,
                  lambda o, f: {"label": o["label"], "reason": o["reason"], "uncertainty": o["uncertainty"]}, run)
 
 
@@ -193,11 +202,17 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
         return make_record_id(scene_key, task, t, cam, ids + key_extra, _rev(task, scene_key))
     rid = id_at(t_ms)
     identity = _cache_identity(scene_key)
+    manifest = _manifest(scene_key)
+    bounds = (max(window[0], manifest["t0_ms"]), min(window[1], manifest["t1_ms"]))
+    expected_cam = cam or _pick_cam(scene_key, manifest, ids, *bounds)
+    if cam is not None or key_extra and str(key_extra[-1]).startswith("scope:"):
+        identity = {**identity, "cam": expected_cam, "window": list(bounds)} if identity else None
     with (trace.traced(run, f"vlm.{task}", {"scene_key": scene_key, "t_ms": t_ms, "cam_id": cam, "actor_ids": ids,
                                             "record_id": rid}, state="inspect") if run is not None else nullcontext()) as st:
         # only C1 looks at a window around t_ms; C2 must see nothing after its own t_ms and C3-C5 are keyed by their window
         cache_source = []
-        rec = _cached(scene_key, rid, t_ms, id_at if task == "C1" else None,identity,cache_source)
+        rec = _cached(scene_key, rid, t_ms, id_at if task == "C1" and not key_extra and cam is None else None,identity,cache_source,
+                      validator=lambda r: _validate_record(r, bounds, expected_cam, manifest))
         state = cache_source[0] if cache_source else "precomputed"
         if rec is None:
             rec, state = _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, make_payload, rid,
@@ -278,11 +293,12 @@ def _source_identity(scene_key):
 
 def _cache_identity(scene_key):
     source = _source_identity(scene_key)
-    model = os.environ.get('VLM_MODEL','')
-    return {'model':model,'endpoint':os.environ.get('VLM_URL',''),'source':source} if source and model else None
+    settings = Settings()
+    model = settings.vlm_model
+    return {'model':model,'endpoint':settings.vlm_url,'source':source} if source and model else None
 
 
-def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=None) -> CosmosRecord | None:
+def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=None, validator=None) -> CosmosRecord | None:
     if identity is None:
         return None
     p = _cache_dir() / f"{rid}.json"
@@ -292,10 +308,12 @@ def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=No
             if cached.get('identity')==identity:
                 rec = CosmosRecord.model_validate(cached['record'])
                 if rec.model_rev==identity['model']:
+                    if validator:
+                        validator(rec)
                     if source is not None:
                         source.append('cached')
                     return rec
-        except (ValueError,KeyError,TypeError):
+        except (ValueError,KeyError,TypeError,VLMUnavailable):
             pass  # old, incomplete or corrupt caches are misses
     rel = _manifest(scene_key)['assets'].get('cosmos')
     published = _json(scene_key,rel) if rel else None
@@ -308,7 +326,14 @@ def _cached(scene_key: str, rid: str, t_ms: int, id_at, identity=None, source=No
     if near:
         if source is not None:
             source.append('precomputed')
-        return CosmosRecord.model_validate(min(near,key=lambda r:abs(r['t_ms']-t_ms)))
+        for row in sorted(near, key=lambda r: abs(r['t_ms']-t_ms)):
+            try:
+                record = CosmosRecord.model_validate(row)
+                if validator:
+                    validator(record)
+                return record
+            except (ValueError, TypeError, VLMUnavailable):
+                continue
     return None
 
 
@@ -316,7 +341,7 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
     m = _manifest(scene_key)
     lo, hi = max(window[0], m["t0_ms"]), min(window[1], m["t1_ms"])
     cam = cam or _pick_cam(scene_key, m, ids, lo, hi)
-    frames = [f for f in _frames(scene_key, m, cam, list(range(lo, hi, STEP_MS)), set(ids), region) if f[0] < hi]
+    frames = [f for f in _frames(scene_key, m, cam, list(range(lo, hi, STEP_MS)), set(ids), region) if lo <= f[0] < hi]
     if not frames:
         raise VLMUnavailable(f"{scene_key}/{cam}: no video frames in [{lo}, {hi})")
     if m["workspace"] == "street":
@@ -336,41 +361,77 @@ def _live(task, scene_key, cam, t_ms, actor_refs, ids, window, prompt, schema, m
     rec = {"record_id": rid, "task": task, "t_ms": t_ms, "cam_id": cam,
            "actor_refs": [a.model_dump() for a in actor_refs],
            "input_frame_refs": [{"cam_id": cam, "t_ms": ms} for ms, _ in frames], "prefix_only": task == "C2",
-           "model_rev": os.environ.get("VLM_MODEL", ""), "prompt_rev": _rev(task, scene_key), "payload": payload, "raw": out,
+           "model_rev": Settings().vlm_model, "prompt_rev": _rev(task, scene_key), "payload": payload, "raw": out,
            "verification": {"status": "unverified", "method": "model output, not checked", "ref": None}}
     errs = [e.message for e in _record_validator().iter_errors(rec)]
     if errs:
         raise VLMUnavailable(f"{task} output fails cosmos.json: {errs[0][:200]}")
-    return CosmosRecord.model_validate(rec)
+    record = CosmosRecord.model_validate(rec)
+    _validate_record(record, (lo, hi), cam, m)
+    return record
+
+
+def _validate_record(record, window, cam, manifest):
+    """One validator for decoded, local-cache and published model receipts."""
+    frames = record.input_frame_refs
+    if not frames or record.cam_id != cam or any(f.cam_id != cam or not window[0] <= f.t_ms < window[1] for f in frames):
+        raise VLMUnavailable("invalid_model_scope: frame camera/PTS outside requested window")
+    if record.task == "C4":
+        # Localized times must be within actually read coverage (one sampling interval
+        # after the last frame is allowed, never beyond the hard requested window).
+        lo, hi = min(f.t_ms for f in frames), min(window[1], max(f.t_ms for f in frames) + STEP_MS)
+        for seg in record.payload.get("segments", []):
+            a, b = seg.get("start_s"), seg.get("end_s")
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (a, b)) or not 0 <= a <= b or a*1000 < lo or b*1000 > hi:
+                raise VLMUnavailable("invalid_model_localization: segment outside read window or reversed")
+    if record.task == "C3":
+        for obj in record.payload.get("objects", []):
+            box = obj.get("box_0_1000", [])
+            if len(box) != 4 or not all(isinstance(v, (int, float)) and math.isfinite(v) and 0 <= v <= 1000 for v in box) or box[0] >= box[2] or box[1] >= box[3]:
+                raise VLMUnavailable("invalid_model_grounding: invalid box")
 
 
 def _chat(images: list[str], prompt: str, schema: dict, run_id: str | None, deadline: float | None = None) -> dict:
-    if _fails.get(run_id, 0) >= 2:
-        raise VLMUnavailable("circuit open after 2 consecutive endpoint failures")
+    settings = Settings()
+    circuit = run_id if run_id is not None else (settings.vlm_url, settings.vlm_model)
+    if _fails.get(circuit, 0) >= 2:
+        if time.monotonic() - _opened.get(circuit, 0) < CIRCUIT_COOLDOWN_S:
+            raise VLMUnavailable("circuit open after 2 consecutive endpoint failures")
+        _fails[circuit] = 0
     timeout = TIMEOUT_S if deadline is None else min(TIMEOUT_S, deadline - time.monotonic())  # deadline: time.monotonic() s
     if timeout <= 0:
         raise VLMUnavailable("ask budget exhausted before the VLM call")
     content = [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}} for b in images]
-    body = {"model": os.environ.get("VLM_MODEL", ""), "temperature": 0, "max_tokens": 1024,
+    body = {"model": settings.vlm_model, "temperature": 0, "max_tokens": 1024,
             "messages": [{"role": "user", "content": [*content, {"type": "text", "text": prompt}]}],
             "response_format": {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}}}
-    tok = os.environ.get("GPU_BEARER_TOKEN")
+    tok = settings.gpu_bearer_token
     try:
-        base = os.environ["VLM_URL"].rstrip("/")  # the service root or .../v1, as in llm.complete_json
+        base = settings.vlm_url.rstrip("/")
+        if not base:
+            raise KeyError("VLM_URL")  # the service root or .../v1, as in llm.complete_json
         r = httpx.post(base + ("" if base.endswith("/v1") else "/v1") + "/chat/completions", json=body, timeout=timeout,
                        headers={"Authorization": f"Bearer {tok}"} if tok else None)
         r.raise_for_status()
     except (httpx.HTTPError, KeyError) as e:
-        _fails[run_id] = _fails.get(run_id, 0) + 1
+        _fails[circuit] = _fails.get(circuit, 0) + 1
+        if _fails[circuit] >= 2:
+            _opened[circuit] = time.monotonic()
         raise VLMUnavailable(f"VLM request failed: {type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')}") from e
-    _fails[run_id] = 0
+    _fails[circuit] = 0
+    _opened.pop(circuit, None)
     try:
         text = r.json()["choices"][0]["message"]["content"] or ""
     except (ValueError, LookupError, TypeError) as e:
         raise VLMUnavailable("VLM response has no message content") from e
+    if not isinstance(text, str):
+        raise VLMUnavailable("VLM response content is not text")
     m = re.search(r"\{.*\}", text, re.S)  # the reasoner may wrap the JSON in prose or a code fence
     try:
-        return json.loads(m.group(0) if m else text)
+        parsed = json.loads(m.group(0) if m else text)
+        if not isinstance(parsed, dict):
+            raise VLMUnavailable("VLM response JSON is not an object")
+        return parsed
     except json.JSONDecodeError as e:
         raise VLMUnavailable(f"VLM returned no JSON: {text[:120]!r}") from e
 
