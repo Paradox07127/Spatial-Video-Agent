@@ -481,8 +481,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     else:
                         if named_manifest['workspace']!=parsed.workspace:
                             source_reason='conflicting_workspace_constraints'
+                        elif parsed.sources and tag_of(named_manifest) not in parsed.sources:
+                            source_reason='conflicting_source_constraints'
                         else:
-                            parsed=parsed.model_copy(update={'scene_key':named_key})
+                            parsed=parsed.model_copy(update={'scene_key':named_key,'scope':'scene'})
             parsed, constraint_reason = apply_constraints(body.q,context,parsed)
             constraint_reason=constraint_reason or source_reason
             if parsed.scene_key:

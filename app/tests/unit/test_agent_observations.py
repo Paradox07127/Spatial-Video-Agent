@@ -120,13 +120,14 @@ def test_explicit_source_cannot_describe_different_active_scene(store,monkeypatc
     assert not any(f['event']=='observation' for f in frames)
 
 
-def test_explicit_source_names_bind_unscoped_visual_observations(store,monkeypatch):
+@pytest.mark.parametrize('scope',['scene','corpus'])
+def test_explicit_source_names_bind_unscoped_visual_observations(store,monkeypatch,scope):
     calls=[]
     def observed(*args,**kwargs):
         calls.append(args);return receipt(*args,**kwargs)
     monkeypatch.setattr(vlm,'observe_window',observed,raising=False)
     frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe wh-sdg-fixture-01',protocol_version=2,
-        context={'workspace':'warehouse'})))
+        context={'workspace':'warehouse','scope':scope})))
     assert calls[0][0]=='wh-sdg-fixture-01'
     assert any(f['event']=='observation' for f in frames)
 
