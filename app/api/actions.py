@@ -28,7 +28,9 @@ def deliver_notifications(store, action):
             if row and row[0] == 'sending' and row[1] > datetime.now(timezone.utc).replace(tzinfo=None)-timedelta(seconds=60):
                 delivered = False
                 continue
-            store.app.execute('INSERT OR REPLACE INTO action_deliveries VALUES (?,?,?,?)', [action.action_id,channel,'sending',now()])
+            store._commit_write('INSERT OR REPLACE INTO action_deliveries VALUES (?,?,?,?)',
+                                [action.action_id,channel,'sending',now()], [('action_deliveries',(action.action_id,channel))])
+        store._mirror('action_deliveries',(action.action_id,channel))
         ok = False
         try:
             if channel == 'wandb_alert':
@@ -50,10 +52,14 @@ def deliver_notifications(store, action):
         except Exception:
             logger.warning('Action delivery deferred for %s/%s', action.action_id, channel)
         with store.lock:
-            store.app.execute('UPDATE action_deliveries SET status=?,updated=? WHERE action_id=? AND channel=?', ['sent' if ok else 'failed',now(),action.action_id,channel])
+            store._commit_write('UPDATE action_deliveries SET status=?,updated=? WHERE action_id=? AND channel=?',
+                                ['sent' if ok else 'failed',now(),action.action_id,channel], [('action_deliveries',(action.action_id,channel))])
+        store._mirror('action_deliveries',(action.action_id,channel))
         delivered = delivered and ok
     with store.lock:
-        store.app.execute('UPDATE actions SET delivered=? WHERE action_id=?', [delivered,action.action_id])
+        current=store.app.execute('SELECT delivered FROM actions WHERE action_id=?',[action.action_id]).fetchone()
+        if current is not None and bool(current[0]) != delivered:
+            store._commit_write('UPDATE actions SET delivered=? WHERE action_id=?',[delivered,action.action_id], [('actions',action.action_id)])
     return delivered
 
 
@@ -108,10 +114,17 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
                 store._insert_model('actions', action, mirror=False)
             if zone:
                 store._insert_model('zones', zone, mirror=False)
+            store.queue_mirror('actions',action_id)
+            if zone:
+                store.queue_mirror('zones',zone_id)
             store.app.execute('COMMIT')
         except BaseException:
             store.app.execute('ROLLBACK')
             raise
+    if existing and existing.delivered:
+        for channel in existing.actions:
+            if channel in ('wandb_alert','webhook'):
+                store._mirror('action_deliveries',(existing.action_id,channel))
     delivered = deliver_notifications(store, action)
     store._mirror('actions', action_id)
     if zone:

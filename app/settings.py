@@ -4,6 +4,18 @@ import os
 from pathlib import Path
 
 
+def tls_verify(name, fallback='1'):
+    value=os.environ.get(name,fallback)
+    if value in ('1','true','True'):
+        return True
+    if value in ('0','false','False'):
+        return False
+    path=Path(value)
+    if not path.is_file():
+        raise ValueError(f'{name} must be 1, 0 or an existing trusted CA bundle')
+    return str(path)
+
+
 def env(name, default='', *, secret=False):
     return field(default_factory=lambda: os.environ.get(name, default), repr=not secret)
 
@@ -25,8 +37,8 @@ class Settings:
     vss_password: str = field(default_factory=lambda: os.environ.get('VSS_PASSWORD', os.environ.get('PASSWORD', '')), repr=False)
     site_map_path: Path = field(default_factory=lambda: Path(os.environ.get('SITE_MAP', 'site_map.json')))
     s3_endpoint: str = env('S3_ENDPOINT')
-    s3_verify: bool = field(default_factory=lambda: os.environ.get('S3_VERIFY', '1') != '0')
-    vdb_verify: bool = field(default_factory=lambda: os.environ.get('VDB_VERIFY', os.environ.get('S3_VERIFY','1')) != '0')
+    s3_verify: bool | str = field(default_factory=lambda: tls_verify('S3_VERIFY'))
+    vdb_verify: bool | str = field(default_factory=lambda: tls_verify('VDB_VERIFY',os.environ.get('S3_VERIFY','1')))
     access_key: str = env('ACCESS_KEY', secret=True)
     secret_key: str = env('SECRET_KEY', secret=True)
     asset_bucket: str = env('ASSET_BUCKET')

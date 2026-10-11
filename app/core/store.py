@@ -12,6 +12,9 @@ import hashlib
 import json
 import logging
 import math
+import os
+import tempfile
+import time
 from pathlib import Path
 from threading import RLock
 from typing import Any, Literal
@@ -25,10 +28,36 @@ from app.settings import Settings
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / 'schemas'
 INDEX_TABLES = ('clips', 'detections', 'tracks', 'events', 'gps', 'places', 'scene_manifest')
-APP_KEYS = {'agent_runs': 'run_id', 'query_cache': 'qhash', 'actions': 'action_id', 'zones': 'zone_id'}
-JSON_COLUMNS = {'context', 'steps', 'claims', 'evidence', 'hits', 'model_revs', 'response', 'polygon_world', 't_range', 'manifest', 'params', 'geom'}
+APP_KEYS = {'agent_runs': 'run_id', 'query_cache': 'qhash', 'actions': 'action_id', 'zones': 'zone_id', 'action_deliveries': ('action_id','channel'),
+            'investigations':'session_id', 'investigation_turns':'turn_id', 'investigation_jobs':'job_id',
+            'investigation_events':'event_id', 'investigation_observations':'observation_id'}
+JSON_COLUMNS = {'context', 'steps', 'claims', 'evidence', 'hits', 'model_revs', 'response', 'polygon_world', 't_range', 'manifest', 'params', 'geom', 'request_json', 'frame_json', 'observation_json'}
 VSS_COLUMNS = ['source', 'original_video', 'segment_start_sec', 'segment_end_sec', 'reasoning_content', 'object_counts', 'camera_id', 'location', 'vectors', 'vectors_visual']
 logger = logging.getLogger(__name__)
+
+
+def _key_columns(name):
+    if name not in APP_KEYS:
+        raise ValueError('Unknown application table')
+    key = APP_KEYS[name]
+    return (key,) if isinstance(key,str) else key
+
+
+def _encode_key(name, value):
+    keys = _key_columns(name)
+    if len(keys)==1:
+        return str(value)
+    if not isinstance(value,(list,tuple)) or len(value)!=len(keys):
+        raise ValueError('Composite key requires all key columns')
+    return json.dumps(list(value),separators=(',',':'))
+
+
+def _decode_key(name, value):
+    keys = _key_columns(name)
+    values = [value] if len(keys)==1 else json.loads(value)
+    if len(values)!=len(keys):
+        raise ValueError('Invalid mirror key')
+    return values
 
 
 def dumps(value):
@@ -61,6 +90,8 @@ class Store:
         self.app = duckdb.connect(str(self.app_path))
         self.app.execute((SCHEMAS_DIR / 'app.sql').read_text())
         self.app.execute('CREATE TABLE IF NOT EXISTS mirror_outbox(table_name TEXT, row_key TEXT, generation TEXT, PRIMARY KEY(table_name,row_key))')
+        self.app.execute('CREATE TABLE IF NOT EXISTS blob_outbox(uri TEXT PRIMARY KEY, local_path TEXT, sha256 TEXT, size BIGINT, attempts INTEGER, next_retry DOUBLE, generation TEXT)')
+        self._blob_lock = RLock()
         self.app.execute('CREATE TABLE IF NOT EXISTS action_deliveries(action_id TEXT, channel TEXT, status TEXT, updated TIMESTAMP, PRIMARY KEY(action_id,channel))')
         self.index = None
         self.closed = False
@@ -146,16 +177,25 @@ class Store:
         """Local application data is authoritative. Remote snapshots only recover absent keys."""
         if name not in APP_KEYS:
             raise ValueError('Unknown application table')
-        key = APP_KEYS[name]
+        keys = _key_columns(name)
         # A final run wins over an earlier running snapshot, regardless of remote row order.
-        order = "CASE WHEN status='running' THEN 0 ELSE 1 END DESC, elapsed_ms DESC NULLS LAST," if name == 'agent_runs' else ''
+        order = "CASE WHEN status='running' THEN 0 ELSE 1 END DESC, elapsed_ms DESC NULLS LAST," if name == 'agent_runs' else "CASE WHEN status='sent' THEN 2 WHEN status='sending' THEN 1 ELSE 0 END DESC, updated DESC," if name == 'action_deliveries' else ''
+        columns = set(arrow.column_names)
+        if name == 'investigations' and 'revision' in columns:
+            order += 'revision DESC,'
+        if 'updated' in columns and name != 'action_deliveries':
+            order += 'updated DESC,'
+        if 'created' in columns:
+            order += 'created DESC,'
+        match = ' AND '.join(f'local.{key}=r.{key}' for key in keys)
+        partition = ','.join(keys)
         with self.lock:
             self.app.register('_restore_rows', arrow)
             try:
                 self.app.execute(f'''INSERT INTO {name} BY NAME
                     SELECT * FROM _restore_rows r
-                    WHERE NOT EXISTS (SELECT 1 FROM {name} local WHERE local.{key}=r.{key})
-                    QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY {order} created DESC, to_json(r) DESC)=1
+                    WHERE NOT EXISTS (SELECT 1 FROM {name} local WHERE {match})
+                    QUALIFY row_number() OVER (PARTITION BY {partition} ORDER BY {order} to_json(r) DESC)=1
                     ON CONFLICT DO NOTHING''')
             finally:
                 self.app.unregister('_restore_rows')
@@ -187,11 +227,18 @@ class Store:
         self.live = live
         logger.info('vss-collection: %d of %d rows map to our clips', len(rows), arrow.num_rows)
 
-    def _mirror(self, name, key):
+    def queue_mirror(self, name, key):
+        """Enqueue inside the caller's local transaction; delivery is always separate."""
+        encoded = _encode_key(name, key)
         if self.backend == 'vastdb':
             with self.lock:
-                self.app.execute('INSERT OR REPLACE INTO mirror_outbox VALUES (?,?,?)', [name, key, uuid4().hex])
-            return self._deliver_mirror(name, key)
+                self.app.execute('INSERT OR REPLACE INTO mirror_outbox VALUES (?,?,?)', [name, encoded, uuid4().hex])
+        return encoded
+
+    def _mirror(self, name, key):
+        encoded = self.queue_mirror(name, key)
+        if self.backend == 'vastdb':
+            return self._deliver_mirror(name, encoded)
         return True
 
     def _deliver_mirror(self, name, key):
@@ -201,7 +248,10 @@ class Store:
                 pending = self.app.execute('SELECT generation FROM mirror_outbox WHERE table_name=? AND row_key=?', [name, key]).fetchone()
                 if not pending:
                     return True
-                arrow = self.app.execute(f'SELECT * FROM {name} WHERE {APP_KEYS[name]}=?', [key]).to_arrow_table()
+                keys = _key_columns(name)
+                values = _decode_key(name, key)
+                predicate = ' AND '.join(f'{col}=?' for col in keys)
+                arrow = self.app.execute(f'SELECT * FROM {name} WHERE {predicate}', values).to_arrow_table()
             try:
                 self.write_vastdb({name: arrow})
             except Exception:
@@ -391,20 +441,54 @@ class Store:
             raise
         return json.loads(obj['Body'].read())
 
+    def _stable_assets(self, value):
+        """Recover legacy signed asset URLs as source identities, without network."""
+        from urllib.parse import urlparse, unquote
+        if isinstance(value,dict):
+            return {k:self._stable_assets(v) for k,v in value.items()}
+        if isinstance(value,list):
+            return [self._stable_assets(v) for v in value]
+        if isinstance(value,str) and value.startswith(('https://','http://')):
+            url=urlparse(value)
+            endpoint=urlparse(self.settings.s3_endpoint)
+            prefix=f'/{self.settings.asset_bucket}/sva/'
+            if endpoint.netloc and url.netloc==f'{self.settings.asset_bucket}.{endpoint.netloc}':
+                prefix='/sva/'
+            if endpoint.netloc and url.netloc in (endpoint.netloc,f'{self.settings.asset_bucket}.{endpoint.netloc}') and url.path.startswith(prefix):
+                relative=unquote(url.path[len(prefix):])
+                if '..' not in Path(relative).parts:
+                    return '/api/assets/'+relative
+        return value
+
     def asset_url(self, scene_key: str, relpath: str) -> str:
         path = f'{scene_key}/{relpath}'
-        if self.asset_dir is not None:
-            return '/api/assets/' + path
+        return '/api/assets/' + path
+
+    def presigned_asset_url(self, scene_key: str, relpath: str) -> str:
+        path = f'{scene_key}/{relpath}'
         return self.s3().generate_presigned_url('get_object', Params={'Bucket': self.settings.asset_bucket, 'Key': 'sva/' + path})
 
     def list_scenes(self, workspace: str | None = None) -> list[dict]:
         rows = self.rows(self.index, 'SELECT manifest FROM scene_manifest' + (' WHERE workspace=?' if workspace else '') + ' ORDER BY scene_key', [workspace] if workspace else [])
         return [json.loads(r['manifest']) for r in rows]
 
+    def _commit_write(self, sql, values, mirrors):
+        """One local transaction for application mutation and replication intent."""
+        with self.lock:
+            self.app.execute('BEGIN TRANSACTION')
+            try:
+                self.app.execute(sql,values)
+                for name,key in mirrors:
+                    self.queue_mirror(name,key)
+                self.app.execute('COMMIT')
+            except BaseException:
+                self.app.execute('ROLLBACK')
+                raise
+
     def begin_run(self, q: str, ctx: dict, *, kind: Literal['ask', 'watch'] = 'ask', source_run_id: str | None = None) -> str:
         rid = 'r_' + uuid4().hex
-        with self.lock:
-            self.app.execute('INSERT INTO agent_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)', [rid, kind, q, dumps(ctx), '[]', '[]', '[]', '[]', 'running', source_run_id, '{}', now()])
+        self._commit_write('INSERT INTO agent_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)',
+                           [rid, kind, q, dumps(ctx), '[]', '[]', '[]', '[]', 'running', source_run_id, '{}', now()], [('agent_runs',rid)])
         self._mirror('agent_runs', rid)
         return rid
 
@@ -420,7 +504,8 @@ class Store:
                     steps.append(data)
                 changes['steps'] = steps
             columns = ','.join(f'{name}=?' for name in changes)
-            self.app.execute(f'UPDATE agent_runs SET {columns} WHERE run_id=?', [dumps(v) if k in JSON_COLUMNS else v for k, v in changes.items()] + [run_id])
+            self._commit_write(f'UPDATE agent_runs SET {columns} WHERE run_id=?',
+                               [dumps(v) if k in JSON_COLUMNS else v for k, v in changes.items()] + [run_id], [('agent_runs',run_id)])
 
     def _steps(self, run_id):
         raw = self.app.execute('SELECT steps FROM agent_runs WHERE run_id=?', [run_id]).fetchone()[0]
@@ -466,12 +551,12 @@ class Store:
             row = rows[0]
             row = {k: json.loads(v) if k in JSON_COLUMNS and v is not None else v for k, v in row.items()}
             row['created'] = row['created'].isoformat() + 'Z'
-            run = AgentRun.model_validate(row)
-            for step in run.steps:
-                if step.blob_ref:
-                    payload = json.loads(self.read_blob(step.blob_ref))
-                    step.input, step.output = payload['input'], payload['output']
-            return run
+            run = AgentRun.model_validate(self._stable_assets(row))
+        for step in run.steps:
+            if step.blob_ref:
+                payload = json.loads(self.read_blob(step.blob_ref))
+                step.input, step.output = self._stable_assets(payload['input']), self._stable_assets(payload['output'])
+        return run
 
     def list_runs(self, scene_key: str | None = None, limit: int = 20) -> list[dict]:
         where = " WHERE json_extract_string(context, '$.scene_key')=?" if scene_key else ''
@@ -482,11 +567,11 @@ class Store:
         rows = self.rows(self.app, 'SELECT * FROM query_cache WHERE qhash=?', [qhash])
         if not rows:
             return None
-        return {k: json.loads(v) if k in JSON_COLUMNS else v.isoformat() if isinstance(v, datetime) else v for k, v in rows[0].items()}
+        return self._stable_assets({k: json.loads(v) if k in JSON_COLUMNS else v.isoformat() if isinstance(v, datetime) else v for k, v in rows[0].items()})
 
     def cache_put(self, qhash: str, q: str, context: dict, response: dict, backend: str, source_run_id: str) -> None:
-        with self.lock:
-            self.app.execute('INSERT OR REPLACE INTO query_cache VALUES (?,?,?,?,?,?,?)', [qhash, q, dumps(context), dumps(response), now(), backend, source_run_id])
+        self._commit_write('INSERT OR REPLACE INTO query_cache VALUES (?,?,?,?,?,?,?)',
+                           [qhash,q,dumps(context),dumps(response),now(),backend,source_run_id], [('query_cache',qhash)])
         self._mirror('query_cache', qhash)
 
     def find_action(self, scene_key: str, event_id: str) -> Action | None:
@@ -499,10 +584,14 @@ class Store:
     def _insert_model(self, name, model, mirror=True):
         data = model.model_dump(mode='json')
         columns = list(data)
-        with self.lock:
-            self.app.execute(f'INSERT INTO {name} ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', [dumps(v) if k in JSON_COLUMNS and v is not None else v for k, v in data.items()])
+        sql=f'INSERT INTO {name} ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})'
+        values=[dumps(v) if k in JSON_COLUMNS and v is not None else v for k,v in data.items()]
         if mirror:
-            self._mirror(name, data[APP_KEYS[name]])
+            self._commit_write(sql,values,[(name,data[APP_KEYS[name]])])
+            self._mirror(name,data[APP_KEYS[name]])
+        else:
+            # Caller owns the surrounding SQL transaction and queues its rows.
+            with self.lock:self.app.execute(sql,values)
         return data[APP_KEYS[name]]
 
     def insert_action(self, action: Action) -> str:
@@ -518,23 +607,64 @@ class Store:
         return [self._model_row(Zone, r) for r in self.rows(self.app, 'SELECT * FROM zones WHERE scene_key=? ORDER BY created', [scene_key])]
 
     def write_blob(self, run_id, i, payload):
+        """Commit immutable local bytes first; remote copying must never fail a step."""
         raw = dumps(payload).encode()
-        path = self.runs_dir / run_id / f'step_{i}.json'
+        sha = hashlib.sha256(raw).hexdigest()
+        relative = Path(run_id) / f'step_{i}_{sha}.json'
+        path = self.runs_dir / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(raw)
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as pending:
+            tmp = Path(pending.name)
+            pending.write(raw)
+            pending.flush()
+            os.fsync(pending.fileno())
+        try:
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
         uri = str(path.resolve())
         if self.settings.mode == 'site':
-            key = f'sva/runs/{run_id}/step_{i}.json'
-            self.s3().put_object(Bucket=self.settings.asset_bucket, Key=key, Body=raw, ContentType='application/json')
-            uri = f's3://{self.settings.asset_bucket}/{key}'
-        return BlobRef(uri=uri, sha256=hashlib.sha256(raw).hexdigest(), size=len(raw))
+            uri = f's3://{self.settings.asset_bucket}/sva/runs/{relative.as_posix()}'
+            with self.lock:
+                self.app.execute('INSERT OR REPLACE INTO blob_outbox VALUES (?,?,?,?,0,0,?)',
+                                 [uri,str(path.resolve()),sha,len(raw),uuid4().hex])
+        return BlobRef(uri=uri, sha256=sha, size=len(raw))
+
+    def retry_blobs(self, limit=100):
+        """Bounded background drain. Network I/O occurs outside the Store lock."""
+        delivered = 0
+        with self._blob_lock:
+            rows = self.rows(self.app, 'SELECT * FROM blob_outbox WHERE next_retry<=? ORDER BY uri LIMIT ?', [time.time(),limit])
+            for row in rows:
+                try:
+                    raw = Path(row['local_path']).read_bytes()
+                    if len(raw)!=row['size'] or hashlib.sha256(raw).hexdigest()!=row['sha256']:
+                        raise ValueError('Trace blob checksum mismatch')
+                    bucket,key = row['uri'][5:].split('/',1)
+                    self.s3().put_object(Bucket=bucket,Key=key,Body=raw,ContentType='application/json',Metadata={'sha256':row['sha256']})
+                except Exception:
+                    with self.lock:
+                        self.app.execute('UPDATE blob_outbox SET attempts=attempts+1,next_retry=? WHERE uri=? AND generation=?',
+                                         [time.time()+min(300,2**min(row['attempts']+1,8)),row['uri'],row['generation']])
+                    logger.warning('Trace blob copy deferred')
+                else:
+                    with self.lock:
+                        self.app.execute('DELETE FROM blob_outbox WHERE uri=? AND generation=?',[row['uri'],row['generation']])
+                    delivered += 1
+        return delivered
 
     def read_blob(self, ref):
         if ref.uri.startswith('s3://'):
             bucket, key = ref.uri[5:].split('/', 1)
-            raw = self.s3().get_object(Bucket=bucket, Key=key)['Body'].read()
+            relative = key.removeprefix('sva/runs/')
+            local = self.runs_dir / relative
+            raw = local.read_bytes() if local.resolve().is_relative_to(self.runs_dir.resolve()) and local.is_file() else self.s3().get_object(Bucket=bucket, Key=key)['Body'].read()
         else:
-            raw = Path(ref.uri).read_bytes()
+            path = Path(ref.uri)
+            # Backups relocate RUNS_DIR. Persisted dev absolute paths retain a
+            # source identity, but hydrate from the restored run-relative path.
+            local = self.runs_dir / path.parent.name / path.name
+            raw = (local if local.is_file() else path).read_bytes()
         if len(raw) != ref.size or hashlib.sha256(raw).hexdigest() != ref.sha256:
             raise ValueError('Trace blob checksum mismatch')
         return raw
@@ -551,20 +681,24 @@ class Store:
                 if table is None:
                     table = schema.create_table(name, arrow.schema)
                 if name in APP_KEYS:
-                    key = APP_KEYS[name]
-                    keys = arrow[key].to_pylist()
-                    existing = table.select(columns=[key], predicate=table[key].isin(keys), internal_row_id=True).read_all()
-                    ids = dict(zip(existing[key].to_pylist(), existing['$row_id'].to_pylist()))
+                    columns = _key_columns(name)
+                    key = columns[0]
+                    keys = list(zip(*(arrow[col].to_pylist() for col in columns)))
+                    predicate = table[key].isin([value[0] for value in keys])
+                    existing = table.select(columns=list(columns), predicate=predicate, internal_row_id=True).read_all()
+                    ids = dict(zip(zip(*(existing[col].to_pylist() for col in columns)), existing['$row_id'].to_pylist()))
                     updates = [i for i, k in enumerate(keys) if k in ids]
                     inserts = [i for i, k in enumerate(keys) if k not in ids]
                     if updates:
                         rows = arrow.take(updates)
-                        table.update(rows.append_column('$row_id', pa.array([ids[k] for k in rows[key].to_pylist()], type=pa.uint64())))
+                        table.update(rows.append_column('$row_id', pa.array([ids[k] for k in zip(*(rows[col].to_pylist() for col in columns))], type=pa.uint64())))
                     if inserts:
                         table.insert(arrow.take(inserts))
                     # app tables count only the rows holding the written keys
-                    counts[name] = table.select(columns=[key], predicate=table[key].isin(keys)).read_all().num_rows
-                    expected = existing.num_rows + len(inserts)
+                    verified = table.select(columns=list(columns), predicate=predicate).read_all()
+                    counts[name] = sum(k in set(keys) for k in zip(*(verified[col].to_pylist() for col in columns)))
+                    expected_existing = sum(k in set(keys) for k in zip(*(existing[col].to_pylist() for col in columns)))
+                    expected = expected_existing + len(inserts)
                 else:
                     count_column = arrow.column_names[0]
                     before = table.select(columns=[count_column]).read_all().num_rows

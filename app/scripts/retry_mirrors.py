@@ -24,8 +24,9 @@ def main():
                   backend=settings.data_backend,allow_duckdb_fallback=settings.allow_duckdb_fallback)
     try:
         delivered = store.retry_mirrors(args.limit)
+        blobs = store.retry_blobs(args.limit)
         pending = store.rows(store.app,'SELECT count(*) AS n FROM mirror_outbox')[0]['n']
-        print(f'Mirror rows delivered: {delivered}; pending: {pending}')
+        print(f'Mirror rows delivered: {delivered}; pending: {pending}; blobs copied: {blobs}')
     finally:
         store.close()
 

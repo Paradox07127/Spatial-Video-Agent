@@ -1,6 +1,6 @@
 # Site deployment (workshop VM)
 
-Checked on: 2026-10-09. Sources: the starter kit `deploy-app-no-registry` and spec §12 of the development plan (not in this repository). The app runs at `/app` on the team host in split ConfigMap mode (section 6); the section "Live deployment" below lists how it differs from sections 4–6. The tarball mode of sections 2 and 4 expects the app under `sva/` in the GitHub archive (`bootstrap.py` keeps only `<top>/sva/…`). In this repository the app is at the root, so use the split ConfigMap mode.
+Updated: 2026-10-11. Historical live-deployment notes below are not a claim of a new site rollout. Sources: the starter kit `deploy-app-no-registry` and spec §12 of the development plan (not in this repository). The app runs at `/app` on the team host in split ConfigMap mode (section 6); the section "Live deployment" below lists how it differs from sections 4–6. The tarball bootstrap accepts this repository’s root layout. Both tarball and split ConfigMap modes pin the accepted source.
 
 On the workshop VM, operate only in the namespace of our team, and use `/app` on the existing host of our team. The internal routes of the app stay at `/`; the Ingress removes `/app`. Artifacts are in the S3 of our team, and structured tables are in the VastDB of our team. Do not redeploy the VSS retrieval stack, do not build or push images, and do not upload new videos.
 
@@ -41,7 +41,7 @@ SVA_TARBALL_SHA256="$(sha256sum /tmp/sva-source.tar.gz | cut -d' ' -f1)"
 export SVA_TARBALL_SHA256
 mkdir -p /tmp/sva-release
 tar -xzf /tmp/sva-source.tar.gz -C /tmp/sva-release --strip-components=1
-cd /tmp/sva-release/sva
+cd /tmp/sva-release
 test -f app/main.py || { echo 'This commit does not have the A1 app entry point yet'; exit 1; }
 ```
 
@@ -139,20 +139,24 @@ kubectl -n "$NS" create configmap "${APP_NAME}-env" \
   --from-literal=MODE=site --from-literal=DATA_BACKEND=vastdb \
   --from-literal=ALLOW_DUCKDB_FALLBACK=0 --from-literal=PUBLIC_BASE_PATH=/app \
   --from-literal=PORT="$APP_PORT" --from-literal=ASSET_DIR=/state/assets \
-  --from-literal=ASSET_SYNC=1 --from-literal=S3_VERIFY=0 \
+  --from-literal=ASSET_SYNC=1 --from-literal=S3_VERIFY="${S3_VERIFY:-1}" \
+  --from-literal=VDB_VERIFY="${VDB_VERIFY:-${S3_VERIFY:-1}}" \
   --from-literal=INDEX_DUCKDB=/state/index.duckdb \
   --from-literal=APP_DUCKDB=/state/app.duckdb \
   --from-literal=RUNS_DIR=/state/runs --from-literal=LIB_DIR=/state/lib \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-The app serves the scene assets from `ASSET_DIR` instead of redirecting browsers to S3 presigned URLs: the team S3 endpoint has a self-signed certificate and its hostname resolves only inside the cluster/VM, so the browsers of the judges cannot load those URLs. With `ASSET_SYNC=1`, `bootstrap.py` mirrors `s3://$ASSET_BUCKET/sva/<scene_key>/…` and `sva/_map/…` into `/state/assets` (`pipeline/common/upload.py --download`) before `exec uvicorn` and logs one `download:` line with the counts and MB. `S3_VERIFY=0` turns off TLS verification for every boto3 client of the app and the mirror. Leaving `ASSET_DIR` empty restores the presigned redirect.
+The app serves the scene assets from `ASSET_DIR` instead of redirecting browsers to S3 presigned URLs: the team S3 endpoint has a self-signed certificate and its hostname resolves only inside the cluster/VM, so the browsers of the judges cannot load those URLs. With `ASSET_SYNC=1`, `bootstrap.py` mirrors `s3://$ASSET_BUCKET/sva/<scene_key>/…` and `sva/_map/…` into `/state/assets` (`pipeline/common/upload.py --download`) before `exec uvicorn` and logs one `download:` line with the counts and MB. TLS verification defaults to enabled. Install the site issuer’s trusted CA bundle and set `S3_VERIFY=/tls/ca-bundle.pem` (and `VDB_VERIFY` as needed); the optional `sva-trusted-ca` ConfigMap below must contain `ca-bundle.pem`. Explicit `0` is a diagnostic override, never the deployment default. Leaving `ASSET_DIR` empty uses stable `/api/assets/…` identities that redirect to a newly signed URL on each read.
 
 ## 5. Deployment, Service, Ingress (step 4 of the skill)
 
-Use the public `python:3.12-slim`. It downloads the code, installs the dependencies, fetches the browser libraries, mirrors the scene assets, and then runs `exec uvicorn`. All writes go to the emptyDir; the ConfigMaps are read-only. `/health` only answers after the mirror has finished, so the startup time grows with the asset size. The startupProbe allows 15 minutes (90 × 10 s) for installation plus mirror; raise `failureThreshold` if the `download:` line reports more data than the link moves in that time. The assets live on the PersistentVolumeClaim `${APP_NAME}-assets` (ReadWriteMany, storage class `vastdata-filesystem`, so the old and new pod of a rolling update both mount it); a new pod or a redeploy then fetches only objects that are missing, resized or newer than the local copy. Everything else under `/state` is an emptyDir. The readinessProbe only runs once the startupProbe has passed. For SSE, buffering is off and the read timeout is longer.
+Use the public `python:3.12-slim`. Application state and run blobs share a dedicated **ReadWriteOnce persistent volume**, with one replica and `Recreate` updates so two DuckDB writer processes do not overlap. Choose `SVA_STATE_STORAGE_CLASS` for a filesystem with verified fsync and POSIX locking; do not assume arbitrary RWX/NFS is safe for DuckDB. Assets remain a separate RWX mirror. Install/mirror work and readiness probes are unchanged; a persistent state volume does not replace backups.
+
+Before migrating an existing emptyDir deployment, stop the writer, use `state_backup.py backup` to export the current DB and runs to durable storage, provision the new volume, restore to clean paths, and only then start the new pod. Do not roll the old pod away before exporting its state. Keep the old snapshot until recovery verification succeeds. No site rollout is performed by this document update.
 
 ```bash
+: "${SVA_STATE_STORAGE_CLASS:?Choose a tested single-writer state storage class}"
 kubectl -n "$NS" apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -164,6 +168,16 @@ spec:
   storageClassName: vastdata-filesystem
   resources: {requests: {storage: 30Gi}}
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${APP_NAME}-state
+  labels: {app: ${APP_NAME}}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${SVA_STATE_STORAGE_CLASS}
+  resources: {requests: {storage: 20Gi}}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -171,6 +185,7 @@ metadata:
   labels: {app: ${APP_NAME}}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: ${APP_NAME}}
   template:
@@ -192,6 +207,7 @@ spec:
         - {name: code, mountPath: /bootstrap, readOnly: true}
         - {name: state, mountPath: /state}
         - {name: assets, mountPath: /state/assets}
+        - {name: trusted-ca, mountPath: /tls, readOnly: true}
         workingDir: /state
         command: ["python", "/bootstrap/bootstrap.py"]
         startupProbe:
@@ -206,7 +222,9 @@ spec:
       - name: code
         configMap: {name: ${APP_NAME}-code}
       - name: state
-        emptyDir: {}
+        persistentVolumeClaim: {claimName: ${APP_NAME}-state}
+      - name: trusted-ca
+        configMap: {name: sva-trusted-ca, optional: true}
       - name: assets
         persistentVolumeClaim: {claimName: ${APP_NAME}-assets}
 ---
@@ -344,7 +362,8 @@ with urllib.request.urlopen(url) as response:
 with open('/tmp/sva-presigned-url', 'w', opener=lambda p, f: os.open(p, f, 0o600)) as dest:
     dest.write(url)
 session = vastdb.connect(endpoint=os.environ['VDB_ENDPOINT'], access=os.environ['ACCESS_KEY'],
-                         secret=os.environ['SECRET_KEY'], ssl_verify=False)
+                         secret=os.environ['SECRET_KEY'],
+                         ssl_verify=__import__('app.settings', fromlist=['Settings']).Settings().vdb_verify)
 with session.transaction() as tx:
     schema = tx.bucket(os.environ['VASTDB_BUCKET']).create_schema('sva', fail_if_exists=False)
     table = schema.create_table('deploy_probe', pa.schema([('id', pa.int64())]), fail_if_exists=False)
@@ -411,3 +430,32 @@ PY
 7. Seat 2, in parallel with steps 3–6: re-ingest 4–8 chunks with the `ingest/reingest-videos` skill of the starter kit, with `custom_prompt` ≤ 800 characters. Poll the job every 4 seconds until `completed`. Record `prompt_rev` and the `re_ingest_rows` difference. P-C runs `retrieval_recall.py --before-after`. Do not ingest internet videos.
 
 Delivery URL: `http://${APP_HOST}/app`. The host comes from the `INGRESS_URL` of our team. The judges enter from the workshop App button. Site credentials, egress, S3 CORS, VastDB read-back, full app health and SSE all need verification on site.
+
+
+## 9. Application-state recovery and replication
+
+Stop the application writer first. These commands never send notifications and
+refuse to overwrite an existing restore destination:
+
+```bash
+python app/scripts/state_backup.py backup /backup/sva-snapshot --app /state/app.duckdb --runs /state/runs
+python app/scripts/state_backup.py restore /backup/sva-snapshot --app /fresh/app.duckdb --runs /fresh/runs
+```
+
+The manifest verifies every database/blob/cache/outbox file before restore writes.
+The whole database includes actions, **per-channel action_deliveries**, pending
+mirror/blob outboxes, running jobs, sessions, turns, events and observations.
+Blob outbox paths are relocated; restored historical trace references resolve
+against the restored run directory. Verify row counts and run/blob hydration in
+the clean instance before switching its state volume. Pin the same immutable
+asset/index release separately. Backups may contain sensitive investigation data;
+store them with the same access controls as application state.
+
+Large trace outputs commit immutable local bytes first. `retry_blobs` copies them
+outside the database lock with bounded exponential retry; mirror retries likewise
+read current local rows. Pending copies survive restart and must be monitored.
+Remote mirroring is replication, not an atomic distributed backup; a local-only
+pending blob requires the backup's run files. Per-channel delivery records prevent
+resending known successful channels after recovery. A crash after an external
+provider accepts a message but before the local receipt remains ambiguous; retain
+provider idempotency keys and do not promise external exactly-once delivery.

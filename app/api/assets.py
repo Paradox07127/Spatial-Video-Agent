@@ -13,5 +13,5 @@ def assets(path: str, request: Request):
         raise FileNotFoundError('Asset not found')
     if store.asset_dir is None:
         scene_key, relpath = path.split('/', 1)
-        return RedirectResponse(store.asset_url(scene_key, relpath), status_code=302)
+        return RedirectResponse(store.presigned_asset_url(scene_key, relpath), status_code=302)
     return FileResponse(store.local_asset(path))

@@ -117,8 +117,8 @@ def traced(run: RunHandle, name: str, inputs: dict, *, state: AgentState,
     step = RunStep(step_id=f'{run.run_id}.s{i}', parent_step_id=parent_step_id, i=i, state=state, name=name,
                    started_ms=int(time.time() * 1000), elapsed_ms=0, input=inputs, output=None, evidence_ids=[],
                    exec_state='waiting', trace_delivery_state='weave_pending' if run.weave_enabled else 'disabled')
-    with run.store.lock:
-        run.store.append_step(run.run_id, _stored_step(run, step))
+    stored = _stored_step(run, step)
+    run.store.append_step(run.run_id, stored)
     call = None
     if run.weave_enabled and not run.weave_failed:
         try:
@@ -144,8 +144,8 @@ def traced(run: RunHandle, name: str, inputs: dict, *, state: AgentState,
         step.elapsed_ms = int((time.monotonic() - started) * 1000)
         if run.weave_enabled:
             step.trace_delivery_state = 'weave_failed' if run.weave_failed else 'weave_pending'
-        with run.store.lock:
-            run.store.update_step(run.run_id, _stored_step(run, step))
+        stored = _stored_step(run, step)
+        run.store.update_step(run.run_id, stored)
         if call is not None:
             try:
                 run.weave_client.finish_call(call, output=step.output, exception=RuntimeError(type(error).__name__) if error else None)
@@ -169,7 +169,7 @@ def _deliver(run, status, final, claims, elapsed):
     if run.weave_failed:
         # one lock over read and rewrite, so a step the request thread updates meanwhile is not overwritten with a stale copy
         with run.store.lock:
-            for step in run.store.get_run(run.run_id).steps:
+            for step in run.store._steps(run.run_id):
                 step.trace_delivery_state = 'weave_failed'
                 run.store.update_step(run.run_id, _stored_step(run, step))
     run.store.finalize_run(run.run_id, status, claims, final=final, weave_url=url, elapsed_ms=elapsed)

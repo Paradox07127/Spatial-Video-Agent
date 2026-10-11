@@ -97,3 +97,25 @@ def test_observe_window_rejects_false_citations(model,change):
     out.clear();out['facts']=[{'subject_ids':['P1'],'text':'P1 faces the aisle.','frame_indices':[0],'uncertainty':.2,**change}]
     with pytest.raises(vlm.VLMUnavailable,match='invalid_model_observation'):
         vlm.observe_window(K,'eye',(1000,1500),[EntityRef(scene_key=K,entity_id='P1',kind='person')])
+
+
+def test_cached_c4_is_revalidated_before_replay(model,tmp_path):
+    frames,out=model
+    frames.extend([(1000,Image.new('RGB',(2,2))),(1250,Image.new('RGB',(2,2)))])
+    out.clear();out['segments']=[{'start_s':1.0,'end_s':1.25,'text':'visible'}]
+    first=vlm.localize(K,'eye',1000,1500,'cache guard')
+    cache=tmp_path/'vlm_cache'/f'{first.record_id}.json'
+    saved=json.loads(cache.read_text());saved['record']['payload']['segments'][0]['end_s']=19
+    cache.write_text(json.dumps(saved))
+    second=vlm.localize(K,'eye',1000,1500,'cache guard')
+    assert second.payload['segments'][0]['end_s']==1.25 and second._sva_exec_state=='live'
+
+
+def test_cached_situation_wrong_camera_is_not_replayed(model,tmp_path):
+    frames,out=model;frames.append((1000,Image.new('RGB',(2,2))))
+    first=vlm.situation(K,1000,[],cam='eye',t_range=(1000,1001))
+    cache=tmp_path/'vlm_cache'/f'{first.record_id}.json'
+    saved=json.loads(cache.read_text());saved['record']['input_frame_refs'][0]['cam_id']='ceiling'
+    cache.write_text(json.dumps(saved))
+    second=vlm.situation(K,1000,[],cam='eye',t_range=(1000,1001))
+    assert second.input_frame_refs[0].cam_id=='eye' and second._sva_exec_state=='live'

@@ -29,7 +29,7 @@ PREFIX = "sva"
 def s3_client():
     import boto3
     return boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"], aws_access_key_id=os.environ["ACCESS_KEY"],
-                        aws_secret_access_key=os.environ["SECRET_KEY"], verify=os.environ.get("S3_VERIFY", "1") != "0")
+                        aws_secret_access_key=os.environ["SECRET_KEY"], verify=__import__("app.settings",fromlist=["Settings"]).Settings().s3_verify)
 
 
 def download(s3, bucket: str, dest: Path, scenes: list[str]) -> tuple[int, int, int]:

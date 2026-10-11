@@ -147,6 +147,8 @@ def ground_objects(scene_key: str, cam: str, t_ms: int, vocab: list[str], *, run
 @_budgeted
 def localize(scene_key: str, cam: str, t0_ms: int, t1_ms: int, query: str, *, run: Any = None) -> CosmosRecord:
     """C4: segments [{start_s, end_s, text}] in scene seconds."""
+    if type(t0_ms) is not int or type(t1_ms) is not int or t0_ms < 0 or t1_ms <= t0_ms:
+        raise VLMUnavailable("invalid_model_scope")
     prompt = (f"Question: {query}? Give each time segment where it happens as start_s and end_s, read from the timestamps "
               "printed on the frames, with a few words of text. Return an empty list if it does not happen in these frames.")
     schema = _obj({"segments": {"type": "array", "items": _obj(
@@ -204,6 +206,8 @@ def _call_impl(task, scene_key, cam, t_ms, actor_refs, window, key_extra, prompt
     identity = _cache_identity(scene_key)
     manifest = _manifest(scene_key)
     bounds = (max(window[0], manifest["t0_ms"]), min(window[1], manifest["t1_ms"]))
+    if bounds[1] <= bounds[0] or not manifest['cams'] or cam is not None and not any(c['id']==cam for c in manifest['cams']):
+        raise VLMUnavailable('invalid_model_scope: empty window or unknown camera')
     expected_cam = cam or _pick_cam(scene_key, manifest, ids, *bounds)
     if cam is not None or key_extra and str(key_extra[-1]).startswith("scope:"):
         identity = {**identity, "cam": expected_cam, "window": list(bounds)} if identity else None
@@ -699,7 +703,7 @@ def observe_window(scene_key: str, cam: str, t_range: tuple[int, int] | list[int
         prompt=(f'Observe only the visible state, motion and interaction in these {len(frames)} frames from camera {cam}. '
                 f'Allowed tracked subjects are {ids}; use an empty subject_ids list for a scene observation. '
                 'Provide at most six atomic facts, each citing frame_index integers printed on actual input frames. '
-                'Describe what is visible, not inferred intent, blame, hidden objects, numeric distance, count, speed or time. '
+                'Describe what is visible, not inferred intent, blame, hidden objects, numeric distance, count, speed or time. Use non-quantified singular or plural descriptions; do not spell out counts such as one person, two vehicles, several people, or many cars. '
                 'An overlay ID is a reference, not proof of real-world identity. Empty facts is valid when evidence is insufficient. '
                 'uncertainty is zero for confident and one for uncertain. Answer JSON only.')
         raw=_chat(images,prompt,schema,getattr(run,'run_id',None),getattr(run,'deadline',None))
