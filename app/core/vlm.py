@@ -654,7 +654,12 @@ def _frame_bindings(ms: int, cam: dict, rows: dict[int, list], obs: list,
             nearest = [row for row in legal if abs(row[0]-ms) == distance]
             if len({tuple(row) for row in nearest}) == 1:
                 bindings[ltid] = (owner[0], nearest[0])
-    return bindings
+    # The inverse mapping must also be unique: a requested entity cannot name
+    # two simultaneous local tracks in one camera frame.
+    entity_counts = {}
+    for eid,_ in bindings.values():
+        entity_counts[eid] = entity_counts.get(eid,0)+1
+    return {ltid:binding for ltid,binding in bindings.items() if entity_counts[binding[0]] == 1}
 
 
 def _annotate(bgr, ms: int, cam: dict, rows: dict[int, list], obs: list, actors: set[str], bands: list,

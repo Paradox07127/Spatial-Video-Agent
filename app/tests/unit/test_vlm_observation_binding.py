@@ -24,6 +24,12 @@ def test_invalid_or_ambiguous_visual_binding_is_absent(rows,owners,window,age):
     assert vlm._frame_bindings(1000,CAM,rows,owners,window=window,max_age_ms=age)=={}
 
 
+def test_entity_cannot_bind_two_simultaneous_local_tracks():
+    owners=OBS + [('P1','eye',8,900,1500)]
+    other=[1000,8,'person',50,20,70,50,.9]
+    assert vlm._frame_bindings(1000,CAM,{7:[ROW],8:[other]},owners)=={}
+
+
 def test_halfopen_reused_track_binds_only_new_owner():
     owners=[('P2','eye',7,900,1000),('P1','eye',7,1000,1500)]
     assert vlm._frame_bindings(1000,CAM,{7:[ROW]},owners)[7][0]=='P1'
