@@ -150,7 +150,7 @@ test('while running: the narration card names the step, Stop ends the run as sto
   await expect(card.locator('.nr-step')).toHaveText('STEP 2 OF 6');
   await expect(card.locator('.nr-sum')).toContainText('Hard-filter preselection');
   await expect(card.locator('.nr-seg.on')).toHaveCount(1);
-  await expect(page.locator('#answer .ans-slot')).toContainText('Checking distance evidence and uncertainty…');
+  await expect(page.locator('#answer .ans-slot')).toContainText('Appears here once the distance is measured.');
   await expect(page.locator('#moments .moment')).toHaveCount(1);
   await card.locator('.nr-stop').click();
   await expect(card).toBeHidden();
