@@ -101,9 +101,9 @@ test('removing follow-up constraints sends explicit clears so persistent parents
   expect(sent[1].context).toMatchObject({t_ms:null,t_range:null,zone:null,selection:null});
 });
 
-test('persisted Run details show typed observations and their source frame links',async({page})=>{
+for(const shape of ['nested-envelope','legacy-flat','evidence-only']) test(`persisted Run ${shape} shows typed observations and their source frame links`,async({page})=>{
   await durable(page);const observation=frames().find(f=>f.event==='observation').data.observation;
-  await page.route(/\/api\/agent\/runs\/r_durable$/,r=>r.fulfill({json:{run_id:'r_durable',q:'What do you observe?',context:{workspace:'warehouse',scene_key:SCENE},created:'2026-10-10T00:00:00Z',status:'done',final:'UNRESOLVED',elapsed_ms:1,evidence:[],claims:[],hits:[],steps:[{i:0,name:'observe_scene',input:{},output:{observation},elapsed_ms:1,evidence_ids:[]}],weave_url:null}}));
+  await page.route(/\/api\/agent\/runs\/r_durable$/,r=>r.fulfill({json:{run_id:'r_durable',q:'What do you observe?',context:{workspace:'warehouse',scene_key:SCENE},created:'2026-10-10T00:00:00Z',status:'done',final:'UNRESOLVED',elapsed_ms:1,evidence:shape==='evidence-only'?[{eid:observation.eid,scene_key:SCENE,cam_id:observation.cam_id,t0_ms:observation.t0_ms,t1_ms:observation.t1_ms,observation_ids:[],kind:'model',method:'visual_observation',value:observation}]:[],claims:[],hits:[],steps:shape==='evidence-only'?[]:[{i:0,name:'observe_scene',input:{},output:shape==='nested-envelope'?{input_range:{scene_key:SCENE,t0_ms:2800,t1_ms:2801},elapsed_ms:1,output:{observation}}:{observation},elapsed_ms:1,evidence_ids:[]}],weave_url:null}}));
   await page.goto(`#/run/r_durable`);await expect(page.locator('#runpage .rp-observation')).toContainText('worker stands');
   await expect(page.locator('#runpage .rp-observation img')).toHaveCount(0);
   await page.locator('#runpage [data-observed-frame]').click();

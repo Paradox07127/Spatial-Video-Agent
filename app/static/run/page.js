@@ -185,7 +185,11 @@ function go(id) {
 
 // r: the opened run; src: the run whose steps it shows (r itself, or the source of a cache replay).
 function typedObservations(src) {
-  const records = src.steps.map(s=>s.output?.observation).filter(o=>o?.observation_id && Array.isArray(o.facts));
+  // Traced tools persist the full Envelope; older exported runs may be flat.
+  const records = [
+    ...src.steps.map(s=>s.output?.output?.observation ?? s.output?.observation),
+    ...(src.evidence ?? []).filter(e=>e.kind === 'model' && e.method === 'visual_observation').map(e=>e.value),
+  ].filter(o=>o?.observation_id && Array.isArray(o.facts));
   const unique = [...new Map(records.map(o=>[o.observation_id,o])).values()];
   return unique.length ? `<span class="p-label">MODEL OBSERVATIONS · NOT MEASURED</span>${unique.map(o=>`<article class="rp-observation"><p class="mono muted">${esc(o.cam_id)} · ${tc(o.t0_ms)} · ${esc(o.verification)}</p>${o.facts.map(f=>`<p>${esc(f.text)}</p><p class="muted">Uncertainty ${esc(f.uncertainty)}</p>${(f.frame_refs?.length?f.frame_refs:o.frame_refs).map(frame=>`<button type="button" data-observed-frame data-scene="${esc(o.scene_key)}" data-cam="${esc(frame.cam_id)}" data-time="${frame.t_ms}">View ${esc(frame.cam_id)} · ${tc(frame.t_ms)}</button>`).join('')}`).join('')}<p class="muted">${esc(o.model_rev)} · ${esc(o.prompt_rev)}</p></article>`).join('')}` : '';
 }
