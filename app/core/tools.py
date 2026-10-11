@@ -258,6 +258,35 @@ def measure(store, scene_key, t_ms, a, b, kind, *, cam=None):
     return result(scene_key,t_ms,t_ms+1,{'value':value,'sigma':sigma,'method':method,'observation_role':'aligned_detection_not_position_inputs',**({'distance_to':'forklift_center' if b.entity_id.startswith('F') else 'entity_ground_point'} if kind=='distance' else {})},cam=cam,evidence=[ev],pts_read=1,coverage=1)
 
 
+
+def ground_position(store, scene_key, t_ms, target, *, zone=None):
+    """A valid sampled world ground point; camera visibility is not a position measurement."""
+    m=store.manifest(scene_key)
+    if m['workspace']!='warehouse' or not m['metric']:
+        reason='scene_not_metric' if m['workspace']=='warehouse' else 'no_geometry'
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':reason})
+    try:
+        moment=store.moment(scene_key,t_ms)
+    except FileNotFoundError:
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_position_sample'})
+    person=next((p for p in moment.persons if p.entity_id==target.entity_id),None)
+    vehicle=next((f for f in moment.forklift if f.entity_id==target.entity_id),None)
+    point=person.root_world if person else (vehicle.x,vehicle.y) if vehicle else None
+    if point is None or not all(math.isfinite(v) for v in point):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_position_sample'})
+    if zone and not Polygon(zone).covers(Point(point)):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'outside_requested_zone'})
+    sigma=person.sigma_m if person else vehicle.sigma_m
+    if not isinstance(sigma,(int,float)) or not math.isfinite(sigma) or sigma<0:
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_position_uncertainty'})
+    source=person.root_method if person else vehicle.source
+    value={'entity_id':target.entity_id,'x_m':point[0],'y_m':point[1],'t_s':t_ms/1000,
+           'coordinate_frame':'scene_world_ground','source':source}
+    ev=evidence(store,scene_key,None,t_ms,t_ms+1,'measure','ground_position',value,unit='m',sigma=sigma,
+                params={'target':target.entity_id,'coordinate_frame':'scene_world_ground','source':source})
+    return result(scene_key,t_ms,t_ms+1,value,evidence=[ev],pts_read=1,coverage=None)
+
+
 def ego_distance(store, scene_key, cam, t0_ms, t1_ms, *, rows):
     """Fleet: ground distance from the ego camera to the closest pedestrian ahead in [t0_ms, t1_ms). Live from the VSS YOLO
     sidecars (live_measure, rows = site-map rows); without a live value, the precomputed ego frames with the live reason."""
@@ -367,7 +396,9 @@ def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
     missing = [k for k in ('person','forklift') if k not in seen]
     key = best['scene_key'] if best else scenes[0]['scene_key'] if scenes else 'all'
     t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
-    evs = [evidence(store,key,None,best['t_ms'],best['t_ms']+1,'measure','closest_approach',{**best,'t_s':best['t_ms']/1000,'distance_to':'forklift_center','distance_from':'person_root','minimum_basis':'valid sampled pairs'},
+    evs = [evidence(store,key,None,best['t_ms'],best['t_ms']+1,'measure','closest_approach',{**best,'t_s':best['t_ms']/1000,
+                    'window_t0_s':max(store.manifest(key)['t0_ms'],t0)/1000,
+                    'window_t1_s':min(store.manifest(key)['t1_ms'],t1)/1000,'distance_to':'forklift_center','distance_from':'person_root','minimum_basis':'valid sampled pairs'},
                     params={'t_range':t_range,'zone':zone,'selection':selection,'distance_to':'forklift_center','distance_from':'person_root'})] if best else []
     if best:
         cams = store.manifest(key)['cams']

@@ -69,8 +69,10 @@ def test_model_event_is_not_independent_proof(store,monkeypatch):
 
 def test_location_does_not_claim_visibility_is_position(store):
     frames = ask(store,'Where is P2?',t_ms=2100)
-    assert final(frames)=='UNRESOLVED'
-    assert any('position' in f['data']['text'] or 'located' in f['data']['text'] for f in frames if f['event']=='answer')
+    assert final(frames)=='SUPPORTED'
+    assert any('scene world ground coordinates' in f['data']['text'] for f in frames if f['event']=='answer')
+    assert any(e['method']=='ground_position' for f in frames if f['event']=='tool_result' for e in f['data'].get('evidence',[]))
+    assert not any(f['event']=='tool_call' and f['data']['name']=='visibility' for f in frames)
 
 
 @pytest.mark.parametrize('q,method,words',[

@@ -6,6 +6,7 @@ import functools
 import html
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -108,7 +109,7 @@ def spatial_of(q, template):
     if re.search(r"can'?t see|cannot see|blind",q,re.I):
         return 'blind_spot','present_in_blind_zone',None,None
     # the contract table gives speeding and building questions the no_gps reason
-    if 'speed' in text:
+    if 'speed' in text or 'how fast' in text:
         return 'speed','gt',None,'km/h'
     if re.search(r'\bbuilding\b',text):
         return 'speed','facade',None,None
@@ -226,6 +227,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     quantifier = 'any'
     parsed = None
     statistics_complete = None
+    direct_pair_distance = False
     ego_measured = False
 
     def frame(event, **data):
@@ -429,7 +431,17 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             building_q = bool(fleet) and parsed.place and re.search(r'\bbuilding\b',body.q,re.I)
             requested_kinds = {('person' if re.fullmatch(r'P\d+',e) else 'forklift' if re.fullmatch(r'F\d+',e) else 'vehicle' if re.fullmatch(r'V\d+',e) else e) for e in parsed.entities}
             selection = [e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)]
-            closest_q = (bool(warehouse) and {'person','forklift'}<=requested_kinds
+            point_match=re.search(r'\bat\s+(?:(\d+(?:\.\d+)?)\s*(?:s\b|seconds?\b)|second\s+(\d+(?:\.\d+)?))',body.q,re.I)
+            requested_time=context.get('t_ms')
+            if requested_time is None and point_match:
+                requested_time=int(float(point_match[1] or point_match[2])*1000)
+            explicit_pair=(len(selection)==2 and any(e.startswith('P') for e in selection) and any(e.startswith('F') for e in selection))
+            direct_pair_distance=bool(warehouse and explicit_pair and spatial and spatial[0]=='distance'
+                                      and not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|brak\w*|near miss)\b',body.q,re.I))
+            scalar_speed_q=bool(warehouse and re.search(r'\b(how fast|speed)\b',body.q,re.I) and not speeding_q
+                                and not re.search(r'\b(dodge\w*|yield\w*|cross\w*|brak\w*)\b',body.q,re.I))
+            world_position_q=bool(warehouse and parsed.template=='where_is' and not parsed.place and spatial and spatial[0]=='ground_position')
+            closest_q = direct_pair_distance or (bool(warehouse) and {'person','forklift'}<=requested_kinds
                          and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
                               or re.search(r'\bhow close\b.*\b(come|came|comes|coming|get|got|gets|getting)\b',body.q,re.I))
                          and re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I))
@@ -440,6 +452,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             elif context.get('t_ms') is not None and not any(
                     store.manifest(s['scene_key'])['t0_ms']<=context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
+            elif direct_pair_distance and len(warehouse)!=1:
+                yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='measured',value=None,unit='m',status='unknown',eids=[])],
+                                  explain={'note':'Select one source scene: entity IDs are local to each scene.',
+                                           'not_measured':['distance: select one source scene']})
+                final,stop_reason='UNRESOLVED','abstained'
             elif warehouse and spatial and spatial[0]=='distance' and re.search(r'\b(footprint|clearance|edge)\b',body.q,re.I):
                 _,operator,value,unit = spatial
                 yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator=operator,value=value,
@@ -473,6 +490,65 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 yield claim_frame(predicates,explain={'note':'Position comes from trip GPS; camera observations were not checked.'},key=key)
                 final = aggregate_of(predicates)
                 stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
+            elif scalar_speed_q or world_position_q:
+                kind='speed' if scalar_speed_q else 'ground_position'
+                operator='measured_speed' if scalar_speed_q else 'located'
+                unit='m/s' if scalar_speed_q else 'm'
+                predicates=[Predicate(predicate_id='p1',subject_refs=[],operator=operator,value=None,unit=unit,status='unknown',eids=[])]
+                measurement_ids=list(selection)
+                if not measurement_ids and len(warehouse)==1:
+                    candidates=[e for e in store.entities(warehouse[0]['scene_key']) if e.kind in requested_kinds]
+                    if len(candidates)==1: measurement_ids=[candidates[0].entity_id]
+                reason=None
+                if len(warehouse)!=1 or len(measurement_ids)!=1:
+                    reason='Select one scene and one explicit entity for this measurement.'
+                elif requested_time is None:
+                    reason='A timestamp is required for this '+('speed' if scalar_speed_q else 'position')+' measurement.'
+                elif parsed.t_range and not parsed.t_range[0]<=requested_time<parsed.t_range[1]:
+                    reason='The measurement timestamp is outside the requested time window.'
+                elif scalar_speed_q and (parsed.zone or spatial and spatial[0]=='distance' or re.search(r'\b(greater|less|more than|under|above|below|over|at least|at most)\b|\d+(?:\.\d+)?\s*(?:m/s|km/h|mps)\b',body.q,re.I)):
+                    reason='The requested speed comparison or spatial zone was not verified.'
+                    predicates[0].value=body.q
+                if reason:
+                    explain={'note':reason,'not_measured':[reason]}
+                    yield claim_frame(predicates,explain=explain,key=warehouse[0]['scene_key'])
+                else:
+                    key=warehouse[0]['scene_key'];entity_id=measurement_ids[0]
+                    entity=next((e for e in store.entities(key) if e.entity_id==entity_id),None)
+                    target=EntityRef(scene_key=key,entity_id=entity_id,kind=entity.kind if entity else 'person')
+                    with trace.traced(run,'assess',{'scene_key':key,'t_ms':requested_time,'entity_id':entity_id},state='measure') as t:
+                        yield step_frame(t,'measure','Measure tracked speed' if scalar_speed_q else 'Read the measured world ground position')
+                        res=yield from call(t,'measure' if scalar_speed_q else 'ground_position','measure',
+                                            {'scene_key':key,'t_ms':requested_time,**({'a':target.model_dump(),'kind':'speed'} if scalar_speed_q else {'target':target.model_dump(),'zone':parsed.zone})},
+                                            lambda:tools.measure(store,key,requested_time,target,None,'speed') if scalar_speed_q
+                                            else tools.ground_position(store,key,requested_time,target,zone=parsed.zone))
+                        ev=next((e for e in res.evidence if e.kind=='measure' and e.method==('track_speed' if scalar_speed_q else 'ground_position')),None)
+                        missing_uncertainty=bool(ev and (not isinstance(ev.sigma,(float,int)) or not math.isfinite(ev.sigma) or ev.sigma<0))
+                        if ev and scalar_speed_q and (not isinstance(ev.value,(int,float)) or not math.isfinite(ev.value)):
+                            ev=None
+                        predicates[0].subject_refs=[target]
+                        predicates[0].status='supported' if ev and not missing_uncertainty else 'unknown'
+                        predicates[0].eids=[ev.eid] if ev else []
+                        if (scalar_speed_q and 'action_modifier:moving' in parsed.constraints and len(re.findall(r'\bmoving\b',body.q,re.I))==1
+                                and (moving_target(body.q,[target],target) or target.kind in {'forklift','vehicle'} and re.search(r'\b'+re.escape(entity_id)+r'\s+moving\b',body.q,re.I))):
+                            predicates.append(Predicate(predicate_id='p2',subject_refs=[target],operator='action_modifier:moving',value='moving',unit=None,
+                                                        status='supported' if ev and not missing_uncertainty and ev.value>ev.sigma else 'unknown',eids=[ev.eid] if ev else []))
+                        if not ev or missing_uncertainty:
+                            reason='missing_measurement_uncertainty' if missing_uncertainty else res.envelope.output.get('reason','missing_measurement')
+                            explain={'note':'The requested '+('speed' if scalar_speed_q else 'position')+' was not measured: '+reason.replace('_',' ')+'.',
+                                     'not_measured':['requested '+kind.replace('_',' ')+': '+reason.replace('_',' ')]}
+                            if missing_uncertainty:
+                                explain={'note':'A speed value is available, but its measurement uncertainty is unavailable.',
+                                         'not_measured':['speed uncertainty']}
+                        else:
+                            explain={'note':'Speed comes from the sampled entity track.' if scalar_speed_q else 'Position is a sampled ground point in scene world coordinates, not camera visibility.'}
+                        yield claim_frame(predicates,explain=explain,key=key)
+                        t.output({'predicates':[p.model_dump(mode='json') for p in predicates],'explain':explain})
+                    if ev:
+                        yield from ui('seek',{'t_ms':requested_time,'scene_key':key},key)
+                        yield from ui('highlight',{'ids':[entity_id],'mode':'outline'},key)
+                final=counted()
+                stop_reason='enough_evidence' if final=='SUPPORTED' else 'abstained'
             elif statistic and street_scenes and 'unsupported_count_subject' in parsed.constraints:
                 yield claim_frame([],explain={'note':'This path measures person tracks only; the requested object count was not measured.'})
                 final,stop_reason = 'UNRESOLVED','abstained'
@@ -1060,6 +1136,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             missing = list(dict.fromkeys(p.operator for c in group for p in c.predicates if p.status=='unknown'))
             if final=='UNRESOLVED' and missing and not abstain:
                 text='Not measured: '+', '.join(missing).replace('_',' ')+'. The full question remains unresolved.'
+            if final=='UNRESOLVED' and (any(p.operator in {'measured_speed','located'} for c in group for p in c.predicates) or direct_pair_distance):
+                notes=[c.explain.get('note') for c in group if c.explain and c.explain.get('note')]
+                if notes and not any(p.status=='supported' and p.operator in {'measured_speed','located'} for c in group for p in c.predicates):
+                    text=' '.join(notes)+' The full question remains unresolved.'
             refs, cites, values, names = [], [], [], []
             def ref(e, field, value):
                 if e.kind=='model':
@@ -1093,9 +1173,12 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 text=('Checked '+ref(count,'value.count',count.value['count'])+' video(s) passing '+name(parsed.place)+' ('+'; '.join(
                     name(trip_name(e.scene_key))+', '+ref(e,'value.t0_s',e.value['t0_s'])+'–'+ref(e,'value.t1_s',e.value['t1_s'])+' s'
                     for e in intervals)+'); no evidence that '+what+'.')
-            if final in {'SUPPORTED','CONTRADICTED'}:
+            predicates=[p for c in group for p in c.predicates]
+            direct_numeric=any(p.operator in {'measured_speed','located'} and any(
+                eid in evidence and evidence[eid].method in {'track_speed','ground_position'} for eid in p.eids) for p in predicates)
+            unresolved_text=text
+            if final in {'SUPPORTED','CONTRADICTED'} or direct_numeric:
                 cites=list(dict.fromkeys(eid for c in group for p in c.predicates for eid in p.eids))
-                predicates=[p for c in group for p in c.predicates]
                 blind=next((p for p in predicates if p.operator=='present_in_blind_zone'),None)
                 facade=next((p for p in predicates if p.operator=='facade'),None)
                 speed = next((e for e in evidence.values() if e.method=='obd_speed'),None)
@@ -1111,12 +1194,29 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             for e in found)+'.'
                     else:
                         text='Checked frame by frame: nobody is present in the '+name(blind.value)+' blind spot.'
+                elif any(e.method in {'ground_position','track_speed'} for e in evidence.values()) and any(p.operator in {'located','measured_speed'} for p in predicates):
+                    position=next((e for e in evidence.values() if e.method=='ground_position'),None)
+                    speed=next((e for e in evidence.values() if e.method=='track_speed'),None)
+                    target=next((s for p in predicates for s in p.subject_refs),None)
+                    if position:
+                        text=(name(position.value['entity_id'])+' was at scene world ground coordinates x='+ref(position,'value.x_m',position.value['x_m'])+
+                              ' m, y='+ref(position,'value.y_m',position.value['y_m'])+' m (±'+ref(position,'sigma',position.sigma)+
+                              ' m), at '+ref(position,'value.t_s',position.value['t_s'])+' s; source '+name(position.value['source'])+'.')
+                    elif speed:
+                        speed_value=ref(speed,'value',speed.value)
+                        uncertainty=('±'+ref(speed,'sigma',speed.sigma)+' m/s'
+                                     if isinstance(speed.sigma,(int,float)) and math.isfinite(speed.sigma) and speed.sigma>=0 else 'uncertainty unavailable')
+                        text=(name(target.entity_id)+' had measured track speed '+speed_value+' m/s ('+uncertainty+
+                              ') at '+ref(speed,'t0_ms',speed.t0_ms/1000)+' s.')
+                    if final=='UNRESOLVED': text+=' '+unresolved_text
                 elif closest:
                     ev = next(e for e in evidence.values() if e.method=='ground_distance')
                     scan = next(e for e in evidence.values() if e.method=='closest_approach')
                     text=('The minimum observed distance from the worker ground point to the forklift center was '+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m), at '
                           +ref(scan,'value.t_s',scan.value['t_s'])+' s'
                           +('' if predicates[0].operator!='lt' else ', less than the requested distance' if final=='SUPPORTED' else ', not less than the requested distance')+'.')
+                    if direct_pair_distance:
+                        text=text[:-1]+' in the sampled window '+ref(scan,'value.window_t0_s',scan.value['window_t0_s'])+'–'+ref(scan,'value.window_t1_s',scan.value['window_t1_s'])+' s.'
                 elif speed and limit and limit.value is not None:
                     text=('The vehicle was speeding: ' if final=='SUPPORTED' else 'The vehicle was not speeding: ')+'OBD speed '+ref(speed,'value',speed.value)+' km/h, map speed limit '+ref(limit,'value',limit.value)+' km/h.'
                 else:

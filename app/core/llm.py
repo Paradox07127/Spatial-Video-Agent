@@ -27,7 +27,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         template = 'find'
     elif re.search(r'\b(where|near|building|junction|intersection)\b', text):
         template = 'where_is'
-    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how many|busiest|peak|most crowded|nearest|close to|next to|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
+    elif re.search(r'\b(find|show|list|when|did|was|is there|are there|distance|gap|closest|minimum|how close|how far|how fast|how many|busiest|peak|most crowded|nearest|close to|next to|speed|speeding|dodge|dodges|dodged|dodging|yield|yielding|give way|step back)\b', text):
         template = 'find'
     else:
         template = 'unsupported'
