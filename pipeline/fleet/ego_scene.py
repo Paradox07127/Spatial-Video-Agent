@@ -35,7 +35,7 @@ KP_CONF = 0.5  # RTMPose SimCC score below which a keypoint is not used, as ware
 ANKLES = (15, 16)
 ANKLE_H_M = 0.08  # ankle joint height above the ground (anthropometric)
 TRUNC_PX = 2  # a box bottom this close to the image bottom is cut by the frame, so the feet are not in it
-SIGMA_FOOT_M = 0.2  # box bottom vs ankle anchor: the quadrature gap of triangulate.ROOT_SIGMA boxbottom and ankle
+SIGMA_FOOT_M = 0.2  # box-bottom vs ankle median error on paired SDG frames (0.231 vs 0.109 m, eval/wh_position_error.py) in quadrature
 DIMS = {"car": [4.5, 1.8, 1.5], "truck": [8.0, 2.5, 3.2], "bus": [12.0, 2.55, 3.2], "bicycle": [1.8, 0.6, 1.7],
         "motorcycle": [2.1, 0.8, 1.4]}  # length, width, height (m): class priors
 YAW_DT_MS = 1000  # half window of the track displacement that gives a vehicle's heading

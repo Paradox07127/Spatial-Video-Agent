@@ -342,8 +342,8 @@ def build_warehouse(root: Path) -> dict:
                 rec["xyz"].append(xyz)
                 rec["conf"].append(conf)
             else:
-                rec["root_method"].append("boxbottom")
-                rec["root_sigma_m"].append(0.35)
+                rec["root_method"].append("ankle")
+                rec["root_sigma_m"].append(0.40)
                 rec["xyz"].append(None)
                 rec["conf"].append([0.0] * 17)
             rec["n_views"].append([nv] * 17)

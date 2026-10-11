@@ -46,7 +46,7 @@ def test_fixture_requirements():
     p1, p2 = set(sk["P1"]["t_ms"]), set(sk["P2"]["t_ms"])
     assert len(p1 & p2) > 50, "two people present at the same time"
     forced = [(x, m) for t, x, m in zip(sk["P2"]["t_ms"], sk["P2"]["xyz"], sk["P2"]["root_method"]) if 2000 <= t < 2300]
-    assert forced and all(x is None and m == "boxbottom" for x, m in forced), "single-view frames carry root only"
+    assert forced and all(x is None and m == "ankle" for x, m in forced), "single-view frames carry root only"
     lanes = load(f"sva-out/{WH_KEY}/timeline.json")["lanes"]
     assert ["6000", "7000"] == [str(v) for v in [s for s in lanes["eye_00"] if s[2] == "no_video"][0][:2]]
     assert any(e["severity"] == 2 for e in load(f"sva-out/{WH_KEY}/events.json")["events"])

@@ -30,8 +30,8 @@ MIN_TRACK = 8  # frames; shorter person tracks are treated as detector noise and
 BONE_TOL = 0.25  # relative deviation from the person's median bone length that rejects a joint
 BONES = [(5, 7), (7, 9), (6, 8), (8, 10), (11, 13), (13, 15), (12, 14), (14, 16), (5, 6), (11, 12), (5, 11), (6, 12)]
 SMOOTH_WIN = 5  # Savitzky-Golay window (frames), polyorder 2
-# root_sigma_m per method: its median root error over the 80 SDG runs in eval/wh_position_error.py
-ROOT_SIGMA = {"tri": 0.09, "ankle": 0.11, "boxbottom": 0.23}
+# per-axis 1-sigma root error on frames where the method is the production choice (pipeline/eval/wh_position_error.py)
+ROOT_SIGMA = {"tri": 0.09, "ankle": 0.40}
 
 
 class Geo:
@@ -185,9 +185,8 @@ def skeleton_of(members: list, tracks: dict, geos: dict[str, Geo], step: float) 
         if ank:
             xy, method = np.mean(ank, axis=0), "tri"
         else:
-            per = [r for r in (root_view(g, d) for g, d in by_t[t]) if r[0] is not None]
-            use = [r for r in per if r[1] == "ankle"] or per
-            if not use:  # every view's floor ray misses the plane: no root for this frame
+            use = [r for r in (root_view(g, d) for g, d in by_t[t]) if r[0] is not None and r[1] == "ankle"]
+            if not use:  # no confident ankle on the plane: no root for this frame
                 continue
             xy, method = np.mean([r[0] for r in use], axis=0), use[0][1]
         p["t_ms"].append(t)

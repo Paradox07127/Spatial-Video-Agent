@@ -22,7 +22,7 @@ cv2.setNumThreads(THREADS)
 SEGMENT_MS = 5000  # every live segment: detection_frame_count 150 at 30 fps
 # COCO has no forklift class; pipeline/warehouse/pose2d.py keeps car / bus / truck boxes for the forklift
 VEHICLE_LABELS = {'car', 'bus', 'truck'}
-BOX_BOTTOM_SIGMA_M = 0.23  # pipeline/warehouse/triangulate.py ROOT_SIGMA['boxbottom']
+BOX_BOTTOM_SIGMA_M = 0.76  # per-axis 1.4826·MAD of box-bottom roots on SDG frames without a confident ankle (pipeline/eval/wh_position_error.py); live segments have no pose, so this conservative value applies
 # pipeline/fleet/ego_scene.py: flat-ground range errors and the range beyond which they exceed half the range
 SIGMA_PITCH_RAD = math.radians(1.0)
 SIGMA_H_M = 0.05
