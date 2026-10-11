@@ -178,7 +178,8 @@ def model_results(scene_key: str, request: Request, t_ms: int, window_ms: int = 
 
 def actor_points(store, scene_key, t_ms, actor_ids, t_range=None):
     m = store.manifest(scene_key)
-    points = []
+    # entity_id -> [x, y]; an actor seen by two sources keeps the first
+    points = {}
     tolerance=1000/m['fps']/2+1
     if 'tracks' in m['assets']:
         for track in store.asset_json(scene_key, m['assets']['tracks'])['tracks']:
@@ -186,7 +187,7 @@ def actor_points(store, scene_key, t_ms, actor_ids, t_range=None):
                 pts = [p for p in track['pts'] if not t_range or t_range[0]<=p[0]<t_range[1]]
                 i = nearest([p[0] for p in pts], t_ms)
                 if i is not None and abs(pts[i][0]-t_ms)<=tolerance:
-                    points.append(pts[i][1:3])
+                    points.setdefault(track['entity_id'], pts[i][1:3])
     if 'forklift' in m['assets']:
         for f in store.asset_json(scene_key, m['assets']['forklift'])['forklifts']:
             if f['entity_id'] in actor_ids:
@@ -194,13 +195,15 @@ def actor_points(store, scene_key, t_ms, actor_ids, t_range=None):
                 i = nearest([r['t_ms'] for r in pts], t_ms)
                 if i is not None and abs(pts[i]['t_ms']-t_ms)<=tolerance:
                     p = pts[i]
-                    points.append([p['x'], p['y']])
+                    points.setdefault(f['entity_id'], [p['x'], p['y']])
     if 'ego_dir' in m['assets']:
         frames = store.asset_json(scene_key, f"{m['assets']['ego_dir']}/{t_ms // 10000:05d}.json")['frames']
         frames = [f for f in frames if not t_range or t_range[0]<=f['t_ms']<t_range[1]]
         i = nearest([f['t_ms'] for f in frames], t_ms)
         if i is not None and abs(frames[i]['t_ms']-t_ms)<=tolerance:
-            points.extend([p['x'], p['y']] for p in frames[i]['peds'] + frames[i]['vehs'] if p['entity_id'] in actor_ids)
+            for p in frames[i]['peds'] + frames[i]['vehs']:
+                if p['entity_id'] in actor_ids:
+                    points.setdefault(p['entity_id'], [p['x'], p['y']])
     return points
 
 
@@ -224,7 +227,7 @@ def event_zone_time(store, scene_key, event, t0, t1, polygon):
                 continue
             times.update(f['t_ms'] for f in frames if lo<=f['t_ms']<hi)
     for t in sorted(times):
-        if any(polygon.covers(Point(p)) for p in actor_points(store,scene_key,t,event.actor_ids,(lo,hi))):
+        if any(polygon.covers(Point(p)) for p in actor_points(store,scene_key,t,event.actor_ids,(lo,hi)).values()):
             return t
     return None
 

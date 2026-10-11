@@ -125,7 +125,8 @@ def test_hazard_zone_requires_a_metric_scene(store):
 
 def test_hazard_zone_requires_every_event_actor(store, monkeypatch):
     from app.api import actions
-    monkeypatch.setattr(actions, 'actor_points', lambda *a, **kw: [[1.0, 2.0]])
-    with pytest.raises(ValueError):
-        trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['hazard_zone']))
+    for points in ({'P1': [1.0, 2.0]}, {'P1': [1.0, 2.0], 'P9': [3.0, 4.0]}):
+        monkeypatch.setattr(actions, 'actor_points', lambda *a, points=points, **kw: points)
+        with pytest.raises(ValueError):
+            trigger(store, TriggerRequest(scene_key=WH, event_id='E1', auto=True, actions=['hazard_zone']))
     assert store.list_zones(WH) == []

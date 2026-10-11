@@ -60,7 +60,7 @@ def test_actor_zone_points_reject_stale_samples(store,monkeypatch):
             for tr in doc['forklifts']: tr['track']=[tr['track'][0],tr['track'][-1]]
         return doc
     monkeypatch.setattr(store,'asset_json',sparse)
-    assert actor_points(store,'wh-sdg-fixture-01',4500,['P1','F1'])==[]
+    assert actor_points(store,'wh-sdg-fixture-01',4500,['P1','F1'])=={}
 
 @pytest.mark.parametrize('method,residual',[('unknown',0),('known',10000),('known',float('nan'))])
 def test_synchronized_evidence_rejects_bad_sync(store,monkeypatch,method,residual):

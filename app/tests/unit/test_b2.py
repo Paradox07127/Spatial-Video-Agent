@@ -291,7 +291,7 @@ def test_b2_zone_event_positions_stay_inside_requested_interval(tmp_path, monkey
         p=PersonAtMoment(entity_id='P1',root_world=(0.,0.) if t<4000 else (20.,20.),root_method='tri',sigma_m=.1,seen_by=[],observed_in=[])
         return Moment(t_ms=t,persons=[p],forklift=[],cams=[],floor_visibility_ref=None)
     monkeypatch.setattr(s,'moment',moment)
-    monkeypatch.setattr(scenes,'actor_points',lambda s,k,t,ids,t_range=None:[(0.,0.)] if t<4000 else [(20.,20.)])
+    monkeypatch.setattr(scenes,'actor_points',lambda s,k,t,ids,t_range=None:{'P1':(0.,0.)} if t<4000 else {'P1':(20.,20.)})
     polygon=[(-1,-1),(1,-1),(1,1),(-1,1)]
     if entry=='tools':
         assert tools.events(s,WH,4500,5000,polygon).envelope.output==[]

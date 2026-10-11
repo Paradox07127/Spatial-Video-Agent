@@ -90,10 +90,9 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
                 raise ValueError('hazard_zone requires a metric scene')
             t = event.params.get('t_min_ms', event.params.get('near_t0_ms', event.t0_ms))
             positions = actor_points(store, req.scene_key, t, event.actor_ids)
-            # actor_points returns no ids, so a missing actor shows only as a short list.
-            if len(positions) < len(set(event.actor_ids)):
+            if set(positions) != set(event.actor_ids):
                 raise ValueError('Event lacks positions for some participants')
-            polygon = MultiPoint(positions).convex_hull.buffer(3)
+            polygon = MultiPoint(list(positions.values())).convex_hull.buffer(3)
             zone_id = 'z_' + uuid4().hex
             zone = Zone(zone_id=zone_id, scene_key=req.scene_key, kind='hazard', polygon_world=list(polygon.exterior.coords),
                         source_event_id=event_id, action_id=action_id, t_range=(event.t0_ms, event.t1_ms), created=now())
