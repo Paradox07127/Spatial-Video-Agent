@@ -96,7 +96,14 @@ def trigger(store, req: TriggerRequest) -> TriggerResult:
         try:
             # insert_action/insert_zone keep the W0 contract signature, so the unmirrored insert goes through _insert_model
             if existing:
-                store.app.execute('UPDATE actions SET actions=?,review_task_id=?,zone_id=? WHERE action_id=?', [requested,review_task_id,zone_id,action_id])
+                changes = [(name,value) for name,value,old in
+                           [('actions',requested,existing.actions),('review_task_id',review_task_id,existing.review_task_id),
+                            ('zone_id',zone_id,existing.zone_id)] if value!=old]
+                # A duplicate trigger is a read/retry, not a LIST rewrite. DuckDB
+                # rewrites LIST UPDATEs to delete/insert, including ART maintenance.
+                if changes:
+                    store.app.execute('UPDATE actions SET '+','.join(name+'=?' for name,_ in changes)+' WHERE action_id=?',
+                                      [value for _,value in changes]+[action_id])
             else:
                 store._insert_model('actions', action, mirror=False)
             if zone:

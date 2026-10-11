@@ -65,6 +65,7 @@ class Store:
         self.index = None
         self.closed = False
         try:
+            self._repair_actions_event_index()
             if backend == 'vastdb':
                 self.index = duckdb.connect(':memory:')
                 self.index.execute((SCHEMAS_DIR / 'index.sql').read_text())
@@ -80,6 +81,29 @@ class Store:
                 self.index = duckdb.connect(str(index_path), read_only=True)
         except Exception:
             self.close()
+            raise
+
+    def _repair_actions_event_index(self):
+        """Rebuild the explicit ART index once, retaining both data and uniqueness.
+
+        A persisted actions_event index from an earlier release can read normally
+        but fatally fail when a LIST update is rewritten to delete/insert. Reopen
+        and CHECKPOINT do not rebuild that index. Transactional DDL reconstructs
+        it from the authoritative table rows before any action writer runs.
+        """
+        migration = '2026-10-10-actions-event-art-rebuild-v1'
+        if self.app.execute('SELECT 1 FROM app_migrations WHERE name=?',[migration]).fetchone():
+            return
+        self.app.execute('BEGIN TRANSACTION')
+        try:
+            # DuckDB cannot drop and recreate an index with the same name in one
+            # transaction. Build the replacement first; uniqueness is never absent.
+            self.app.execute('CREATE UNIQUE INDEX actions_event_v2 ON actions(scene_key,event_id)')
+            self.app.execute('DROP INDEX IF EXISTS actions_event')
+            self.app.execute('INSERT INTO app_migrations VALUES (?,?)',[migration,now()])
+            self.app.execute('COMMIT')
+        except BaseException:
+            self.app.execute('ROLLBACK')
             raise
 
     def close(self):
