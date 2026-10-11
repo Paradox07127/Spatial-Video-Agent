@@ -20,6 +20,7 @@ export function createBuildings(el, { api, tripOf, onFocus }) {
   }
 
   const card = {
+    get bid() { return current; },
     async focus(bid) {
       const my = ++token;
       if (current) onFocus(current, false);
@@ -28,17 +29,20 @@ export function createBuildings(el, { api, tripOf, onFocus }) {
       el.dataset.bid = bid;
       el.innerHTML = '<p class="muted" role="status">Loading building…</p>';
       try {
-        const trip = tripOf(bid);
-        if (!trip) throw new Error('Building source is unavailable');
-        if (!c5.has(trip.id)) {
-          const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
-          const request = api.get(`api/model-results?${q}`).then((rs) => rs.filter((r) => r.task === 'C5')).catch((error) => {
-            if (c5.get(trip.id) === request) c5.delete(trip.id);
-            throw error;
-          });
-          c5.set(trip.id, request);
+        const trip = await Promise.resolve(tripOf(bid));
+        let modelPromise = Promise.resolve([]);
+        if (trip) {
+          if (!c5.has(trip.id)) {
+            const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
+            const request = api.get(`api/model-results?${q}`).then((rs) => rs.filter((r) => r.task === 'C5')).catch((error) => {
+              if (c5.get(trip.id) === request) c5.delete(trip.id);
+              throw error;
+            });
+            c5.set(trip.id, request);
+          }
+          modelPromise = c5.get(trip.id);
         }
-        const [building, model] = await Promise.allSettled([api.get(`api/fleet/building/${bid}`), c5.get(trip.id)]);
+        const [building, model] = await Promise.allSettled([api.get(`api/fleet/building/${bid}`), modelPromise]);
         if (my !== token) return;
         if (building.status !== 'fulfilled') throw building.reason;
         const b = building.value;

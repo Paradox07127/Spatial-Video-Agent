@@ -207,7 +207,7 @@ export async function applyHits(moments) {
   await ready;
   S.moments = moments;
   renderBands();
-  ctx.clock.seek(moments[0].t0_ms);
+  if (moments.length) ctx.clock.seek(moments[0].t0_ms);
 }
 
 export async function applyUI({ cmd, args }) {

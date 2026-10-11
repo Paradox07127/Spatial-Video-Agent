@@ -52,16 +52,24 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       <div class="fl-cols"></div>
     </div>
     <div class="fl-vhead"><span class="mono">${esc(cam.id)}</span><span class="muted">${esc(cam.model)} · ${w}×${h}</span>
-      <button class="ghost fl-undist" aria-pressed="false" ${cam.model === 'pinhole' ? 'hidden' : ''}>Pinhole crop</button></div>
-    <div class="fl-legend"></div>`;
+      <div class="fl-vctrls">
+        <button class="ghost fl-undist" aria-pressed="false" ${cam.model === 'pinhole' ? 'hidden' : ''} title="Pinhole crop">Pinhole crop</button>
+        <button class="ghost fl-boxes-btn" title="Toggle detection boxes">Boxes: ${state.stageMode === 'evidence' ? 'cited' : 'all'}</button>
+        <button class="ghost fl-legend-btn" title="Legend">?</button>
+      </div>
+    </div>
+    <div class="fl-legend" hidden></div>`;
   const video = el.querySelector('video'), remapEl = el.querySelector('.fl-remap'), ovl = el.querySelector('.fl-ovl').getContext('2d');
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
+  const boxesBtn = el.querySelector('.fl-boxes-btn'), legendBtn = el.querySelector('.fl-legend-btn');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
   const out = remapEl.getContext('2d');
   let references = new Set();
+  let boxesMode = state.stageMode === 'evidence' ? 'cited' : 'all'; // 'all' | 'cited' | 'off'
+  let hoveredTid = null;
   let undist = false, lut = null, last = null, alive = true, time = 0, playing = false, rate = 1;
   let epoch = 0, frameHandle = null, pending = null, seekTarget = null, presentedReceipt = null, receiptNeedsReplay = false, expectedLoadSource = null;
-  const clear = () => { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.textContent = 'Detections pending presented frame'; };
+  const clear = () => { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.textContent = ''; };
   const invalidate = () => {
     epoch++; pending = null; presentedReceipt = null; receiptNeedsReplay = false; delete video.dataset.sceneMs; clear(); onInvalidate(epoch);
     if (frameHandle != null) video.cancelVideoFrameCallback(frameHandle);
@@ -137,34 +145,49 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     ovl.font = '500 13px "IBM Plex Mono", monospace';
     const drawn = new Set();
     let tracked = null;
-    for (const [, tid, cls, x1, y1, x2, y2] of boxes) {
-      const [a, b] = [P([x1, y1]), P([x2, y2])];
-      if (cite && names.get(`${cam.id}:${tid}`, frame.t_ms) === cite) {
-        tracked = [a, b];
-        continue;
+    if (boxesMode !== 'off') {
+      for (const [, tid, cls, x1, y1, x2, y2] of boxes) {
+        const [a, b] = [P([x1, y1]), P([x2, y2])];
+        const isCited = cite && names.get(`${cam.id}:${tid}`, frame.t_ms) === cite;
+        if (isCited) {
+          tracked = [a, b];
+          continue;
+        }
+        if (state.stageMode === 'evidence' || boxesMode === 'cited') continue;
+        drawn.add('detected');
+        const isHovered = hoveredTid === tid;
+        ovl.lineWidth = isHovered ? 2 : 1;
+        ovl.strokeStyle = isHovered ? INK : MEASURE;
+        ovl.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+        if (isHovered) {
+          ovl.fillStyle = INK;
+          const entityId = names.get(`${cam.id}:${tid}`, frame.t_ms);
+          ovl.fillText(`${entityId ?? `#${tid}`} ${cls}`, a[0], a[1] - 4);
+        }
       }
-      if (state.stageMode === 'evidence') continue;
-      drawn.add('detected');
-      ovl.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
-      ovl.fillText(`${names.get(`${cam.id}:${tid}`, frame.t_ms) ?? `#${tid}`} ${cls}`, a[0], a[1] - 4);
     }
     for (const p of frame.peds) {
       if (state.stageMode === 'evidence' && p.entity_id !== cite && !selection.ids.has(p.entity_id)) continue;
-      const k = p.kpts2d.map(([u, v, c]) => [...P([u, v]), c]);
+      const k = p.kpts2d?.map(([u, v, c]) => [...P([u, v]), c]) ?? [];
+      if (!k.length) continue;
       ovl.lineWidth = 1.5;
       for (const [i, j] of LIMBS) {
-        ovl.globalAlpha = Math.min(k[i][2], k[j][2]);
-        ovl.beginPath();
-        ovl.moveTo(k[i][0], k[i][1]);
-        ovl.lineTo(k[j][0], k[j][1]);
-        ovl.stroke();
+        if (k[i] && k[j]) {
+          ovl.globalAlpha = Math.min(k[i][2], k[j][2]);
+          ovl.beginPath();
+          ovl.moveTo(k[i][0], k[i][1]);
+          ovl.lineTo(k[j][0], k[j][1]);
+          ovl.stroke();
+        }
       }
       ovl.globalAlpha = 1;
     }
     if (tracked) {
       // Tag: entity id and its ground distance from the ego when the frame places it.
       const [a, b] = tracked, o = [...frame.peds, ...frame.vehs].find((x) => x.entity_id === cite);
-      const tag = o ? `${cite} · ${Math.hypot(o.x, o.y).toFixed(1)} m` : cite;
+      const dist = o ? Math.hypot(o.x, o.y).toFixed(1) : null;
+      const sigma = o?.sigma_m != null ? ` ±${o.sigma_m.toFixed(1)}` : '';
+      const tag = o ? `${cite} · ${dist} m${sigma} · Measured` : `${cite} · Measured`;
       ovl.lineWidth = 2;
       ovl.strokeStyle = ovl.fillStyle = INK;
       ovl.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
@@ -178,12 +201,13 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       const u0 = Math.max(0, P([b.u0, cam.K[3]])[0]), u1 = Math.min(w, P([b.u1, cam.K[3]])[0]);
       if (u1 <= u0) return '';
       drawn.add('map');
-      return `<button class="fl-col" data-bid="${esc(b.bid)}" title="${state.stageMode === 'explore' ? esc(b.bid) : ''}" style="left:${(100 * u0) / w}%;width:${(100 * (u1 - u0)) / w}%"><span>${esc(bname(b.bid) === b.bid ? 'Map' : bname(b.bid))} facade · map</span></button>`;
+      return `<button class="fl-col${b.bid === cite ? ' cited' : ''}" data-bid="${esc(b.bid)}" title="${state.stageMode === 'explore' ? esc(b.bid) : ''}" style="left:${(100 * u0) / w}%;width:${(100 * (u1 - u0)) / w}%"><span>${esc(bname(b.bid) === b.bid ? 'Map' : bname(b.bid))} · Map</span></button>`;
     }).join('');
     legend.innerHTML = Object.entries(LEGEND).filter(([k]) => drawn.has(k)).map(([k, v]) => `<span class="lg-${k}"><i></i>${v}</span>`).join('');
   }
 
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
     undist = !undist;
     btn.setAttribute('aria-pressed', undist);
     btn.classList.toggle('on', undist);
@@ -191,6 +215,52 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     remapEl.hidden = !undist;
     if (undist) remap();
     if (last) draw(...last);
+  });
+  boxesBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    boxesMode = boxesMode === 'all' ? 'cited' : boxesMode === 'cited' ? 'off' : 'all';
+    boxesBtn.textContent = `Boxes: ${boxesMode}`;
+    if (last) draw(...last);
+  });
+  legendBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    legend.hidden = !legend.hidden;
+  });
+  const vbox = el.querySelector('.fl-vbox');
+  vbox.addEventListener('mousemove', (e) => {
+    if (state.stageMode === 'evidence' || !last || boxesMode === 'off') return;
+    const rect = vbox.getBoundingClientRect();
+    const pxX = ((e.clientX - rect.left) / rect.width) * w;
+    const pxY = ((e.clientY - rect.top) / rect.height) * h;
+    const P = undist ? (p) => undistortPx(cam, p) : (p) => p;
+    const [, boxes] = last;
+    let found = null;
+    for (const [, tid, , x1, y1, x2, y2] of boxes) {
+      const [a, b] = [P([x1, y1]), P([x2, y2])];
+      if (pxX >= Math.min(a[0], b[0]) && pxX <= Math.max(a[0], b[0]) && pxY >= Math.min(a[1], b[1]) && pxY <= Math.max(a[1], b[1])) {
+        found = tid;
+        break;
+      }
+    }
+    if (found !== hoveredTid) {
+      hoveredTid = found;
+      if (last) draw(...last);
+    }
+  });
+  vbox.addEventListener('mouseleave', () => {
+    if (hoveredTid != null) {
+      hoveredTid = null;
+      if (last) draw(...last);
+    }
+  });
+  vbox.addEventListener('click', (e) => {
+    if (e.target.closest('.fl-col') || !last) return;
+    if (hoveredTid != null) {
+      const entityId = names.get(`${cam.id}:${hoveredTid}`, last[0]?.t_ms);
+      if (entityId) {
+        selection.set([entityId], { source: 'user' });
+      }
+    }
   });
   cols.addEventListener('click', (e) => {
     const c = e.target.closest('.fl-col');
@@ -203,6 +273,15 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     suspend() { invalidate(); playing = false; video.pause(); },
     redraw() { if (last) draw(...last); },
     setReferences(ids) { references = new Set(ids); if (last) draw(...last); },
+    setBoxesMode(mode) {
+      boxesMode = mode;
+      if (boxesBtn) boxesBtn.textContent = `Boxes: ${mode}`;
+      if (last) draw(...last);
+    },
+    setCite(c) {
+      cite = c;
+      if (last) draw(...last);
+    },
     clear() {
       last = null;
       ovl.clearRect(0, 0, w, h);

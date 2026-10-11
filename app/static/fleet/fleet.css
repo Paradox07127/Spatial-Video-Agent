@@ -7,37 +7,357 @@
 }
 .fl-root { position: absolute; inset: 0; }
 .fl-map { position: absolute; inset: 0; background: var(--paper); isolation: isolate; }
-/* Result layout: the big panel (data-slot, set by page.js) fills the left area, the inset sits in its bottom-left corner,
-   the side panel is over the place card in the right column; the overview map moves into its panel. */
-.fl-root.ix { display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 1px; background: var(--rule); }
-.fl-root.ix .fl-map { position: relative; inset: auto; min-width: 0; min-height: 0; }
-.fl-root.ix [data-slot="big"] { grid-area: 1 / 1 / 3 / 2; }
-.fl-root.ix [data-slot="side"] { grid-area: 1 / 2; }
-.fl-root.ix [data-slot="inset"] {
-  position: absolute; left: 12px; bottom: 44px; z-index: 4; grid-area: auto; box-sizing: border-box; width: 300px; height: 190px;
-  border: 1px solid var(--thread); border-radius: var(--radius); overflow: hidden;
-}
-.fl-grow { display: none; position: absolute; inset: 0; z-index: 5; cursor: zoom-in; }
-.fl-root.ix [data-slot="inset"] > .fl-grow, .fl-root.ix [data-slot="side"] > .fl-grow { display: block; }
-.fl-grow::after {
-  content: '⤢'; position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px;
-  font-size: var(--fs-2); color: var(--ink); background: rgb(14 18 24 / 0.85); border: 1px solid var(--rule); border-radius: var(--radius);
-}
-.fl-root.ix .fl-map:not([data-slot="big"]) .fl-car, .fl-root.ix .fl-clock, .fl-root.ix .fl-hit { display: none; }
-.fl-cap { display: none; position: absolute; left: 12px; bottom: 12px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); }
-.fl-root.ix .fl-map[data-slot="big"] .fl-cap { display: block; }
-.fl-map .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact, .fl-map .maplibregl-ctrl-attrib { background: rgb(14 18 24 / 0.7); color: var(--ink-2); font: var(--fs-1)/1.4 var(--font-sans); border-radius: 6px; }
-.fl-map .maplibregl-ctrl-attrib a { color: var(--ink-2); }
-.fl-map .maplibregl-ctrl-attrib-button { border-radius: 6px; }
 
+/* ---- Layout A (spec §9.3): Stage header at top, 16:9 dashcam top slot, spatial row (Map + Evidence cell) below */
+.fl-root.ix {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--paper);
+  overflow: hidden;
+}
+
+/* Stage header: 32-40 px, wraps instead of truncating */
+.fl-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 12px;
+  min-height: 32px;
+  background: var(--card);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-2);
+  z-index: 5;
+}
+.fl-trip-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--trip) 18%, transparent);
+  color: var(--ink);
+  font: 500 var(--fs-1) var(--font-mono);
+  border: 1px solid color-mix(in srgb, var(--trip) 40%, transparent);
+}
+.fl-trip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--trip);
+}
+.fl-facts {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  height: 32px;
+  font-size: var(--fs-1);
+  color: var(--ink-2);
+}
+.fl-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.fl-fact-time { color: var(--ink); font-weight: 500; }
+.fl-gps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--src-measure); }
+.fl-fact-gps.stale .fl-gps-dot { background: none; border: 1px dashed var(--neutral); }
+.fl-fact-gps.stale { color: var(--neutral); }
+.fl-fact-speed { color: var(--src-measure); }
+.fl-fact-limit { color: var(--src-map); }
+.fl-fact-place { color: var(--ink); }
+.fl-fact-rate { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: var(--ink-3); }
+.fl-fact-rate .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
+
+/* Top slot: DASHCAM 16:9, top-aligned, full stage width (~860x484) */
+.fl-top-slot {
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100% - 220px);
+  position: relative;
+  overflow: hidden;
+  background: #000;
+  border-bottom: 1px solid var(--rule);
+}
+.fl-top-slot .fl-vid, .fl-spatial-left .fl-vid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.fl-vid { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; }
+.fl-vwrap { position: absolute; inset: 0; }
+.fl-vbox { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fl-vbox video, .fl-vbox canvas, .fl-cols { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.fl-vbox canvas[hidden] { display: none; }
+.fl-novid { display: none; position: absolute; inset: 0; place-items: center; gap: 10px; font-size: var(--fs-2); color: var(--ink-2); background: #000; }
+.fl-vid.novid .fl-novid { display: grid; }
+.fl-vid.novid .fl-vwrap { visibility: hidden; }
+
+/* Video controls & overlays */
+.fl-vctrls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.fl-vid:hover .fl-vctrls { opacity: 1; }
+.fl-undist.on { color: var(--ink); border-color: var(--ink-2); background: var(--sunk); }
+.fl-legend-btn { font-size: var(--fs-1); padding: 2px 7px; }
+.fl-legend {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 12px;
+  padding: 4px 8px;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+  background: rgb(14 18 24 / 0.85);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+.fl-legend:empty { display: none; }
+.fl-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.fl-legend i { width: 10px; height: 8px; border: 1.5px solid var(--ink); }
+.fl-legend .lg-detected i { border-color: var(--src-measure); }
+.fl-legend .lg-map { color: var(--src-map); }
+.fl-legend .lg-map i { border: 1.5px dotted var(--src-map); }
+
+/* Facade column overlays */
+.fl-cols { pointer-events: none; }
+.fl-col {
+  position: absolute; top: 0; bottom: 0; pointer-events: auto; border: 1.5px dotted var(--src-map);
+  background: color-mix(in srgb, var(--src-map) 6%, transparent);
+}
+.fl-col:hover { background: color-mix(in srgb, var(--src-map) 16%, transparent); }
+.fl-col span {
+  display: none;
+  position: absolute; top: 40px; left: 4px; right: 4px; padding: 1px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 var(--fs-1) var(--font-mono); color: var(--src-map); background: rgb(14 18 24 / 0.85); border-radius: 2px; text-align: left;
+}
+.fl-col:hover span, .fl-col.cited span { display: block; }
+
+/* Spatial row: MAP on left, EVIDENCE CELL on right */
+.fl-spatial {
+  flex: 1 1 0;
+  min-height: 180px;
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1.15fr);
+  gap: 1px;
+  background: var(--rule);
+  position: relative;
+}
+.fl-spatial-cell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--paper);
+}
+.fl-spatial-tabs {
+  display: none;
+}
+.fl-spatial-left {
+  grid-column: 1;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.fl-spatial-left .fl-map, .fl-top-slot .fl-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Map toolbar & controls */
+.fl-map-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+}
+.fl-map-toolbar button {
+  padding: 2px 8px;
+  font-size: var(--fs-1);
+  background: rgb(14 18 24 / 0.85);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+}
+.fl-map-toolbar button:hover, .fl-map-toolbar button.on {
+  color: var(--ink);
+  border-color: var(--ink-2);
+}
+.fl-ghost-cursor {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  z-index: 4;
+}
+.fl-ghost-thumb {
+  width: 64px;
+  height: 36px;
+  border-radius: 2px;
+  border: 1px solid var(--rule);
+  object-fit: cover;
+  display: block;
+}
+.fl-ghost-tag {
+  font: 500 var(--fs-1) var(--font-mono);
+  color: var(--ink);
+  background: rgb(14 18 24 / 0.85);
+  padding: 1px 4px;
+  border-radius: 2px;
+  text-align: center;
+  display: block;
+  margin-top: 2px;
+}
+
+/* Evidence cell: tabs 3D | Speed | Place */
+.fl-evidence-cell {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+}
+.fl-evidence-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  flex: 0 0 auto;
+}
+.fl-evidence-panes {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.fl-pane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.fl-pane[hidden] { display: none; }
+
+/* 3D Ego View */
+.fl-3d-pane { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+.fl-3d { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; background: var(--paper); }
+.fl-3d > canvas { display: block; width: 100%; height: 100%; }
+.fl-labels { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.fl-3dcap { position: absolute; top: 10px; left: 10px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); text-transform: uppercase; }
+.fl-badge {
+  position: absolute; bottom: 10px; left: 10px; z-index: 2; padding: 2px 8px; font-size: var(--fs-1); color: var(--neutral);
+  background: rgb(14 18 24 / 0.85); border: 1px dashed var(--neutral); border-radius: 3px;
+}
+.fl-views { position: absolute; top: 8px; right: 8px; z-index: 2; background: var(--paper); }
+.fl-3dl { padding: 1px 5px; font-size: var(--fs-1); color: var(--ink); white-space: nowrap; background: rgb(14 18 24 / 0.75); border-radius: 3px; }
+.fl-ml { font: 500 var(--fs-2) var(--font-mono); color: var(--src-measure); background: var(--paper); border: 1px solid var(--src-measure); }
+.fl-3dl b { font-weight: 500; }
+.fl-al .mono, .fl-gnss { color: var(--ink-2); }
+.fl-al.fl-hid { visibility: hidden; }
+.fl-gnss { font-family: var(--font-mono); }
+.fl-gnss.stale { color: var(--neutral); border: 1px dashed var(--neutral); }
+.fl-bl { color: var(--src-map); border-bottom: 1.5px dotted var(--src-map); border-radius: 0; pointer-events: auto; cursor: pointer; }
+
+/* Speed vs limit chart */
+.fl-speed-pane { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+.fl-speed-cell { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--card); }
+.fl-speed-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: var(--paper); border-bottom: 1px solid var(--rule); flex: 0 0 auto; }
+.fl-speed-badges { display: flex; align-items: center; gap: 8px; font-size: var(--fs-1); }
+.fl-speed-chart-wrap { flex: 1 1 0; min-height: 0; position: relative; width: 100%; }
+.fl-speed-svg { width: 100%; height: 100%; display: block; }
+
+/* Place & Building card pane */
+.fl-place-pane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fl-place { display: flex; flex-direction: column; gap: 8px; min-width: 0; background: none; padding: 0; }
+.fl-place-h { display: flex; align-items: center; gap: 6px; }
+.fl-place-h .i { width: 12px; height: 12px; }
+.fl-place-name { font-size: var(--fs-16); font-weight: 500; }
+.fl-place-meta { font-size: var(--fs-2); }
+.fl-model { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; font-size: var(--fs-2); border: 1px dashed var(--thread); border-radius: var(--radius); background: var(--paper); }
+.fl-model > .src-model { flex: none; }
+.fl-model div { display: flex; flex-direction: column; gap: 3px; }
+body[data-stage="evidence"] .fl-place-pane .fl-model { display: flex; }
+
+/* Building card docked inside evidence cell */
+.fl-card {
+  position: absolute; left: 12px; bottom: 52px; z-index: 3; width: 300px; padding: 10px 12px 12px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); font-size: var(--fs-2);
+}
+.fl-card[hidden] { display: none; }
+.fl-place-pane .fl-card {
+  position: static;
+  width: auto;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 6px;
+}
+.fl-bhead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: var(--fs-4); }
+.fl-bhead b { font-weight: 500; }
+.fl-bhead .icon-btn { margin-left: auto; }
+.fl-bdl { display: grid; grid-template-columns: 52px 1fr; gap: 4px 10px; margin: 0; }
+.fl-bdl dt { color: var(--ink-2); font-size: var(--fs-1); line-height: 19px; }
+.fl-bdl dd { margin: 0; }
+.fl-sign { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.fl-sign-head { display: flex; align-items: center; gap: 8px; }
+.fl-sign-head .mp-check { margin-left: auto; }
+.fl-sign p { margin: 6px 0 0; }
+
+/* In overview mode clock and status */
 .fl-clock {
   position: absolute; left: 12px; bottom: 12px; z-index: 2; display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 10px;
   background: rgb(22 27 35 / 0.9); border: 1px solid var(--rule); border-radius: var(--radius); font-size: var(--fs-2);
 }
 .fl-sim::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border: 1.5px dashed var(--neutral); border-radius: 50%; vertical-align: 0; }
 .fl-wall { color: var(--ink-2); }
+.fl-root.ix .fl-clock { display: none; }
+.fl-cap { display: none; position: absolute; left: 12px; bottom: 12px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); }
+.fl-root.ix .fl-cap { display: block; }
 
-/* ---- map markers (MapLibre owns the outer element's transform) */
+/* MapLibre chrome */
+.fl-map .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact, .fl-map .maplibregl-ctrl-attrib { background: rgb(14 18 24 / 0.7); color: var(--ink-2); font: var(--fs-1)/1.4 var(--font-sans); border-radius: 6px; }
+.fl-map .maplibregl-ctrl-attrib a { color: var(--ink-2); }
+.fl-map .maplibregl-ctrl-attrib-button { border-radius: 6px; }
+
+/* Map markers */
 .fl-car { width: 0; height: 0; cursor: pointer; }
 .fl-car[hidden] { display: none; }
 .fl-car::before { content: ''; position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid transparent; }
@@ -55,7 +375,7 @@
 .fl-chip img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .fl-chip.empty img { visibility: hidden; }
 .fl-chip.empty::after { content: attr(data-message); position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-1); color: var(--ink-2); }
-.fl-pin, .fl-cluster { z-index: 1; } /* event markers stay above the car arrows that often sit on them */
+.fl-pin, .fl-cluster { z-index: 1; }
 .fl-pin { width: 14px; height: 18px; cursor: pointer; }
 .fl-pin i { position: absolute; left: 2px; top: 0; width: 10px; height: 10px; transform: rotate(45deg); background: var(--neutral); border: 1.5px solid var(--paper); }
 .fl-pin::after { content: ''; position: absolute; left: 6.5px; top: 10px; width: 1px; height: 8px; background: var(--neutral); }
@@ -71,7 +391,8 @@
 .fl-hit::after { animation: fl-ping 1.6s var(--ease) infinite; }
 @keyframes fl-ping { from { transform: scale(0.5); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .fl-hit::after { animation: none; } }
-/* Car dot in its GPS uncertainty ring; --r = sigma_m in pixels, set by overview.js. */
+
+/* GPS uncertainty ring */
 .fl-gps { width: 0; height: 0; }
 .fl-gps i {
   position: absolute; left: calc(-1 * var(--r, 0px)); top: calc(-1 * var(--r, 0px)); width: calc(2 * var(--r, 0px)); height: calc(2 * var(--r, 0px));
@@ -79,98 +400,7 @@
 }
 .fl-gps::after { content: ''; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: var(--ink); border: 2px solid var(--paper); }
 
-/* ---- building card */
-.fl-card {
-  position: absolute; left: 12px; bottom: 52px; z-index: 3; width: 300px; padding: 10px 12px 12px;
-  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); font-size: var(--fs-2);
-}
-.fl-card[hidden] { display: none; }
-.fl-root.ix .fl-card { left: auto; right: 12px; bottom: 12px; }
-.fl-bhead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: var(--fs-4); }
-.fl-bhead b { font-weight: 500; }
-.fl-bhead .icon-btn { margin-left: auto; }
-.fl-bdl { display: grid; grid-template-columns: 52px 1fr; gap: 4px 10px; margin: 0; }
-.fl-bdl dt { color: var(--ink-2); font-size: var(--fs-1); line-height: 19px; }
-.fl-bdl dd { margin: 0; }
-.fl-sign { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
-.fl-sign-head { display: flex; align-items: center; gap: 8px; }
-.fl-sign-head .mp-check { margin-left: auto; }
-.fl-sign p { margin: 6px 0 0; }
-
-/* ---- result layout cells (children of .fl-ix, laid out by the .fl-root grid) */
-.fl-ix { display: contents; }
-.fl-3d { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--paper); }
-.fl-3d > canvas { display: block; }
-.fl-labels { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.fl-3dcap { position: absolute; top: 12px; left: 12px; z-index: 2; font-size: var(--fs-1); color: var(--ink-2); text-transform: uppercase; }
-/* The 360 px side column is too narrow for the caption and the view buttons together. */
-.fl-root.ix .fl-3d[data-slot="side"] .fl-3dcap { display: none; }
-.fl-badge {
-  position: absolute; bottom: 12px; left: 12px; z-index: 2; padding: 2px 8px; font-size: var(--fs-1); color: var(--neutral);
-  background: rgb(14 18 24 / 0.85); border: 1px dashed var(--neutral); border-radius: 3px;
-}
-.fl-views { position: absolute; top: 10px; right: 10px; z-index: 2; background: var(--paper); }
-.fl-3dl { padding: 1px 5px; font-size: var(--fs-1); color: var(--ink); white-space: nowrap; background: rgb(14 18 24 / 0.75); border-radius: 3px; }
-.fl-ml { font: 500 var(--fs-2) var(--font-mono); color: var(--src-measure); background: var(--paper); border: 1px solid var(--src-measure); }
-.fl-3dl b { font-weight: 500; }
-.fl-al .mono, .fl-gnss { color: var(--ink-2); }
-.fl-al.fl-hid { visibility: hidden; }
-.fl-gnss { font-family: var(--font-mono); }
-.fl-gnss.stale { color: var(--neutral); border: 1px dashed var(--neutral); }
-.fl-bl { color: var(--src-map); border-bottom: 1.5px dotted var(--src-map); border-radius: 0; pointer-events: auto; cursor: pointer; }
-
-.fl-vid { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; }
-.fl-vwrap { position: absolute; inset: 0; }
-.fl-novid { display: none; position: absolute; inset: 0; place-items: center; font-size: var(--fs-2); color: var(--ink-2); }
-.fl-vid.novid .fl-novid { display: grid; }
-.fl-vid.novid .fl-vwrap { visibility: hidden; }
-.fl-root.ix .fl-vid:not([data-slot="big"]) :is(.fl-vhead, .fl-legend) { display: none; }
-.fl-vhead { position: absolute; top: 8px; left: 12px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 10px; font-size: var(--fs-1); }
-.fl-vhead .ghost { margin-left: auto; background: rgb(14 18 24 / 0.8); }
-.fl-undist.on { color: var(--ink); border-color: var(--ink-2); background: var(--sunk); }
-.fl-vbox { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); }
-.fl-vbox video, .fl-vbox canvas, .fl-cols { position: absolute; inset: 0; width: 100%; height: 100%; }
-.fl-legend { position: absolute; right: 12px; bottom: 42px; z-index: 2; display: flex; gap: 12px; padding: 4px 8px; font-size: var(--fs-1); color: var(--ink-3); background: rgb(14 18 24 / 0.8); border-radius: 3px; }
-.fl-legend:empty { display: none; }
-.fl-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.fl-legend i { width: 10px; height: 8px; border: 1.5px solid var(--ink); }
-.fl-legend .lg-detected i { border-color: var(--src-measure); }
-.fl-legend .lg-map { color: var(--src-map); }
-.fl-legend .lg-map i { border: 1.5px dotted var(--src-map); }
-.fl-vbox canvas[hidden] { display: none; }
-.fl-cols { pointer-events: none; }
-.fl-col {
-  position: absolute; top: 0; bottom: 0; pointer-events: auto; border: 1.5px dotted var(--src-map);
-  background: color-mix(in srgb, var(--src-map) 6%, transparent);
-}
-.fl-col:hover { background: color-mix(in srgb, var(--src-map) 16%, transparent); }
-.fl-col span {
-  position: absolute; top: 40px; left: 4px; right: 4px; padding: 1px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 500 var(--fs-1) var(--font-mono); color: var(--src-map); background: rgb(14 18 24 / 0.8); border-radius: 2px; text-align: left;
-}
-.fl-facts {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 16px; height: 32px; padding: 0 12px;
-  white-space: nowrap; overflow: hidden; font-size: var(--fs-1); color: var(--ink-3); background: rgb(14 18 24 / 0.88);
-}
-.fl-ft { color: var(--ink); }
-.fl-fgps { display: inline-flex; align-items: center; gap: 5px; }
-.fl-fgps i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
-.fl-fgps.stale { color: var(--neutral); }
-.fl-fgps.stale i { background: none; border: 1px dashed var(--neutral); }
-.fl-rate { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--ink-2); }
-.fl-rate .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
-
-/* ---- place card */
-.fl-place { grid-area: 2 / 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px; overflow-y: auto; background: var(--card); }
-.fl-place-h { display: flex; align-items: center; gap: 6px; }
-.fl-place-h .i { width: 12px; height: 12px; }
-.fl-place-name { font-size: var(--fs-16); }
-.fl-place-meta { font-size: var(--fs-2); }
-.fl-model { display: flex; align-items: flex-start; gap: 8px; padding: 10px; font-size: var(--fs-2); border: 1px dashed var(--thread); border-radius: var(--radius); }
-.fl-model > .i { flex: none; width: 14px; height: 14px; margin-top: 1px; color: var(--src-model); }
-.fl-model div { display: flex; flex-direction: column; gap: 3px; }
-
-/* ---- Trip tab (#tab-trip in the shell's panel) */
+/* Trip tab */
 .tt-head { display: flex; flex-direction: column; gap: 2px; }
 .tt-head .mono { font-size: var(--fs-1); color: var(--ink-2); }
 .tt-head b { font-weight: 500; font-size: var(--fs-16); }
@@ -192,24 +422,62 @@
 .tt-facts dt { color: var(--ink-2); }
 .tt-facts dd { margin: 0; }
 
-/* ---- timeline lanes added by the page */
+/* Timeline lanes */
 .lane-trip .s-ok { background: color-mix(in srgb, var(--trip) 45%, transparent); }
 .lane-trip .s-gap { top: 4px; height: 10px; border: 1.5px dashed var(--trip); }
 
-@media (max-width: 1200px) {
-  .fl-root.ix { grid-template-columns: minmax(0, 1fr) minmax(150px, 28%); }
-  .fl-root.ix [data-slot="inset"] { width: min(240px, 38%); height: 140px; }
-}
-@media (max-width: 850px) {
-  .fl-root.ix { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .fl-root.ix [data-slot="big"] { grid-area: 1 / 1; }
-  .fl-root.ix [data-slot="side"], .fl-place { display: none; }
-  .fl-root.ix [data-slot="inset"] { width: 150px; height: 90px; bottom: 34px; left: 8px; }
-  .fl-facts { font-size: 10px; gap: 5px; overflow: hidden; }
-}
-
 .fl-media-status { position: absolute; left: 10px; top: 10px; background: var(--paper); padding: 5px 8px; border: 1px solid var(--rule); z-index: 6; font-size: var(--fs-2); }
-
 .fl-load-status { position: absolute; top: 48px; left: 12px; right: 12px; z-index: 7; max-width: 560px; max-height: 35%; overflow: auto; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--paper); color: var(--ink-2); font-size: var(--fs-2); }
 .fl-load-status[hidden] { display: none; }
 .fl-load-status p { margin: 4px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* ---- Responsive Layout A */
+/* Narrow widths: 851–1200 px: spatial row becomes one cell with tabs [Map | 3D | Speed | Place] */
+@media (max-width: 1200px) {
+  .fl-spatial {
+    display: flex;
+    flex-direction: column;
+  }
+  .fl-spatial-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    flex: 0 0 auto;
+  }
+  .fl-spatial-cell {
+    flex: 1 1 0;
+    min-height: 200px;
+  }
+}
+
+/* ≤850 px: header facts wrap to two lines, video full width, segmented control [Map | 3D | Speed | Place] under video */
+@media (max-width: 850px) {
+  .fl-head {
+    flex-wrap: wrap;
+    min-height: auto;
+    padding: 6px 10px;
+    gap: 6px;
+  }
+  .fl-facts {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: var(--fs-1);
+    height: auto;
+    min-height: 32px;
+  }
+  .fl-top-slot {
+    max-height: none;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+  }
+  .fl-spatial-tabs {
+    display: flex;
+    width: 100%;
+  }
+  .fl-spatial-tabs button {
+    flex: 1;
+    text-align: center;
+  }
+}

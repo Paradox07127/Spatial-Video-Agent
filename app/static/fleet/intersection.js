@@ -254,7 +254,7 @@ export function createIntersection(el, { cam, origin, buildings, onPick, cite = 
       const seen = new Set();
       for (const p of f.peds) {
         const o = agent(p.entity_id, ped);
-        const conf = p.kpts2d.reduce((a, k) => a + k[2], 0) / p.kpts2d.length;
+        const conf = p.kpts2d?.length ? p.kpts2d.reduce((a, k) => a + k[2], 0) / p.kpts2d.length : 0;
         const color = sel.has(p.entity_id) ? C.ink : inFov(new THREE.Vector3(p.x, p.y, p.h / 2)) ? C.measure : C.thread;
         o.position.set(p.x, p.y, 0);
         const fig = o.getObjectByName('fig');

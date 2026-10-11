@@ -467,6 +467,7 @@ body[data-ws="fleet"][data-view="hit"] .tl-lanes { max-height: 18px; }
 .panel-resize:hover, .panel-resize:focus-visible { background: var(--thread); }
 .stage-controls { position: absolute; top: 12px; right: 12px; z-index: 6; background: var(--paper); }
 body[data-ws="warehouse"] .stage-controls, body[data-ws=""] .stage-controls, body[data-view="home"] .panel-resize { display: none; }
+body[data-ws="fleet"] .fl-head .stage-controls { position: static; top: auto; right: auto; z-index: auto; background: none; }
 .evidence-level { padding: 1px 6px; border: 1px solid var(--thread); border-radius: 3px; font-size: var(--fs-1); }
 .ans-src { flex-wrap: wrap; }
 .verdict-card { border: 1px solid var(--rule); border-left: 3px solid var(--neutral); border-radius: var(--radius); padding: 10px; }

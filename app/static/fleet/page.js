@@ -1,24 +1,22 @@
-// Fleet workspace page (spec §9.3, board v2-4a). Default: the result layout on the trip with video and the most events.
-// Result layout: one big panel on the left (dashcam, map or ego-frame 3D), the map as a small inset in its corner, the
-// other panel over the place card in the right column; the overview map moves into its panel. Esc (view state back to
-// default) closes it to the full-bleed overview map under the simulated replay clock and restores the map camera.
-import { icon } from '../kernel/badges.js';
+// Fleet workspace page (spec §9.3, layout A). Default: dashcam view on the trip with video and the most events.
+// Layout A: Stage header (~32-40 px) at top, 16:9 dashcam top slot (~860x484), spatial row below with
+// Map (~400x230) on left and Evidence cell (~460x230) on right (tabs 3D | Speed | Place).
+import { icon, source } from '../kernel/badges.js';
 import { esc, sec, tc } from '../kernel/format.js';
 import { state } from '../kernel/state.js';
 import { createBuildings } from './buildings.js';
 import { en, posAt, tripT, wallOf } from './geo.js';
 import { createIntersection } from './intersection.js';
 import { createOverview } from './overview.js';
+import { createSpeedChart } from './speedchart.js';
 import { createVideo } from './videooverlay.js';
 import { owners } from '../warehouse/videos.js';
 
 const FLY_MS = 800;
-const STATE = { observed: 'fix', interpolated: 'interpolated', last_known: 'last fix', unknown: 'unknown' };
+const STATE = { observed: 'fix', interpolated: 'interp', last_known: 'last fix', unknown: 'unknown' };
 const CHECKED = { verified: 'yes', conflict: 'conflict', unverified: 'no' };
-const PANELS = { video: '.fl-vid', map: '.fl-map', '3d': '.fl-3d' };
-// Click-catcher over a small panel; a click makes the panel big.
-const GROW = (panel) => `<div class="fl-grow" data-panel="${panel}" title="Enlarge"></div>`;
-// Read by the e2e spec: {overview, ix, big}.
+
+// Read by the e2e spec: {overview, ix, big, trips}.
 export const view = {};
 let ctx, root, trips, places, ov, card, ix = null, saved = null, offs = [];
 // Resolves once mount has the trips, the map and the building card; the agent's hits can arrive before that.
@@ -61,7 +59,6 @@ async function loadCore(trip) {
     else { trip.mf = mf; trip.cam = mf.cams[0] ?? null; }
   }
   trip.coreReady = !trip.failedAssets.has('route') && !trip.failedAssets.has('camera information');
-  // Events support the overview pins. The larger video/map/entity details remain on demand.
   if (trip.mf.assets.events) {
     try { trip.events = (await read(`api/assets/${trip.id}/${trip.mf.assets.events}`)).events; trip.failedAssets.delete('events'); }
     catch (e) { trip.events = []; trip.failedAssets.set('events', e); }
@@ -149,7 +146,7 @@ function addLanes() {
     const items = [];
     t.pts.forEach((p, i) => {
       const s = p.state === 'last_known' ? 'gap' : 'ok', a = wallOf(t.replay, p.t_ms);
-      const b = wallOf(t.replay, t.pts[i + 1]?.t_ms ?? t.replay.coverage_intervals.at(-1)[1]);
+      const b = wallOf(t.replay, t.pts[i + 1]?.t_ms ?? t.replay.coverage_intervals.at(-1)?.[1] ?? t.mf.t1_ms);
       if (items.at(-1)?.[2] === s) items.at(-1)[1] = b;
       else items.push([a, b, s]);
     });
@@ -165,7 +162,6 @@ function chunk(trip, kind, t) {
   if (!trip.chunks.has(key)) {
     trip.chunks.set(key, kind === 'ego'
       ? asset(trip, `${trip.mf.assets.ego_dir}/${n}.json`).then((j) => j.frames)
-      // A 10 s chunk with no detections may have no boxes file.
       : asset(trip, `${trip.mf.assets.boxes_dir}/${trip.cam.id}/${n}.json`).then((j) => j.rows, (err) => {
         if (err.message.startsWith('404 ')) return [];
         throw err;
@@ -190,19 +186,25 @@ function placeHtml(p, t, c5) {
   }
   if (pl.geom) meta.push('OSM footprint');
   const r = c5.reduce((best, x) => (!best || Math.abs(x.t_ms - t) < Math.abs(best.t_ms - t) ? x : best), null);
-  return `<span class="p-label fl-place-h">${icon('map')}PLACE</span>
+  return `<span class="p-label fl-place-h">${source('map')}PLACE</span>
     <span class="fl-place-name">${esc(pl.name)}</span>
     ${meta.length ? `<span class="fl-place-meta muted">${meta.join(' · ')}</span>` : ''}
-    ${r ? `<div class="fl-model">${icon('cpu')}<div><span>${esc(r.payload.text)}</span>
+    ${r ? `<div class="fl-model">${source('model')}<div><span>${esc(r.payload.text)}</span>
       <span class="muted" title="${esc(r.verification.method)}">Cosmos C5 · checked by map: ${CHECKED[r.verification.status]}</span></div></div>` : ''}`;
 }
 
 async function ixTick(wall) {
-  const cur = ix, current = ++cur.tick, t = tripT(cur.trip.replay, wall);
-  cur.el.querySelector('.fl-vid').classList.toggle('novid', t == null);
+  const cur = ix;
+  if (!cur) return;
+  const current = ++cur.tick, t = tripT(cur.trip.replay, wall);
+  const vidEl = cur.el.querySelector('.fl-vid');
+  vidEl?.classList.toggle('novid', t == null);
   if (t == null) {
-    cur.video.suspend(); cur.frame = null; cur.place.replaceChildren(); cur.placeHtml = null; cur.placeId = undefined;
-    cur.facts.textContent = 'No source coverage at this time'; cur.el.querySelector('.fl-3d').style.visibility = 'hidden'; ov.gps(null); ov.place(null); return;
+    cur.video?.suspend(); cur.frame = null; cur.place?.replaceChildren(); cur.placeHtml = null; cur.placeId = undefined;
+    cur.facts.textContent = 'No source coverage at this time';
+    const fl3d = cur.el.querySelector('.fl-3d');
+    if (fl3d) fl3d.style.visibility = 'hidden';
+    ov.gps(null); ov.place(null); return;
   }
   cur.video.sync(t, ctx.clock.playing, ctx.clock.rate * cur.trip.replay.rate);
   if (cur.frame && Math.floor(cur.frame.t_ms / 10000) !== Math.floor(t / 10000)) cur.video.clear();
@@ -213,7 +215,8 @@ async function ixTick(wall) {
     if (ix !== cur || current !== cur.tick || err?.message === 'Superseded page command') return;
     cur.frame = null;
     cur.video.clear();
-    cur.el.querySelector('.fl-3d').style.visibility = 'hidden';
+    const fl3d = cur.el.querySelector('.fl-3d');
+    if (fl3d) fl3d.style.visibility = 'hidden';
     cur.place.replaceChildren();
     cur.placeHtml = null;
     cur.placeId = undefined;
@@ -223,11 +226,14 @@ async function ixTick(wall) {
     return;
   }
   const f = frames.findLast((x) => x.t_ms <= t) ?? frames[0];
-  if (ix !== cur || current !== cur.tick || wall !== ctx.clock.t || !f || f === cur.frame) return;
-  cur.frame = f;
-  cur.el.querySelector('.fl-3d').style.visibility = '';
-  cur.scene.setFrame(f, ctx.selection.ids);
-  if (cur.frames !== frames) cur.scene.setPath((cur.frames = frames));
+  if (ix !== cur || current !== cur.tick || wall !== ctx.clock.t || !f) return;
+  if (f !== cur.frame) {
+    cur.frame = f;
+    const fl3d = cur.el.querySelector('.fl-3d');
+    if (fl3d) fl3d.style.visibility = '';
+    cur.scene.setFrame(f, ctx.selection.ids);
+    if (cur.frames !== frames) cur.scene.setPath((cur.frames = frames));
+  }
 
   const p = posAt(cur.trip.pts, t);
   if (!p) {
@@ -240,14 +246,23 @@ async function ixTick(wall) {
     return;
   }
   const pl = places.get(p.place_id), stale = p.state === 'last_known';
-  ov.gps([p.lon, p.lat], f.ego.sigma_m);
+  const sigma = f.ego?.sigma_m ?? 0;
+  ov.gps([p.lon, p.lat], sigma);
   if (cur.placeId !== p.place_id) ov.place(places.get((cur.placeId = p.place_id))?.geom);
-  cur.facts.innerHTML = `<span class="fl-ft">${tc(t)}</span>
-    <span class="fl-fgps${stale ? ' stale' : ''}"><i></i>GPS ${STATE[p.state]}${stale ? ` ${sec(p.age_ms)} ago` : ''} ±${f.ego.sigma_m.toFixed(1)} m</span>
-    <span>${p.speed.toFixed(1)} m/s</span>${p.place_id ? `<span>${esc(pl?.name ?? p.place_id)}</span>` : ''}
-    <span class="fl-rate">${icon('play')}${ctx.clock.rate}×</span>`;
+
+  const speedKmh = Math.round(p.speed * 3.6);
+  const limitKmh = p.maxspeed_kmh != null ? Math.round(p.maxspeed_kmh) : null;
+  cur.facts.innerHTML = `
+    <span class="fl-fact fl-fact-time" title="Trip time">${tc(t)}</span>
+    <span class="fl-fact fl-fact-gps${stale ? ' stale' : ''}" title="Source: Measured (GPS fix)"><i class="fl-gps-dot"></i>GPS ${STATE[p.state]}${stale ? ` ${sec(p.age_ms)} ago` : ''} ±${sigma.toFixed(1)} m</span>
+    <span class="fl-fact fl-fact-speed" title="Source: Measured (OBD sensor)">${speedKmh} km/h · OBD</span>
+    ${limitKmh != null ? `<span class="fl-fact fl-fact-limit" title="Source: Map (OpenStreetMap)">limit ${limitKmh} km/h · Map</span>` : ''}
+    ${pl ? `<span class="fl-fact fl-fact-place" title="Source: Map (OpenStreetMap)">${esc(pl.name ?? p.place_id)} · Map</span>` : ''}
+    <span class="fl-fact fl-fact-rate" title="Playback rate">${icon('play')}${ctx.clock.rate}×</span>`;
+
   const html = placeHtml(p, t, cur.c5);
   if (html !== cur.placeHtml) cur.place.innerHTML = cur.placeHtml = html;
+  cur.speedChart?.update(t);
 }
 
 // Video annotations follow the decoded source frame; map/GPS and 3D retain the master clock.
@@ -258,7 +273,6 @@ async function presented(cur, t, epoch) {
     const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
     if (ix !== cur || current !== cur.videoTick || epoch !== cur.video.epoch) return;
     const f = frames.reduce((best, x) => !best || Math.abs(x.t_ms - t) < Math.abs(best.t_ms - t) ? x : best, null);
-    // Ego/box sidecars can be sampled below the video's frame rate. Never bridge a gap over 50 ms.
     if (!f || Math.abs(f.t_ms - t) > 50) return cur.video.clear();
     cur.presented = t;
     cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - t) <= 50));
@@ -306,6 +320,74 @@ async function renderTrip() {
     <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
 }
 
+export function swapViews() {
+  if (!ix) return;
+  ix.swapped = !ix.swapped;
+  view.big = ix.swapped ? 'map' : 'video';
+  const topSlot = ix.el.querySelector('.fl-top-slot');
+  const leftSlot = ix.el.querySelector('.fl-spatial-left');
+  const vid = ix.el.querySelector('.fl-vid');
+  const mapEl = root.querySelector('.fl-map');
+  if (ix.swapped) {
+    topSlot.appendChild(mapEl);
+    leftSlot.appendChild(vid);
+  } else {
+    topSlot.appendChild(vid);
+    leftSlot.appendChild(mapEl);
+  }
+  const swapBtn = mapEl.querySelector('.fl-swap-btn');
+  if (swapBtn) swapBtn.textContent = ix.swapped ? 'Swap with dashcam' : 'Swap with video';
+  ov.map.resize();
+}
+
+export function setEvidenceTab(tab) {
+  if (!ix) return;
+  ix.evidenceTab = tab;
+  ix.el.querySelectorAll('.fl-evidence-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  ix.el.querySelectorAll('.fl-spatial-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+
+  const p3d = ix.el.querySelector('.fl-3d-pane');
+  const pSpeed = ix.el.querySelector('.fl-speed-pane');
+  const pPlace = ix.el.querySelector('.fl-place-pane');
+
+  if (p3d) p3d.hidden = tab !== '3d';
+  if (pSpeed) pSpeed.hidden = tab !== 'speed';
+  if (pPlace) pPlace.hidden = tab !== 'place';
+
+  if (tab === '3d' && ix.frame) {
+    ix.scene.setFrame(ix.frame, ctx.selection.ids);
+  } else if (tab === 'speed') {
+    const curT = tripT(ix.trip.replay, ctx.clock.t) ?? ix.trip.mf.t0_ms;
+    ix.speedChart?.update(curT);
+  }
+}
+
+export function setSpatialTab(tab) {
+  if (!ix) return;
+  ix.spatialTab = tab;
+  ix.el.querySelectorAll('.fl-spatial-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+
+  const leftCell = ix.el.querySelector('.fl-spatial-left');
+  const rightCell = ix.el.querySelector('.fl-spatial-right');
+
+  if (tab === 'map') {
+    leftCell.style.display = '';
+    rightCell.style.display = 'none';
+    ov.map.resize();
+  } else {
+    leftCell.style.display = 'none';
+    rightCell.style.display = '';
+    setEvidenceTab(tab);
+  }
+}
+
+export function setBig(name) {
+  if (!ix) return;
+  if (name === 'map' && view.big !== 'map') swapViews();
+  else if (name === 'video' && view.big !== 'video') swapViews();
+  else if (['3d', 'speed', 'place'].includes(name)) setEvidenceTab(name);
+}
+
 async function enterIx(trip, m, force = false) {
   if (!force && ix?.moment === m) return;
   const mount = ctx, owns = ctx.owner ?? (() => true);
@@ -325,22 +407,101 @@ async function enterIx(trip, m, force = false) {
   root.querySelector('.fl-cap').textContent = 'Dashed ring = GPS uncertainty';
   saved ??= ov.camera();
   root.classList.add('ix');
+
   const el = document.createElement('div');
   el.className = 'fl-ix';
-  el.innerHTML = `<div class="fl-vid"><div class="fl-vwrap"></div><div class="fl-facts mono"></div><span class="fl-novid">No video at this time</span>${GROW('video')}</div>
-    <div class="fl-3d"></div><div class="fl-place"></div>`;
-  root.querySelector('.fl-map').after(el);
+  el.innerHTML = `
+    <header class="fl-head">
+      <span class="fl-trip-chip" style="--trip: ${trip.color}"><i class="fl-trip-dot"></i><span class="fl-trip-id">${esc(shortId(trip.id))}</span></span>
+      <div class="fl-facts mono"></div>
+    </header>
+    <div class="fl-top-slot">
+      <div class="fl-vid">
+        <div class="fl-vwrap"></div>
+        <span class="fl-novid">No video at this time <button type="button" class="ghost fl-novid-swap">Show map</button></span>
+      </div>
+    </div>
+    <div class="fl-spatial">
+      <nav class="seg fl-spatial-tabs" aria-label="Spatial view">
+        <button type="button" data-tab="map" class="on">Map</button>
+        <button type="button" data-tab="3d">3D</button>
+        <button type="button" data-tab="speed">Speed</button>
+        <button type="button" data-tab="place">Place</button>
+      </nav>
+      <div class="fl-spatial-cell fl-spatial-left"></div>
+      <div class="fl-spatial-cell fl-spatial-right fl-evidence-cell">
+        <nav class="seg fl-evidence-tabs" aria-label="Evidence view">
+          <button type="button" data-tab="3d" class="on">3D</button>
+          <button type="button" data-tab="speed">Speed</button>
+          <button type="button" data-tab="place">Place</button>
+        </nav>
+        <div class="fl-evidence-panes">
+          <div class="fl-pane fl-3d-pane">
+            <div class="fl-3d"></div>
+          </div>
+          <div class="fl-pane fl-speed-pane" hidden></div>
+          <div class="fl-pane fl-place-pane" hidden>
+            <div class="fl-place"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  root.appendChild(el);
+
+  // Move stage-controls into the header
+  const stageControls = document.querySelector('.stage-controls');
+  if (stageControls) {
+    el.querySelector('.fl-head').prepend(stageControls);
+  }
+
+  // Move map into fl-spatial-left
+  const mapEl = root.querySelector('.fl-map');
+  const spatialLeft = el.querySelector('.fl-spatial-left');
+  spatialLeft.appendChild(mapEl);
+
+  // Add map toolbar if not exists
+  let mapToolbar = mapEl.querySelector('.fl-map-toolbar');
+  if (!mapToolbar) {
+    mapToolbar = document.createElement('div');
+    mapToolbar.className = 'fl-map-toolbar';
+    mapToolbar.innerHTML = `<button type="button" class="ghost fl-follow-btn on" title="Follow car on map">Follow</button><button type="button" class="ghost fl-swap-btn" title="Swap map with video">Swap with video</button>`;
+    mapEl.appendChild(mapToolbar);
+  }
+
+  // Move building card into fl-place-pane
+  const cardEl = root.querySelector('.fl-card');
+  if (cardEl) {
+    el.querySelector('.fl-place-pane').appendChild(cardEl);
+  }
+
   view.big = 'video';
-  const slots = { video: 'big', map: 'inset', '3d': 'side' };
-  setSlots(slots);
+
   ov.frame([p.lon, p.lat]);
   ov.result(trip.id);
-  const pick = (bid) => card.focus(bid);
+  ov.setFollow(true);
+  ov.setMoment(m, trip);
+  ov.setMode(state.mode ?? 'explore', trip.id);
+
+  const pick = (bid) => {
+    card.focus(bid);
+    setEvidenceTab('place');
+  };
   const cite = m.actor_refs?.[0]?.entity_id ?? null;
   const scene = createIntersection(el.querySelector('.fl-3d'), { cam: trip.cam, origin: trip.line[0], buildings: trip.buildings, onPick: pick, cite });
-  el.querySelector('.fl-3d').insertAdjacentHTML('beforeend', GROW('3d'));
+
+  const speedChart = createSpeedChart(el.querySelector('.fl-speed-pane'), {
+    trip,
+    t_ms: m.t0_ms,
+    moment: m,
+    onSeek: (targetT) => {
+      ctx.clock.seek(wallOf(trip.replay, targetT));
+    },
+  });
+
   const cur = view.ix = ix = {
-    trip, moment: m, el, scene, slots, tick: 0, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
+    trip, moment: m, el, scene, speedChart, tick: 0, frame: null, frames: null, placeId: undefined, placeHtml: null, c5: [],
+    swapped: false, evidenceTab: '3d', spatialTab: 'map',
     facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
     video: createVideo(el.querySelector('.fl-vwrap'), {
       cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
@@ -349,7 +510,30 @@ async function enterIx(trip, m, force = false) {
       src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
     }),
   };
-  if (trip.referenceBid) { cur.video.setReferences([trip.referenceBid]); cur.scene.focus(trip.referenceBid); }
+
+  // Wire toolbar and tab handlers
+  mapToolbar.querySelector('.fl-follow-btn')?.addEventListener('click', () => {
+    const next = !ov.getFollow();
+    ov.setFollow(next);
+  });
+  mapToolbar.querySelector('.fl-swap-btn')?.addEventListener('click', swapViews);
+  el.querySelector('.fl-novid-swap')?.addEventListener('click', swapViews);
+
+  el.querySelector('.fl-evidence-tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (btn) setEvidenceTab(btn.dataset.tab);
+  });
+  el.querySelector('.fl-spatial-tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (btn) setSpatialTab(btn.dataset.tab);
+  });
+
+  if (trip.referenceBid) {
+    cur.video.setReferences([trip.referenceBid]);
+    cur.scene.focus(trip.referenceBid);
+    setEvidenceTab('place');
+  }
+
   const q = `scene_key=${trip.id}&t_ms=${trip.mf.t0_ms}&window_ms=${trip.mf.t1_ms - trip.mf.t0_ms}`;
   read(`api/model-results?${q}`).then((rs) => {
     if (ix !== cur) return;
@@ -360,6 +544,7 @@ async function enterIx(trip, m, force = false) {
   }).catch((e) => {
     if (ix === cur && e?.message !== 'Superseded page command') { trip.failedAssets.set('model descriptions', e); renderLoadStatus(); }
   });
+
   ixTick(ctx.clock.t);
   if (!document.getElementById('tab-trip').hidden) renderTrip();
 }
@@ -369,30 +554,37 @@ function leaveIx() {
   pendingTrip = null;
   if (root?.querySelector('.fl-load-status')) renderLoadStatus();
   if (!ix) return;
+
+  // Restore stage-controls
+  const stageControls = document.querySelector('.fl-head .stage-controls');
+  if (stageControls) {
+    document.querySelector('.stage-wrap')?.appendChild(stageControls);
+  }
+
+  // Restore map
+  const mapEl = root.querySelector('.fl-map');
+  if (mapEl) {
+    mapEl.querySelector('.fl-map-toolbar')?.remove();
+    root.prepend(mapEl);
+  }
+
+  // Restore building card
+  const cardEl = root.querySelector('.fl-card');
+  if (cardEl) {
+    root.appendChild(cardEl);
+  }
+
   ix.scene.dispose();
   ix.video.dispose();
+  ix.speedChart?.dispose();
   ix.el.remove();
   view.ix = ix = view.big = null;
-  delete root.querySelector('.fl-map').dataset.slot;
   root.classList.remove('ix');
   ov.gps(null);
   ov.place(null);
   ov.result(null);
+  ov.setFollow(false);
   document.getElementById('tab-trip').replaceChildren();
-}
-
-// slots: panel name -> 'big' | 'inset' | 'side'.
-function setSlots(slots) {
-  for (const [k, sel] of Object.entries(PANELS)) root.querySelector(sel).dataset.slot = slots[k];
-}
-
-// A click on a small panel swaps it with the big one.
-function setBig(name) {
-  const s = ix.slots;
-  [s[view.big], s[name]] = [s[name], 'big'];
-  view.big = name;
-  setSlots(s);
-  ov.map.resize();
 }
 
 // Dashcam view of a trip with video at its trip time t_ms (the result layout without an agent moment).
@@ -463,11 +655,9 @@ export async function mount(el, c) {
     onCar(id) {
       const trip = byId(id), t = tripT(trip.replay, ctx.clock.t);
       ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: t });
+      ov.select(id);
       if (trip.cam && t != null) openTrip(trip, t);
-      else {
-        leaveIx();
-        ov.select(id);
-      }
+      else leaveIx();
     },
     onEvent(trip, e) {
       ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: e.t0_ms });
@@ -477,22 +667,32 @@ export async function mount(el, c) {
       ctx.clock.seek(wallOf(trip.replay, e.t0_ms));
     },
     onBuilding: (bid) => card.focus(bid),
+    onFollowChange(f) {
+      const btn = root.querySelector('.fl-follow-btn');
+      if (btn) {
+        btn.classList.toggle('on', f);
+        btn.textContent = f ? 'Follow' : 'Re-centre';
+      }
+    },
+    onSeek(t) {
+      if (ix) ctx.clock.seek(wallOf(ix.trip.replay, t));
+    },
   });
   // Added after the map is created: MapLibre wants an empty container.
   root.querySelector('.fl-map').append(Object.assign(document.createElement('span'), { className: 'fl-cap', textContent: trips.some((t) => t.pts.length) ? 'Dashed ring = GPS uncertainty' : 'GPS unavailable' }));
-  root.querySelector('.fl-map').insertAdjacentHTML('beforeend', GROW('map'));
   root.addEventListener('click', (e) => {
     const retry = e.target.closest('[data-retry-trip]');
     if (retry) { retry.disabled = true; retryTrip(byId(retry.dataset.retryTrip)).catch(() => {}); return; }
-    const g = e.target.closest('.fl-grow');
-    if (g && ix) setBig(g.dataset.panel);
   });
   card = createBuildings(root.querySelector('.fl-card'), {
     api: ctx.api,
     tripOf: (bid) => trips.find((t) => bid in t.buildings),
     onFocus(bid, on) {
       ov.focusBuilding(bid, on);
-      if (ix) ix.scene.focus(on ? bid : null);
+      if (ix) {
+        ix.scene.focus(on ? bid : null);
+        if (on) setEvidenceTab('place');
+      }
     },
   });
   loaded();
@@ -501,21 +701,67 @@ export async function mount(el, c) {
   const onTab = (name) => name === 'trip' && renderTrip();
   // Without an agent result the shell's Esc leaves the page; here it first closes the dashcam view to the overview.
   const onKey = (e) => {
-    if (e.key !== 'Escape' || !ix || state.view !== 'default' || !document.getElementById('cmdk').hidden || !document.getElementById('runpage').hidden) return;
-    e.stopPropagation();
-    toOverview(true);
+    if (!document.getElementById('cmdk').hidden || !document.getElementById('runpage').hidden) return;
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    if (e.key === 'Escape' && ix && state.view === 'default') {
+      e.stopPropagation();
+      toOverview(true);
+      return;
+    }
+    if ((e.key === '[' || e.key === ']') && ix?.trip) {
+      e.preventDefault();
+      const evs = ix.trip.events;
+      if (!evs.length) return;
+      const curT = tripT(ix.trip.replay, ctx.clock.t) ?? ix.trip.mf.t0_ms;
+      let target;
+      if (e.key === ']') {
+        target = evs.find((ev) => ev.t0_ms > curT + 50) ?? evs[0];
+      } else {
+        target = evs.findLast((ev) => ev.t0_ms < curT - 50) ?? evs.at(-1);
+      }
+      if (target) {
+        ctx.clock.seek(wallOf(ix.trip.replay, target.t0_ms));
+        ctx.timeline.highlight(`${ix.trip.id}:${target.id}`);
+      }
+      return;
+    }
+    if (e.key === ' ' && !['BUTTON'].includes(e.target.tagName)) {
+      e.preventDefault();
+      ctx.clock.playing ? ctx.clock.pause() : ctx.clock.play();
+      return;
+    }
   };
   ctx.bus.on('view:state', onView);
   ctx.bus.on('clock:play', onPlay);
   ctx.bus.on('panel:tab', onTab);
-  const onMode = () => { ix?.video.redraw(); if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids); };
+  const onMode = () => {
+    ix?.video.redraw();
+    if (ix?.frame) ix.scene.setFrame(ix.frame, ctx.selection.ids);
+    ov?.setMode(state.mode ?? 'explore', ix?.trip?.id);
+  };
   ctx.bus.on('stage:mode', onMode);
   const onEvidence = (e) => {
     if (!ix || e.scene_key !== ix.trip.id) return;
-    const bid = e.value?.bid;
-    ix.trip.referenceBid = bid ?? null;
-    ix.video.setReferences(bid ? [bid] : []);
-    ix.scene.focus(bid ?? null);
+    const bid = e.value?.bid ?? (e.value?.region_ref in (ix.trip.buildings ?? {}) ? e.value.region_ref : null);
+    if (bid) {
+      ix.trip.referenceBid = bid;
+      card.focus(bid);
+    }
+    if (ix.trip.referenceBid) {
+      ix.video.setReferences([ix.trip.referenceBid]);
+      ix.scene.focus(ix.trip.referenceBid);
+    }
+    const isSpeed = e.kind === 'speed' || e.method?.includes('speed') || e.unit === 'km/h';
+    const isDist = e.kind === 'distance' || e.method?.includes('dist') || e.method?.includes('approach') || (e.unit === 'm' && typeof e.value === 'number');
+    const isPlace = Boolean(bid || e.kind === 'map' || e.value?.place_id || e.value?.bid);
+
+    if (isSpeed) {
+      setEvidenceTab('speed');
+    } else if (isPlace || (card.bid && !isDist)) {
+      setEvidenceTab('place');
+    } else if (isDist || (!card.bid && (e.actor_id || e.kind === 'measure'))) {
+      setEvidenceTab('3d');
+    }
   };
   ctx.bus.on('evidence:focus', onEvidence);
   window.addEventListener('keydown', onKey, true);
@@ -531,7 +777,6 @@ export async function mount(el, c) {
     () => links.forEach((l) => l.remove()),
   ];
   if (ctx.route.trip_id) await loadScene(ctx.route.trip_id);
-  // A question still running (or its hit) replaces the view once mount returns.
   else if (!['searching', 'hit'].includes(state.view)) await openDefault();
   else tick(ctx.clock.t);
   return () => {
@@ -546,14 +791,22 @@ export async function mount(el, c) {
 // The agent's moment: select its trip, seek to it and open the result layout at once (a GPS-only trip: fly the map to it).
 export async function applyHits(moments) {
   await ready;
-  const m = moments.find((x) => byId(x.scene_key));
+  const m = moments?.find((x) => byId(x.scene_key));
   if (!m) return;
   const trip = byId(m.scene_key), p = posAt(trip.pts, m.t0_ms);
   ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: m.t0_ms });
   ov.select(trip.id);
   ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
-  if (trip.cam) await enterIx(trip, m);
-  else {
+  if (trip.cam) {
+    await enterIx(trip, m);
+    ov.setMoment(m, trip);
+    const whyText = (m.why ?? []).join(' ').toLowerCase();
+    const isSpeed = m.evidence_ids?.some((e) => e.includes('speed')) || whyText.includes('speed');
+    const isBuilding = trip.referenceBid || whyText.includes('building') || whyText.includes('facade') || m.actor_refs?.length === 0;
+    if (isSpeed) setEvidenceTab('speed');
+    else if (isBuilding && !m.actor_refs?.length) setEvidenceTab('place');
+    else setEvidenceTab('3d');
+  } else {
     leaveIx(); renderLoadStatus();
     if (p) flyTo([p.lon, p.lat]);
     else root.querySelector('.fl-cap').textContent = 'GPS unavailable';
@@ -563,23 +816,33 @@ export async function applyHits(moments) {
 export async function applyUI({ cmd, args }) {
   await ready;
   if (cmd === 'seek') {
-    const trip = byId(args.trip_id ?? args.scene_key) ?? ix?.trip;
+    const tripId = args.trip_id ?? args.scene_key;
+    if (tripId && !byId(tripId)) return;
+    const trip = tripId ? byId(tripId) : ix?.trip;
     if (trip) ctx.bus.emit('fleet:active', { scene_key: trip.id, cam_id: trip.cam?.id ?? null, t_ms: args.t_ms, commit: false });
     ctx.clock.seek(trip ? wallOf(trip.replay, args.t_ms) : args.t_ms);
   } else if (cmd === 'focus' && args.latlon) flyTo([args.latlon[1], args.latlon[0]]);
   else if (cmd === 'highlight') {
     const buildings = args.ids.filter((id) => trips.some((t) => id in t.buildings));
     ctx.selection.set(args.ids.filter((id) => !buildings.includes(id)), { source: 'agent' });
-    if (buildings.length) await card.focus(buildings[0]);
-  } else if (cmd === 'setView') ix?.scene.setView(args.view);
-  else if (cmd === 'loadScene') return loadScene(args.scene_key);
+    if (buildings.length) {
+      if (ix?.trip) ix.trip.referenceBid = buildings[0];
+      await card.focus(buildings[0]);
+      setEvidenceTab('place');
+    }
+  } else if (cmd === 'setView') {
+    if (['3d', 'speed', 'place'].includes(args.view)) {
+      setEvidenceTab(args.view);
+    } else {
+      ix?.scene.setView(args.view);
+    }
+  } else if (cmd === 'loadScene') return loadScene(args.scene_key);
 }
 
 // Model results are shown by the shell's model panel; the building and place cards fetch their own C5 records.
 export function applyModelResults() {}
 
 // #/fleet/<trip_id>@<t_ms>: select the trip, seek to t_ms and open its dashcam view (a GPS-only trip: fly to the car).
-// The shell cleared the timeline before calling.
 export function loadScene(id) {
   const trip = byId(id);
   addLanes();

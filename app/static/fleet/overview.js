@@ -23,6 +23,32 @@ const ARROW = '<svg class="fl-arrow" viewBox="-12 -12 24 24" aria-hidden="true">
 const empty = { type: 'FeatureCollection', features: [] };
 const line = (coordinates, properties = {}) => ({ type: 'Feature', properties, geometry: { type: 'LineString', coordinates } });
 
+function fovPolygon(lon, lat, headingDeg, cam) {
+  if (!cam || !cam.K) return null;
+  const halfFov = Math.atan((cam.w / 2) / cam.K[0]);
+  const halfFovDeg = (halfFov * 180) / Math.PI;
+  const dist = 42;
+  const rad = (deg) => (deg * Math.PI) / 180;
+  const center = [lon, lat];
+  const arcPts = [];
+  const startAng = headingDeg - halfFovDeg;
+  const endAng = headingDeg + halfFovDeg;
+  const steps = 12;
+  const cosLat = Math.cos(rad(lat));
+  for (let i = 0; i <= steps; i++) {
+    const ang = startAng + ((endAng - startAng) * i) / steps;
+    const aRad = rad(ang);
+    const dLat = (dist * Math.cos(aRad)) / 111139;
+    const dLon = (dist * Math.sin(aRad)) / (111139 * cosLat);
+    arcPts.push([lon + dLon, lat + dLat]);
+  }
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [[center, ...arcPts, center]] },
+  };
+}
+
 maplibregl.addProtocol('pmtiles', new Protocol().tile);
 
 async function baseStyle(api) {
@@ -69,7 +95,7 @@ function fitPitched(map, el, lngLats) {
   }
 }
 
-export async function createOverview(el, { trips, api, onCar, onEvent, onBuilding }) {
+export async function createOverview(el, { trips, api, onCar, onEvent, onBuilding, onSeek = () => {}, onFollowChange = () => {} }) {
   const gps = trips.flatMap((t) => t.pts.map((p) => [p.lon, p.lat]));
   const bounds = gps.length ? [Math.min(...gps.map((c) => c[0])), Math.min(...gps.map((c) => c[1])), Math.max(...gps.map((c) => c[0])), Math.max(...gps.map((c) => c[1]))] : [-79.41, 43.64, -79.38, 43.66];
   const map = new maplibregl.Map({
@@ -107,6 +133,30 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
   map.addLayer({
     id: 'fl-trail', type: 'line', source: 'fl-trail', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-width': 4, 'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, 'rgba(237,240,244,0)', 1, 'rgba(237,240,244,1)'] },
+  });
+  map.addSource('fl-fov', { type: 'geojson', data: empty });
+  map.addLayer({
+    id: 'fl-fov', type: 'fill', source: 'fl-fov',
+    paint: { 'fill-color': '#56B4E9', 'fill-opacity': 0.12 },
+  });
+  map.addLayer({
+    id: 'fl-fov-line', type: 'line', source: 'fl-fov',
+    paint: { 'line-color': '#56B4E9', 'line-width': 1.5, 'line-opacity': 0.45 },
+  });
+  map.addSource('fl-moment-span', { type: 'geojson', data: empty });
+  map.addLayer({
+    id: 'fl-moment-span', type: 'line', source: 'fl-moment-span',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['coalesce', ['get', 'color'], '#EDF0F4'], 'line-width': 6, 'line-opacity': 0.95 },
+  });
+  map.addSource('fl-cited-footprint', { type: 'geojson', data: empty });
+  map.addLayer({
+    id: 'fl-cited-footprint', type: 'fill', source: 'fl-cited-footprint',
+    paint: { 'fill-color': '#009E73', 'fill-opacity': 0.15 },
+  });
+  map.addLayer({
+    id: 'fl-cited-footprint-line', type: 'line', source: 'fl-cited-footprint',
+    paint: { 'line-color': '#009E73', 'line-width': 2, 'line-dasharray': [2, 2] },
   });
   map.on('click', 'fl-bld', (e) => onBuilding(e.features[0].id));
   map.on('mouseenter', 'fl-bld', () => (map.getCanvas().style.cursor = 'pointer'));
@@ -179,10 +229,52 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
   gpsDiv.className = 'fl-gps';
   gpsDiv.innerHTML = '<i></i>';
   const ring = new maplibregl.Marker({ element: gpsDiv });
-  let selected = null, wall = 0, gpsAt = null;
+  let selected = null, wall = 0, gpsAt = null, follow = true, resultTrip = null, activeMoment = null, modeState = 'explore';
   // The ring's radius is sigma_m in pixels at the car's latitude and the current zoom.
   const sizeRing = () => gpsAt && gpsDiv.style.setProperty('--r', `${(gpsAt[1] * 2 ** map.getZoom()) / (M_PER_PX0 * Math.cos((gpsAt[0][1] * Math.PI) / 180))}px`);
   map.on('zoom', sizeRing);
+
+  map.on('dragstart', () => {
+    if (resultTrip && follow) {
+      follow = false;
+      onFollowChange(false);
+    }
+  });
+
+  const ghostDiv = document.createElement('div');
+  ghostDiv.className = 'fl-ghost-cursor';
+  ghostDiv.innerHTML = '<span class="fl-ghost-dot"></span><span class="fl-chip empty"><img alt=""><span class="fl-ghost-preview">Preview</span></span>';
+  const ghostMarker = new maplibregl.Marker({ element: ghostDiv });
+  let ghostActive = false, ghostT = null;
+
+  map.on('mousemove', 'fl-route', (e) => {
+    const curId = resultTrip ?? selected;
+    const curTrip = trips.find((t) => t.id === curId);
+    if (!curTrip || !curTrip.pts.length) return;
+    const [mX, mY] = [e.lngLat.lng, e.lngLat.lat];
+    let bestP = null, minD = Infinity;
+    for (const p of curTrip.pts) {
+      const d = (p.lon - mX) ** 2 + (p.lat - mY) ** 2;
+      if (d < minD) { minD = d; bestP = p; }
+    }
+    if (bestP && minD < 0.0004) {
+      ghostMarker.setLngLat([bestP.lon, bestP.lat]);
+      if (!ghostActive) { ghostMarker.addTo(map); ghostActive = true; }
+      ghostT = bestP.t_ms;
+      const s = Math.floor(bestP.t_ms / 1000);
+      const chip = ghostDiv.querySelector('.fl-chip');
+      if (curTrip.cam) {
+        chip.classList.remove('empty');
+        chip.querySelector('img').src = api.url(`api/assets/${curTrip.id}/${curTrip.cam.thumbs}/${String(s).padStart(5, '0')}.jpg`);
+      }
+    }
+  });
+  map.on('mouseleave', 'fl-route', () => {
+    if (ghostActive) { ghostMarker.remove(); ghostActive = false; ghostT = null; }
+  });
+  map.on('click', 'fl-route', () => {
+    if (ghostT != null) onSeek(ghostT);
+  });
 
   const ov = {
     map,
@@ -212,6 +304,17 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
         if (c.trip.id === selected) {
           const tail = p ? c.trip.pts.filter((q) => q.t_ms > t - TRAIL_MS && q.t_ms <= t).map((q) => [q.lon, q.lat]).concat([[p.lon, p.lat]]) : [];
           map.getSource('fl-trail').setData(tail.length > 1 ? line(tail) : empty);
+        }
+        if (c.trip.id === resultTrip && p) {
+          if (follow) {
+            map.setCenter([p.lon, p.lat]);
+          }
+          if (c.trip.cam) {
+            const poly = fovPolygon(p.lon, p.lat, p.heading, c.trip.cam);
+            map.getSource('fl-fov').setData(poly ? { type: 'FeatureCollection', features: [poly] } : empty);
+          } else {
+            map.getSource('fl-fov').setData(empty);
+          }
         }
         if (!p) continue;
         c.marker.setLngLat([p.lon, p.lat]);
@@ -245,14 +348,83 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
     focusBuilding(bid, on) {
       map.setFeatureState({ source: 'fl-bld', id: bid }, { focus: on });
     },
+    setFollow(val) {
+      follow = val;
+      if (follow && resultTrip) {
+        const c = cars.find((x) => x.trip.id === resultTrip);
+        if (c) {
+          const t = tripT(c.trip.replay, wall);
+          const p = t == null ? null : posAt(c.trip.pts, t);
+          if (p) map.setCenter([p.lon, p.lat]);
+        }
+      }
+      onFollowChange(follow);
+    },
+    getFollow: () => follow,
+    setMoment(m, trip) {
+      activeMoment = m;
+      if (m && trip) {
+        const pts = trip.pts.filter((q) => q.t_ms >= m.t0_ms && q.t_ms <= (m.t1_ms ?? m.t0_ms + 1000));
+        if (pts.length >= 2) {
+          map.getSource('fl-moment-span').setData({
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: { color: trip.color }, geometry: { type: 'LineString', coordinates: pts.map((q) => [q.lon, q.lat]) } }],
+          });
+        } else {
+          map.getSource('fl-moment-span').setData(empty);
+        }
+        if (modeState === 'evidence') {
+          const filtered = [...events].filter(([, v]) => v.trip.id === trip.id && v.e.t0_ms < (m.t1_ms ?? m.t0_ms + 1000) && v.e.t1_ms > m.t0_ms);
+          map.getSource('fl-ev').setData({
+            type: 'FeatureCollection',
+            features: filtered.map(([key, v]) => ({ type: 'Feature', properties: { key, severity: v.e.severity }, geometry: { type: 'Point', coordinates: v.lngLat } })),
+          });
+        }
+      } else {
+        map.getSource('fl-moment-span').setData(empty);
+      }
+    },
+    setCitedFootprint(geom) {
+      map.getSource('fl-cited-footprint').setData(geom ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: geom }] } : empty);
+    },
+    setMode(mode, tripId = resultTrip) {
+      modeState = mode;
+      const isSel = ['==', ['get', 'trip'], tripId];
+      if (mode === 'evidence') {
+        map.setPaintProperty('fl-route', 'line-opacity', ['case', isSel, 1, 0]);
+        map.setPaintProperty('fl-route-gap', 'line-opacity', ['case', isSel, 1, 0]);
+        if (activeMoment && tripId) {
+          const filtered = [...events].filter(([, v]) => v.trip.id === tripId && v.e.t0_ms < (activeMoment.t1_ms ?? activeMoment.t0_ms + 1000) && v.e.t1_ms > activeMoment.t0_ms);
+          map.getSource('fl-ev').setData({
+            type: 'FeatureCollection',
+            features: filtered.map(([key, v]) => ({ type: 'Feature', properties: { key, severity: v.e.severity }, geometry: { type: 'Point', coordinates: v.lngLat } })),
+          });
+        }
+      } else {
+        map.setPaintProperty('fl-route', 'line-opacity', ['case', isSel, 1, FADED]);
+        map.setPaintProperty('fl-route-gap', 'line-opacity', ['case', isSel, 1, FADED]);
+        map.getSource('fl-ev').setData({
+          type: 'FeatureCollection',
+          features: [...events].map(([key, v]) => ({ type: 'Feature', properties: { key, severity: v.e.severity }, geometry: { type: 'Point', coordinates: v.lngLat } })),
+        });
+      }
+    },
     // Result layout for trip id (null: back to the overview styling of the selected trip).
     result(id) {
-      if (!id) return ov.select(selected);
+      resultTrip = id;
+      if (!id) {
+        map.getSource('fl-fov')?.setData(empty);
+        map.getSource('fl-moment-span')?.setData(empty);
+        map.getSource('fl-cited-footprint')?.setData(empty);
+        follow = false;
+        return ov.select(selected);
+      }
+      follow = true;
       const isSel = ['==', ['get', 'trip'], id];
       for (const layer of Object.keys(ROUTE_W)) {
         map.setPaintProperty(layer, 'line-color', ['case', isSel, ['get', 'color'], OTHER]);
         map.setPaintProperty(layer, 'line-width', ['case', isSel, 3, 2]);
-        map.setPaintProperty(layer, 'line-opacity', 1);
+        map.setPaintProperty(layer, 'line-opacity', modeState === 'evidence' ? ['case', isSel, 1, 0] : 1);
       }
     },
     // The car dot in its GPS uncertainty ring; lngLat null removes it.
@@ -285,6 +457,7 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
       map.jumpTo(cam);
     },
     dispose() {
+      if (ghostActive) ghostMarker.remove();
       map.remove();
     },
   };

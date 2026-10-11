@@ -71,8 +71,13 @@ test('default state: dashcam view of the trip with video and the most events, bo
   // E1, the trip's first event, starts at 3.0 s, where the mock has boxes.
   expect(await mod(page, 'kernel/clock.js', 'm.clock.t')).toBe(3000);
   const stage = await box(page, '#stage'), vid = await box(page, '.fl-vid'), map = await box(page, '.fl-map');
-  expect([vid.x, vid.y, Math.round(vid.height)]).toEqual([stage.x, stage.y, Math.round(stage.height)]);
-  expect([map.x - stage.x, Math.round(stage.y + stage.height - map.y - map.height), map.width, map.height]).toEqual([12, 44, 300, 190]);
+  const head = await box(page, '.fl-head');
+  expect(Math.round(head.y)).toBe(Math.round(stage.y));
+  expect(head.height).toBeGreaterThanOrEqual(32);
+  expect(Math.round(vid.x)).toBe(Math.round(stage.x));
+  expect(Math.round(vid.width)).toBe(Math.round(stage.width));
+  expect(Math.round(vid.y)).toBe(Math.round(head.y + head.height));
+  expect(Math.round(map.y)).toBeGreaterThanOrEqual(Math.round(vid.y + vid.height));
   await expect(page.locator('.fl-legend .lg-detected')).toBeVisible();
   const inked = () => page.locator('.fl-ovl').evaluate((c) => c.getContext('2d').getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 0).length);
   expect(await inked()).toBeGreaterThan(0);
@@ -82,46 +87,33 @@ test('default state: dashcam view of the trip with video and the most events, bo
   await mod(page, 'kernel/clock.js', 'm.clock.pause()');
   // Outside the trip's coverage the video panel says so instead of a frozen frame.
   await seek(page, 20000);
-  await expect(page.locator('.fl-novid')).toHaveText('No video at this time');
+  await expect(page.locator('.fl-novid')).toContainText('No video at this time');
   await expect(page.locator('.fl-novid')).toBeVisible();
   await expect(page.locator('.fl-vbox')).toBeHidden();
   await seek(page, 3000);
   await expect(page.locator('.fl-novid')).toBeHidden();
 });
 
-test('layout B: a click on a small panel makes it big and swaps the old big panel into its place', async ({ page }) => {
+test('layout swap: swap with video puts map in top slot and dashcam in left spatial slot; swap again restores', async ({ page }) => {
   const stage = await box(page, '#stage');
-  const isBig = async (sel) => {
-    const b = await box(page, sel);
-    return b.x === stage.x && Math.round(b.height) === Math.round(stage.height) && Math.round(b.width) === Math.round(stage.width - 361);
-  };
-  const isInset = async (sel) => {
-    const b = await box(page, sel);
-    return b.x - stage.x === 12 && b.width === 300 && b.height === 190;
-  };
-  const isSide = async (sel) => Math.round((await box(page, sel)).x) === Math.round(stage.x + stage.width - 360);
-  // Panel width less its 1 px inset border on each side.
-  const fills = (panel, inner) => expect.poll(async () => Math.abs((await box(page, panel)).width - (await box(page, inner)).width)).toBeLessThanOrEqual(2);
-  expect([await big(page), await isBig('.fl-vid'), await isInset('.fl-map'), await isSide('.fl-3d'), await isSide('.fl-place')]).toEqual(['video', true, true, true, true]);
-  // A click on the small map lands on the click-catcher, not on MapLibre.
-  const m = await box(page, '.fl-map');
-  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y).className, [m.x + m.width / 2, m.y + m.height / 2])).toBe('fl-grow');
-  await expect(page.locator('.fl-map > .fl-grow')).toHaveCSS('cursor', 'zoom-in');
-  await expect(page.locator('.fl-vid > .fl-grow')).toBeHidden();
+  expect(await big(page)).toBe('video');
+  const vid = await box(page, '.fl-vid'), map = await box(page, '.fl-map');
+  expect(Math.round(vid.width)).toBe(Math.round(stage.width));
+  expect(map.width).toBeLessThan(stage.width);
 
-  await page.locator('.fl-map').click();
-  expect([await big(page), await isBig('.fl-map'), await isInset('.fl-vid'), await isSide('.fl-3d')]).toEqual(['map', true, true, true]);
-  await fills('.fl-map', '.fl-map canvas.maplibregl-canvas');
-  await page.locator('.fl-vid').click();
-  expect([await big(page), await isBig('.fl-vid'), await isInset('.fl-map')]).toEqual(['video', true, true]);
-  await fills('.fl-map', '.fl-map canvas.maplibregl-canvas');
+  // Click swap button in map toolbar
+  await page.locator('.fl-swap-btn').click();
+  await expect.poll(() => big(page)).toBe('map');
+  const mapSwapped = await box(page, '.fl-map'), vidSwapped = await box(page, '.fl-vid');
+  expect(Math.round(mapSwapped.width)).toBe(Math.round(stage.width));
+  expect(vidSwapped.width).toBeLessThan(stage.width);
 
-  await page.locator('.fl-3d').click();
-  expect([await big(page), await isBig('.fl-3d'), await isSide('.fl-vid'), await isInset('.fl-map')]).toEqual(['3d', true, true, true]);
-  await fills('.fl-3d', '.fl-3d canvas');
-  await page.locator('.fl-vid').click();
-  expect([await big(page), await isBig('.fl-vid'), await isSide('.fl-3d')]).toEqual(['video', true, true]);
-  await fills('.fl-3d', '.fl-3d canvas');
+  // Swap back
+  await page.locator('.fl-swap-btn').click();
+  await expect.poll(() => big(page)).toBe('video');
+  const mapRestored = await box(page, '.fl-map'), vidRestored = await box(page, '.fl-vid');
+  expect(Math.round(vidRestored.width)).toBe(Math.round(stage.width));
+  expect(mapRestored.width).toBeLessThan(stage.width);
 });
 
 test('on the big map a click on another trip car with video opens that trip dashcam view at the clock time', async ({ page }) => {
@@ -136,7 +128,7 @@ test('on the big map a click on another trip car with video opens that trip dash
   await page.reload();
   await expect(page.locator('.fl-car')).toHaveCount(2);
   await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(T1);
-  await page.locator('.fl-map').click();
+  await page.locator('.fl-swap-btn').click();
   await expect.poll(() => big(page)).toBe('map');
   const p = JSON.parse(fs.readFileSync(path.join(OUT, T2, 'trip.geojson'), 'utf8')).features.slice(1).map((f) => f.properties).find((q) => q.t_ms === 3000);
   await mod(page, 'fleet/page.js', `m.view.overview.map.jumpTo({ center: [${p.lon}, ${p.lat}] })`);
@@ -316,17 +308,14 @@ test('fl-where: hits open the result layout at once; building card; Esc restores
   expect(t.ix - t.hit).toBeLessThan(300);
   expect(await mod(page, 'fleet/page.js', 'm.view.overview.map.isMoving()')).toBe(false);
 
-  const grid = await page.locator('.fl-root').evaluate((e) => {
-    const s = getComputedStyle(e);
-    return [s.display, s.gridTemplateColumns.split(' ')[1], s.rowGap, s.columnGap];
-  });
-  expect(grid).toEqual(['grid', '360px', '1px', '1px']);
-  // Video big on the left, the map inset in its bottom-left corner, 3D over the place card on the right.
-  const stage = await box(page, '#stage'), W = Math.round(stage.width), H = Math.round(stage.height);
-  const [dash, map, ego, place] = await Promise.all(['.fl-vid', '.fl-map', '.fl-3d', '.fl-place'].map((s) => box(page, s)));
-  const at = (b, x, y) => [Math.round(b.x - stage.x), Math.round(b.y - stage.y)].join(',') === `${x},${y}`;
-  expect([at(dash, 0, 0), at(map, 12, H - 234), at(ego, W - 360, 0), at(place, W - 360, Math.round(ego.height) + 1)]).toEqual([true, true, true, true]);
-  expect([Math.round(dash.width), Math.round(dash.height), map.width, map.height]).toEqual([W - 361, H, 300, 190]);
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  const stage = await box(page, '#stage'), W = Math.round(stage.width);
+  const [head, dash, map, evCell] = await Promise.all(['.fl-head', '.fl-vid', '.fl-map', '.fl-evidence-cell'].map((s) => box(page, s)));
+  expect(Math.round(head.y)).toBe(Math.round(stage.y));
+  expect(Math.round(dash.width)).toBe(W);
+  expect(Math.round(dash.y)).toBe(Math.round(head.y + head.height));
+  expect(Math.round(map.y)).toBeGreaterThanOrEqual(Math.round(dash.y + dash.height));
+  expect(Math.round(evCell.y)).toBe(Math.round(map.y));
   await expect(page.locator('.fl-3d canvas')).toBeVisible();
   await expect(page.locator('.fl-vid video')).toHaveCount(1);
   await expect(page.locator('.fl-map canvas.maplibregl-canvas')).toBeVisible();
@@ -353,8 +342,8 @@ test('fl-where: hits open the result layout at once; building card; Esc restores
 
   await page.locator('.fl-undist').click();
   await expect(page.locator('.fl-remap')).toBeVisible();
-  // The view buttons take clicks once the 3D panel is big.
-  await page.locator('.fl-3d').click();
+  // The view buttons take clicks in the 3D view.
+  await page.locator('.fl-evidence-tabs button[data-tab="3d"]').click();
   await page.locator('.fl-views [data-v="top"]').click();
   await expect(page.locator('.fl-views [data-v="top"]')).toHaveClass(/on/);
 
@@ -524,3 +513,79 @@ test('⌘K lists each trip and jumps to it', async ({ page }) => {
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => location.hash)).toMatch(new RegExp(`^#/fleet/${T2}@\\d+$`));
 });
+
+test('Layout A: video full-width on top with map + evidence cell below at 1440x900', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  const stage = await box(page, '#stage');
+  const head = await box(page, '.fl-head');
+  const vid = await box(page, '.fl-vid');
+  const map = await box(page, '.fl-map');
+  const ev = await box(page, '.fl-evidence-cell');
+  expect(Math.round(head.y)).toBe(Math.round(stage.y));
+  expect(head.height).toBeGreaterThanOrEqual(32);
+  expect(Math.round(vid.x)).toBe(Math.round(stage.x));
+  expect(Math.round(vid.width)).toBe(Math.round(stage.width));
+  expect(Math.round(vid.y)).toBe(Math.round(head.y + head.height));
+  expect(Math.round(map.y)).toBeGreaterThanOrEqual(Math.round(vid.y + vid.height));
+  expect(Math.round(ev.y)).toBe(Math.round(map.y));
+  expect(map.width).toBeGreaterThanOrEqual(300);
+  expect(ev.width).toBeGreaterThanOrEqual(300);
+});
+
+test('Layout A: evidence cell switches to Speed for a speed answer and to 3D for a distance answer', async ({ page }) => {
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  await expect(page.locator('.fl-evidence-tabs button[data-tab="3d"]')).toHaveClass(/on/);
+  await expect(page.locator('.fl-3d-pane')).toBeVisible();
+
+  // Speed answer switches to Speed chart
+  await mod(page, 'fleet/page.js', `m.applyHits([{ scene_key: '${T1}', t0_ms: 3000, t1_ms: 5000, why: ['Speed limit check'], evidence_ids: ['e_speed_1'] }])`);
+  await expect(page.locator('.fl-evidence-tabs button[data-tab="speed"]')).toHaveClass(/on/);
+  await expect(page.locator('.fl-speed-pane')).toBeVisible();
+  await expect(page.locator('.fl-3d-pane')).toBeHidden();
+
+  // Distance answer switches back to 3D ego view
+  await mod(page, 'fleet/page.js', `m.applyUI({ cmd: 'setView', args: { view: '3d' } })`);
+  await expect(page.locator('.fl-evidence-tabs button[data-tab="3d"]')).toHaveClass(/on/);
+  await expect(page.locator('.fl-3d-pane')).toBeVisible();
+});
+
+test('Layout A: map follows the car during playback', async ({ page }) => {
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  await expect(page.locator('.fl-follow-btn')).toHaveClass(/on/);
+  await seek(page, 2000);
+  const center1 = await camera(page);
+  await seek(page, 5000);
+  const center2 = await camera(page);
+  expect(Math.hypot(center2.center[0] - center1.center[0], center2.center[1] - center1.center[1])).toBeGreaterThan(0);
+});
+
+test('Layout A: no element overlaps the video', async ({ page }) => {
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  const vidBox = await box(page, '.fl-vid');
+  const stageControls = await box(page, '.fl-head .stage-controls');
+  const facts = await box(page, '.fl-facts');
+  const map = await box(page, '.fl-map');
+  const ev = await box(page, '.fl-evidence-cell');
+
+  expect(stageControls.y + stageControls.height).toBeLessThanOrEqual(vidBox.y + 1);
+  expect(facts.y + facts.height).toBeLessThanOrEqual(vidBox.y + 1);
+  expect(map.y).toBeGreaterThanOrEqual(vidBox.y + vidBox.height - 1);
+  expect(ev.y).toBeGreaterThanOrEqual(vidBox.y + vidBox.height - 1);
+});
+
+test('Layout A: 390x844 layout shows video, segmented control, and panel without horizontal scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.fl-root')).toHaveClass(/\bix\b/);
+  await expect(page.locator('.fl-vid')).toBeVisible();
+  await expect(page.locator('.fl-spatial-tabs')).toBeVisible();
+
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(scrollWidth).toBeLessThanOrEqual(390);
+
+  await page.locator('.fl-spatial-tabs button[data-tab="3d"]').click();
+  await expect(page.locator('.fl-3d-pane')).toBeVisible();
+  await page.locator('.fl-spatial-tabs button[data-tab="speed"]').click();
+  await expect(page.locator('.fl-speed-pane')).toBeVisible();
+});
+
