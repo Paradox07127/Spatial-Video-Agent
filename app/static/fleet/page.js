@@ -286,40 +286,6 @@ function tick(wall) {
 }
 
 // Trip tab: the result's trip, its GPS quality over the moment, other trips passing the same place, duration and distance.
-async function renderTrip() {
-  const el = document.getElementById('tab-trip'), cur = ix;
-  if (!cur) return el.replaceChildren();
-  const { trip } = cur, m = { ...cur.moment, t1_ms: cur.moment.t1_ms ?? cur.moment.t0_ms + 1 };
-  const n = [Math.floor(m.t0_ms / 10000), Math.floor((m.t1_ms - 1) / 10000)];
-  let frames;
-  try {
-    frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
-      .filter((f) => f.t_ms >= m.t0_ms && f.t_ms < m.t1_ms);
-  } catch (err) {
-    if (ix === cur && err?.message !== 'Superseded page command') el.textContent = 'Detections unavailable';
-    return;
-  }
-  if (ix !== cur) return;
-  const spans = trip.pts.map((q, i) => ({ ...q, end: trip.pts[i + 1]?.t_ms ?? trip.mf.t1_ms }))
-    .filter((q) => q.t_ms < m.t1_ms && q.end > m.t0_ms);
-  const covered = spans.length && spans[0].t_ms <= m.t0_ms && spans.at(-1).end >= m.t1_ms;
-  const stale = spans.some((q) => q.state === 'last_known');
-  const quality = stale ? 'GPS used a last-known fix during this interval' : !covered || spans.some((q) => !['observed', 'interpolated'].includes(q.state)) ? 'GPS quality is unknown for this interval' : 'GPS had observed or interpolated fixes throughout this interval';
-  const sigma = frames.length ? Math.max(...frames.map((f) => f.ego.sigma_m)) : null;
-  const placeId = trip.events.find((e) => e.place_id && e.t0_ms < m.t1_ms && e.t1_ms > m.t0_ms)?.place_id ?? posAt(trip.pts, m.t0_ms)?.place_id;
-  const pl = places.get(placeId);
-  const others = placeId ? trips.filter((t) => t !== trip && t.pts.some((q) => q.place_id === placeId)) : [];
-  const withVideo = others.filter((t) => t.cam).length;
-  const meta = [withVideo && `${withVideo} with video`, others.length - withVideo && `${others.length - withVideo} GPS only`].filter(Boolean).join(' · ');
-  const dist = trip.line.reduce((s, ll, i) => (i ? s + Math.hypot(...en(trip.line[i - 1], ll)) : 0), 0);
-  el.innerHTML = `
-    <div class="tt-head"><span class="mono">${esc(trip.id)}</span><b>${esc(trip.title)}</b></div>
-    <div class="tt-gps${stale ? ' warn' : ''}"><i></i><span>${quality}</span>${sigma != null ? `<span class="mono muted">±${sigma.toFixed(1)} m</span>` : ''}</div>
-    ${placeId ? `<details class="tt-other"><summary>${icon('chevron-right')}<b>Other passes near ${esc(pl?.name ?? placeId)}</b><span class="mono muted">${others.length}</span><span class="muted tt-meta">${meta}</span></summary>
-      <ul>${others.map((t) => `<li><span class="mono">${esc(shortId(t.id))}</span> ${esc(t.title)} <span class="muted">${t.cam ? 'video' : 'GPS only'} · ${tc(t.pts.find((q) => q.place_id === placeId).t_ms)}</span></li>`).join('')}</ul></details>` : ''}
-    <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
-}
-
 export function swapViews() {
   if (!ix) return;
   ix.swapped = !ix.swapped;
@@ -382,6 +348,40 @@ export function setBig(name) {
   if (name === 'map' && view.big !== 'map') swapViews();
   else if (name === 'video' && view.big !== 'video') swapViews();
   else if (['3d', 'speed', 'place'].includes(name)) setEvidenceTab(name);
+}
+
+async function renderTrip() {
+  const el = document.getElementById('tab-trip'), cur = ix;
+  if (!cur) return el.replaceChildren();
+  const { trip } = cur, m = { ...cur.moment, t1_ms: cur.moment.t1_ms ?? cur.moment.t0_ms + 1 };
+  const n = [Math.floor(m.t0_ms / 10000), Math.floor((m.t1_ms - 1) / 10000)];
+  let frames;
+  try {
+    frames = (await Promise.all(Array.from({ length: n[1] - n[0] + 1 }, (_, i) => chunk(trip, 'ego', (n[0] + i) * 10000)))).flat()
+      .filter((f) => f.t_ms >= m.t0_ms && f.t_ms < m.t1_ms);
+  } catch (err) {
+    if (ix === cur && err?.message !== 'Superseded page command') el.textContent = 'Detections unavailable';
+    return;
+  }
+  if (ix !== cur) return;
+  const spans = trip.pts.map((q, i) => ({ ...q, end: trip.pts[i + 1]?.t_ms ?? trip.mf.t1_ms }))
+    .filter((q) => q.t_ms < m.t1_ms && q.end > m.t0_ms);
+  const covered = spans.length && spans[0].t_ms <= m.t0_ms && spans.at(-1).end >= m.t1_ms;
+  const stale = spans.some((q) => q.state === 'last_known');
+  const quality = stale ? 'GPS used a last-known fix during this interval' : !covered || spans.some((q) => !['observed', 'interpolated'].includes(q.state)) ? 'GPS quality is unknown for this interval' : 'GPS had observed or interpolated fixes throughout this interval';
+  const sigma = frames.length ? Math.max(...frames.map((f) => f.ego.sigma_m)) : null;
+  const placeId = trip.events.find((e) => e.place_id && e.t0_ms < m.t1_ms && e.t1_ms > m.t0_ms)?.place_id ?? posAt(trip.pts, m.t0_ms)?.place_id;
+  const pl = places.get(placeId);
+  const others = placeId ? trips.filter((t) => t !== trip && t.pts.some((q) => q.place_id === placeId)) : [];
+  const withVideo = others.filter((t) => t.cam).length;
+  const meta = [withVideo && `${withVideo} with video`, others.length - withVideo && `${others.length - withVideo} GPS only`].filter(Boolean).join(' · ');
+  const dist = trip.line.reduce((s, ll, i) => (i ? s + Math.hypot(...en(trip.line[i - 1], ll)) : 0), 0);
+  el.innerHTML = `
+    <div class="tt-head"><span class="mono">${esc(trip.id)}</span><b>${esc(trip.title)}</b></div>
+    <div class="tt-gps${stale ? ' warn' : ''}"><i></i><span>${quality}</span>${sigma != null ? `<span class="mono muted">±${sigma.toFixed(1)} m</span>` : ''}</div>
+    ${placeId ? `<details class="tt-other"><summary>${icon('chevron-right')}<b>Other passes near ${esc(pl?.name ?? placeId)}</b><span class="mono muted">${others.length}</span><span class="muted tt-meta">${meta}</span></summary>
+      <ul>${others.map((t) => `<li><span class="mono">${esc(shortId(t.id))}</span> ${esc(t.title)} <span class="muted">${t.cam ? 'video' : 'GPS only'} · ${tc(t.pts.find((q) => q.place_id === placeId).t_ms)}</span></li>`).join('')}</ul></details>` : ''}
+    <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
 }
 
 async function enterIx(trip, m, force = false) {
