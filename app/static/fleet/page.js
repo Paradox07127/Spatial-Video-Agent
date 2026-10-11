@@ -10,6 +10,7 @@ import { en, posAt, tripT, wallOf } from './geo.js';
 import { createIntersection } from './intersection.js';
 import { createOverview } from './overview.js';
 import { createVideo } from './videooverlay.js';
+import { owners } from '../warehouse/videos.js';
 
 const FLY_MS = 800;
 const STATE = { observed: 'fix', interpolated: 'interpolated', last_known: 'last fix', unknown: 'unknown' };
@@ -97,8 +98,7 @@ async function loadDetails(trip, retry = false) {
         if (kind === 'timeline') trip.timeline = result.value;
         if (kind === 'places') trip.places = result.value.places ?? [];
         if (kind === 'entities') {
-          trip.names.clear();
-          for (const e of result.value.entities ?? []) for (const o of e.observations) if (o.cam_id === trip.cam?.id) trip.names.set(o.local_track_id, e.entity_id);
+          trip.names = owners(result.value);
         }
       } catch (e) { trip.failedAssets.set(kind, e); }
     });
@@ -201,7 +201,7 @@ async function ixTick(wall) {
   const cur = ix, current = ++cur.tick, t = tripT(cur.trip.replay, wall);
   cur.el.querySelector('.fl-vid').classList.toggle('novid', t == null);
   if (t == null) return;
-  cur.video.sync(t, ctx.clock.playing);
+  cur.video.sync(t, ctx.clock.playing, ctx.clock.rate * cur.trip.replay.rate);
   if (cur.frame && Math.floor(cur.frame.t_ms / 10000) !== Math.floor(t / 10000)) cur.video.clear();
   let frames, rows;
   try {
@@ -248,18 +248,18 @@ async function ixTick(wall) {
 }
 
 // Video annotations follow the decoded source frame; map/GPS and 3D retain the master clock.
-async function presented(cur, t) {
+async function presented(cur, t, epoch) {
   if (ix !== cur) return;
   const current = cur.videoTick = (cur.videoTick ?? 0) + 1;
   try {
     const [frames, rows] = await Promise.all([chunk(cur.trip, 'ego', t), chunk(cur.trip, 'boxes', t)]);
-    if (ix !== cur || current !== cur.videoTick) return;
+    if (ix !== cur || current !== cur.videoTick || epoch !== cur.video.epoch) return;
     const f = frames.reduce((best, x) => !best || Math.abs(x.t_ms - t) < Math.abs(best.t_ms - t) ? x : best, null);
     // Ego/box sidecars can be sampled below the video's frame rate. Never bridge a gap over 50 ms.
     if (!f || Math.abs(f.t_ms - t) > 50) return cur.video.clear();
     cur.presented = t;
     cur.video.draw(f, rows.filter((r) => Math.abs(r[0] - t) <= 50));
-  } catch { if (ix === cur && current === cur.videoTick) cur.video.clear(); }
+  } catch { if (ix === cur && current === cur.videoTick && epoch === cur.video.epoch) cur.video.clear(); }
 }
 
 function tick(wall) {
@@ -272,7 +272,7 @@ function tick(wall) {
 async function renderTrip() {
   const el = document.getElementById('tab-trip'), cur = ix;
   if (!cur) return el.replaceChildren();
-  const { trip, moment: m } = cur;
+  const { trip } = cur, m = { ...cur.moment, t1_ms: cur.moment.t1_ms ?? cur.moment.t0_ms + 1 };
   const n = [Math.floor(m.t0_ms / 10000), Math.floor((m.t1_ms - 1) / 10000)];
   let frames;
   try {
@@ -283,7 +283,11 @@ async function renderTrip() {
     return;
   }
   if (ix !== cur) return;
-  const stale = trip.pts.some((q) => q.t_ms >= m.t0_ms && q.t_ms < m.t1_ms && q.state === 'last_known');
+  const spans = trip.pts.map((q, i) => ({ ...q, end: trip.pts[i + 1]?.t_ms ?? trip.mf.t1_ms }))
+    .filter((q) => q.t_ms < m.t1_ms && q.end > m.t0_ms);
+  const covered = spans.length && spans[0].t_ms <= m.t0_ms && spans.at(-1).end >= m.t1_ms;
+  const stale = spans.some((q) => q.state === 'last_known');
+  const quality = stale ? 'GPS used a last-known fix during this interval' : !covered || spans.some((q) => !['observed', 'interpolated'].includes(q.state)) ? 'GPS quality is unknown for this interval' : 'GPS had observed or interpolated fixes throughout this interval';
   const sigma = frames.length ? Math.max(...frames.map((f) => f.ego.sigma_m)) : null;
   const placeId = trip.events.find((e) => e.place_id && e.t0_ms < m.t1_ms && e.t1_ms > m.t0_ms)?.place_id ?? posAt(trip.pts, m.t0_ms)?.place_id;
   const pl = places.get(placeId);
@@ -293,7 +297,7 @@ async function renderTrip() {
   const dist = trip.line.reduce((s, ll, i) => (i ? s + Math.hypot(...en(trip.line[i - 1], ll)) : 0), 0);
   el.innerHTML = `
     <div class="tt-head"><span class="mono">${esc(trip.id)}</span><b>${esc(trip.title)}</b></div>
-    <div class="tt-gps${stale ? ' warn' : ''}"><i></i><span>${stale ? 'GPS lost its live fix during the crossing' : 'GPS had a live fix for the whole crossing'}</span>${sigma != null ? `<span class="mono muted">±${sigma.toFixed(1)} m</span>` : ''}</div>
+    <div class="tt-gps${stale ? ' warn' : ''}"><i></i><span>${quality}</span>${sigma != null ? `<span class="mono muted">±${sigma.toFixed(1)} m</span>` : ''}</div>
     ${placeId ? `<details class="tt-other"><summary>${icon('chevron-right')}<b>Other passes near ${esc(pl?.name ?? placeId)}</b><span class="mono muted">${others.length}</span><span class="muted tt-meta">${meta}</span></summary>
       <ul>${others.map((t) => `<li><span class="mono">${esc(shortId(t.id))}</span> ${esc(t.title)} <span class="muted">${t.cam ? 'video' : 'GPS only'} · ${tc(t.pts.find((q) => q.place_id === placeId).t_ms)}</span></li>`).join('')}</ul></details>` : ''}
     <dl class="tt-facts"><dt>Duration</dt><dd class="mono">${sec(trip.mf.t1_ms - trip.mf.t0_ms)}</dd><dt>Distance</dt><dd class="mono">${dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`}</dd></dl>`;
@@ -302,7 +306,7 @@ async function renderTrip() {
 async function enterIx(trip, m, force = false) {
   if (!force && ix?.moment === m) return;
   const mount = ctx, owns = ctx.owner ?? (() => true);
-  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms });
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms, commit: m.commit !== false });
   leaveIx();
   const token = ++tripLoadGeneration;
   if (!trip.coreReady) return renderLoadStatus();
@@ -337,7 +341,8 @@ async function enterIx(trip, m, force = false) {
     facts: el.querySelector('.fl-facts'), place: el.querySelector('.fl-place'),
     video: createVideo(el.querySelector('.fl-vwrap'), {
       cam: trip.cam, fps: trip.mf.fps, names: trip.names, onPick: pick, cite,
-      onPresented: (t) => ix && ix.trip === trip && presented(ix, t),
+      onPresented: (t, epoch) => ix && ix.trip === trip && presented(ix, t, epoch),
+      onInvalidate: () => { if (ix?.trip === trip) { ix.videoTick = (ix.videoTick ?? 0) + 1; ix.presented = null; } },
       src: ctx.api.url(`api/assets/${trip.id}/${trip.cam.video}`), bname: (bid) => trip.buildings[bid]?.name ?? bid,
     }),
   };
@@ -388,7 +393,7 @@ function setBig(name) {
 }
 
 // Dashcam view of a trip with video at its trip time t_ms (the result layout without an agent moment).
-const openTrip = (trip, t0_ms) => enterIx(trip, { scene_key: trip.id, t0_ms });
+const openTrip = (trip, t0_ms, commit = true) => enterIx(trip, { scene_key: trip.id, t0_ms, commit });
 
 // Default view: the trip with video and the most events, at its first event.
 function openDefault() {
@@ -397,10 +402,11 @@ function openDefault() {
   const t0 = Math.min(...trip.events.map((e) => e.t0_ms), Infinity);
   const t = t0 === Infinity ? trip.replay.coverage_intervals[0]?.[0] ?? trip.mf.t0_ms : t0;
   ctx.clock.seek(wallOf(trip.replay, t));
-  return openTrip(trip, t);
+  return openTrip(trip, t, false);
 }
 
 function toOverview() {
+  ctx.bus.emit('fleet:active', { scene_key: null });
   leaveIx();
   card.close();
   ov.hit(null);
@@ -453,6 +459,7 @@ export async function mount(el, c) {
     trips, api: ctx.api,
     onCar(id) {
       const trip = byId(id), t = tripT(trip.replay, ctx.clock.t);
+      ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: t });
       if (trip.cam && t != null) openTrip(trip, t);
       else {
         leaveIx();
@@ -461,7 +468,7 @@ export async function mount(el, c) {
     },
     onEvent(trip, e) {
       ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: e.t0_ms });
-      if (!trip.cam) leaveIx();
+      if (trip.cam) openTrip(trip, e.t0_ms); else leaveIx();
       ov.select(trip.id);
       ctx.timeline.highlight(`${trip.id}:${e.id}`);
       ctx.clock.seek(wallOf(trip.replay, e.t0_ms));
@@ -539,6 +546,7 @@ export async function applyHits(moments) {
   const m = moments.find((x) => byId(x.scene_key));
   if (!m) return;
   const trip = byId(m.scene_key), p = posAt(trip.pts, m.t0_ms);
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: m.t0_ms });
   ov.select(trip.id);
   ctx.clock.seek(wallOf(trip.replay, m.t0_ms));
   if (trip.cam) await enterIx(trip, m);
@@ -553,6 +561,7 @@ export async function applyUI({ cmd, args }) {
   await ready;
   if (cmd === 'seek') {
     const trip = byId(args.trip_id ?? args.scene_key) ?? ix?.trip;
+    if (trip) ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: args.t_ms, commit: false });
     ctx.clock.seek(trip ? wallOf(trip.replay, args.t_ms) : args.t_ms);
   } else if (cmd === 'focus' && args.latlon) flyTo([args.latlon[1], args.latlon[0]]);
   else if (cmd === 'highlight') {
@@ -575,6 +584,7 @@ export function loadScene(id) {
   ov.select(id);
   if (ctx.route.trip_id === id) ctx.clock.seek(wallOf(trip.replay, ctx.route.t_ms));
   const t = tripT(trip.replay, ctx.clock.t) ?? trip.pts[0]?.t_ms ?? trip.mf.t0_ms;
+  ctx.bus.emit('fleet:active', { scene_key: trip.id, t_ms: t });
   if (trip.cam) return openTrip(trip, t);
   leaveIx(); renderLoadStatus();
   const p = posAt(trip.pts, t);

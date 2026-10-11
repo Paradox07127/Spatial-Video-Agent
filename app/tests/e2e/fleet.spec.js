@@ -449,7 +449,7 @@ test('Trip tab: renders into #tab-trip on panel:tab with the trip, GPS quality o
   // The crossing (3.0–8.0 s) runs through the GPS gap; the largest ego sigma in it is 8.8 m.
   const gps = tab.locator('.tt-gps');
   await expect(gps).toHaveClass(/warn/);
-  await expect(gps).toContainText('GPS lost its live fix during the crossing');
+  await expect(gps).toContainText('GPS used a last-known fix during this interval');
   await expect(gps).toContainText('±8.8 m');
   const other = tab.locator('.tt-other');
   await expect(other.locator('summary')).toContainText('Other passes near Queen St W & Spadina Ave');

@@ -8,7 +8,19 @@ import { createMediaStatus } from '../kernel/media.js';
 const css = getComputedStyle(document.documentElement);
 
 // cam_id:local_track_id -> entity_id
-export const owners = (entities) => new Map(entities.entities.flatMap((e) => e.observations.map((o) => [`${o.cam_id}:${o.local_track_id}`, e.entity_id])));
+export const owners = (entities) => {
+  const intervals = new Map();
+  for (const e of entities.entities) for (const o of e.observations) {
+    const key = `${o.cam_id}:${o.local_track_id}`;
+    const valid = e.association?.valid ?? [-Infinity, Infinity];
+    const interval = { id: e.entity_id, a: Math.max(o.t0_ms, valid[0]), b: Math.min(o.t1_ms, valid[1]) };
+    intervals.set(key, [...(intervals.get(key) ?? []), interval]);
+  }
+  return { get(key, t) {
+    const ids = new Set((intervals.get(key) ?? []).filter((o) => Number.isFinite(t) && o.a <= t && t < o.b).map((o) => o.id));
+    return ids.size === 1 ? [...ids][0] : undefined;
+  } };
+};
 
 // cams: manifest cams, primary first; lanes: timeline.json lanes; entities: entities.json; only: entity ids to box (all when null).
 export function createVideos({ api, clock, key, mf, cams, lanes, entities, only = null }) {
@@ -118,7 +130,7 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     g.font = `${11 * dpr}px ${css.getPropertyValue('--font-mono')}`;
     for (const [t, ltid, , x1, y1, x2, y2] of all) {
       if (Math.abs(t - x.ms) !== best || best > 100) continue;
-      const id = owner.get(`${c.id}:${ltid}`), on = selected.has(id);
+      const id = owner.get(`${c.id}:${ltid}`, t), on = selected.has(id);
       if (only && !only.has(id)) continue;
       g.strokeStyle = g.fillStyle = css.getPropertyValue(on ? '--ink' : '--ink-2');
       g.lineWidth = (on ? 2 : 1) * dpr;

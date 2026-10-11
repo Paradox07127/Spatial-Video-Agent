@@ -20,6 +20,7 @@ const distort = (k, th) => {
 // Camera-frame point (OpenCV axes: x right, y down, z forward) -> fisheye source pixel; null behind the camera.
 export function fisheye(cam, [x, y, z]) {
   if (z <= 0) return null;
+  if (cam.model === 'pinhole') return [cam.K[0] * x / z + cam.K[2], cam.K[1] * y / z + cam.K[3]];
   const [fx, fy, cx, cy] = cam.K, r = Math.hypot(x, y);
   const s = r ? distort(cam.dist, Math.atan2(r, z)) / r : 0;
   return [fx * s * x + cx, fy * s * y + cy];
@@ -27,6 +28,7 @@ export function fisheye(cam, [x, y, z]) {
 
 // Fisheye source pixel -> pixel of the pinhole image with the same K (θd(θ) inverted by Newton).
 export function undistortPx(cam, [u, v]) {
+  if (cam.model === 'pinhole') return [u, v];
   const [fx, fy, cx, cy] = cam.K, [k1, k2, k3, k4] = cam.dist;
   const xd = (u - cx) / fx, yd = (v - cy) / fy, td = Math.hypot(xd, yd);
   let th = td;
@@ -40,7 +42,7 @@ export function undistortPx(cam, [u, v]) {
 
 // names: Map of local_track_id -> entity_id for this camera; bname(bid) -> building name; onPick(bid); cite: entity_id of
 // the actor the answer cites, or null.
-export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onPresented = () => {} }) {
+export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onPresented = () => {}, onInvalidate = () => {} }) {
   const { w, h } = cam;
   el.innerHTML = `
     <div class="fl-vbox" style="aspect-ratio:${w}/${h}">
@@ -49,15 +51,24 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       <canvas class="fl-ovl" width="${w}" height="${h}"></canvas>
       <div class="fl-cols"></div>
     </div>
-    <div class="fl-vhead"><span class="mono">${esc(cam.id)}</span><span class="muted">fisheye · ${w}×${h}</span>
-      <button class="ghost fl-undist" aria-pressed="false">Pinhole crop</button></div>
+    <div class="fl-vhead"><span class="mono">${esc(cam.id)}</span><span class="muted">${esc(cam.model)} · ${w}×${h}</span>
+      <button class="ghost fl-undist" aria-pressed="false" ${cam.model === 'pinhole' ? 'hidden' : ''}>Pinhole crop</button></div>
     <div class="fl-legend"></div>`;
   const video = el.querySelector('video'), remapEl = el.querySelector('.fl-remap'), ovl = el.querySelector('.fl-ovl').getContext('2d');
   const btn = el.querySelector('.fl-undist'), cols = el.querySelector('.fl-cols'), legend = el.querySelector('.fl-legend');
   const grab = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
   const out = remapEl.getContext('2d');
   let references = new Set();
-  let undist = false, lut = null, last = null, alive = true, time = 0, playing = false;
+  let undist = false, lut = null, last = null, alive = true, time = 0, playing = false, rate = 1;
+  let epoch = 0, frameHandle = null, pending = null;
+  const clear = () => { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.textContent = 'Detections pending presented frame'; };
+  const invalidate = () => {
+    epoch++; pending = null; delete video.dataset.sceneMs; clear(); onInvalidate(epoch);
+    if (frameHandle != null) video.cancelVideoFrameCallback(frameHandle);
+    frameHandle = null; if (alive) requestFrame();
+  };
+  video.addEventListener('seeking', invalidate);
+  video.addEventListener('loadstart', invalidate);
   video.addEventListener('loadedmetadata', () => alive && player.sync(time, playing));
   video.addEventListener('loadeddata', () => alive && player.sync(time, playing));
 
@@ -79,18 +90,30 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     for (let i = 0; i < lut.length; i++) dst32[i] = lut[i] >= 0 ? src32[lut[i]] : 0xff000000;
     out.putImageData(img, 0, 0);
   }
-  const onFrame = (now, md) => {
-    if (!alive) return;
+  const publish = (deferred = false) => {
+    const p = pending;
+    if (!p || !media.available || video.seeking || video.readyState < 2 || video.error) return;
+    pending = null;
+    if (p.epoch !== epoch || p.source !== video.src || deferred && Math.abs(p.mediaTime - video.currentTime) > 1 / fps) return;
     if (undist) remap();
-    if (!video.seeking && media.present()) onPresented(Math.round(md.mediaTime * 1000) + cam.offset_ms);
-    video.requestVideoFrameCallback(onFrame);
+    const t = Math.round(p.mediaTime * 1000) + cam.offset_ms;
+    video.dataset.sceneMs = t;
+    onPresented(t, epoch);
   };
-  video.requestVideoFrameCallback(onFrame);
-  video.addEventListener('seeked', () => { if (alive && !playing && media.present()) onPresented(Math.round(Math.min(video.currentTime, Number.isFinite(video.duration) ? Math.max(0, video.duration - 1 / fps) : video.currentTime) * 1000) + cam.offset_ms); });
+  const requestFrame = () => {
+    const source = video.src, version = epoch;
+    frameHandle = video.requestVideoFrameCallback((now, md) => {
+      if (!alive || version !== epoch || source !== video.src) return;
+      frameHandle = null; pending = { mediaTime: md.mediaTime, epoch: version, source };
+      if (media.present()) publish();
+      requestFrame();
+    });
+  };
+  requestFrame();
   const media = createMediaStatus(video, {
     host: el.querySelector('.fl-vbox'),
-    onUnavailable() { last = null; ovl.clearRect(0, 0, w, h); cols.replaceChildren(); legend.replaceChildren(); },
-    onReady() { if (alive) queueMicrotask(() => alive && player.sync(time, playing)); },
+    onUnavailable() { clear(); },
+    onReady() { if (alive) queueMicrotask(() => { if (alive) { publish(true); player.sync(time, playing, rate); } }); },
   });
 
   function draw(frame, boxes) {
@@ -105,14 +128,14 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
     let tracked = null;
     for (const [, tid, cls, x1, y1, x2, y2] of boxes) {
       const [a, b] = [P([x1, y1]), P([x2, y2])];
-      if (cite && names.get(tid) === cite) {
+      if (cite && names.get(`${cam.id}:${tid}`, frame.t_ms) === cite) {
         tracked = [a, b];
         continue;
       }
       if (state.stageMode === 'evidence') continue;
       drawn.add('detected');
       ovl.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
-      ovl.fillText(`${names.get(tid) ?? `#${tid}`} ${cls}`, a[0], a[1] - 4);
+      ovl.fillText(`${names.get(`${cam.id}:${tid}`, frame.t_ms) ?? `#${tid}`} ${cls}`, a[0], a[1] - 4);
     }
     for (const p of frame.peds) {
       if (state.stageMode === 'evidence' && p.entity_id !== cite && !selection.ids.has(p.entity_id)) continue;
@@ -165,6 +188,7 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
 
   const player = {
     draw,
+    get epoch() { return epoch; },
     redraw() { if (last) draw(...last); },
     setReferences(ids) { references = new Set(ids); if (last) draw(...last); },
     clear() {
@@ -174,11 +198,12 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       legend.textContent = 'Detections unavailable';
     },
     // t: trip t_ms. Re-seek when the video drifts more than a frame (paused) or 0.25 s (playing).
-    sync(t, on) {
+    sync(t, on, playbackRate = 1) {
+      rate = playbackRate; video.playbackRate = playbackRate;
       time = t;
       playing = on;
       const target = Math.max(0, (t - cam.offset_ms) / 1000);
-      if (Math.abs(video.currentTime - target) > (playing ? 0.25 : 1 / fps)) video.currentTime = target;
+      if (Math.abs(video.currentTime - target) > (playing ? 0.25 : 1 / fps)) { invalidate(); video.currentTime = target; }
       if (playing && video.paused) video.play().catch(() => {});
       else if (!playing && !video.paused) video.pause();
     },
@@ -188,7 +213,8 @@ export function createVideo(el, { cam, src, fps, names, bname, onPick, cite, onP
       on ? video.play().catch(() => {}) : video.pause();
     },
     dispose() {
-      alive = false;
+      alive = false; invalidate();
+      video.removeEventListener('seeking', invalidate); video.removeEventListener('loadstart', invalidate);
       media.dispose();
       video.pause();
       video.removeAttribute('src');

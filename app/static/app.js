@@ -493,7 +493,7 @@ function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {
   statusLine('Sent, waiting for the agent…');
   renderSlot();
   renderNarration();
-  const context = corpus ? { scope: 'corpus' } : { workspace: route.workspace, scene_key: route.scene_key ?? (follow && route.workspace === 'fleet' ? state.activeFleetScene : null) };
+  const context = corpus ? { scope: 'corpus' } : { workspace: route.workspace, scene_key: route.scene_key ?? (route.workspace === 'fleet' && (follow || followContext.t_range || followContext.zone) ? state.activeFleetScene : null) };
   if (!corpus && selection.ids.size && (!follow || followContext.selection)) context.selection = [...selection.ids];
   if (t_ms != null && (!follow || followContext.time)) context.t_ms = t_ms;
   if (!corpus && followContext.t_range) { context.t_range = followContext.t_range; delete context.t_ms; }
@@ -505,7 +505,7 @@ function ask(q, { home = null, t_ms = null, corpus = false, follow = false } = {
 }
 
 const sceneT = () => {
-  const key = ctx.route.scene_key ?? state.activeFleetScene ?? run?.activeScene ?? state.sourceTag?.scene_key;
+  const key = (ctx.route.workspace === 'fleet' ? state.activeFleetScene ?? ctx.route.scene_key : ctx.route.scene_key) ?? run?.activeScene ?? state.sourceTag?.scene_key;
   const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
   return replay ? Math.round(replay.source_start_ms + (clock.t - replay.replay_start_ms) * replay.rate) : clock.map(clock.t)?.t_ms ?? clock.t;
 };
@@ -555,7 +555,7 @@ const handlers = {
     }
     run.items.find((it) => it.call?.call_id === d.call_id).result = d;
     const r = d.envelope.input_range;
-    run.lane.push([r.t0_ms, r.t1_ms, d.ok ? 'done' : 'failed']);
+    run.lane.push([clock.toWall(r.scene_key ?? d.evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t0_ms), clock.toWall(r.scene_key ?? d.evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t1_ms), d.ok ? 'done' : 'failed']);
     timeline.setLaneData('agent', run.lane);
   },
   hits(d) {
@@ -600,7 +600,7 @@ const handlers = {
     run.measureRefs.push(...d.measure_refs);
     // One answer owns the stage. Candidates are registered above; only the cited scene is activated.
     const cited = d.measure_refs.map((r) => run.evidence.get(r.eid)).find(Boolean) ?? d.cites.map((id) => run.evidence.get(id)).find(Boolean);
-    if (cited && ctx.route.page === 'fleet' && !ctx.route.scene_key && !run.answerActivated) {
+    if (cited && ctx.route.page === 'fleet' && !run.answerActivated) {
       run.answerActivated = true;
       run.opening = activateEvidence(cited);
     }
@@ -1127,7 +1127,20 @@ function stepBack() {
 // ---- wiring
 bus.on('view:state', (s) => (document.body.dataset.view = s));
 selection.onChange(({ ids, source }) => { if (source === 'user' && ids.size) followContext.selection = true; renderContext(); });
-bus.on('fleet:active', ({ scene_key }) => { state.activeFleetScene = scene_key; renderContext(); });
+bus.on('fleet:active', ({ scene_key, t_ms, commit = true }) => {
+  const changed = state.activeFleetScene !== scene_key;
+  state.activeFleetScene = scene_key;
+  if (commit && ctx.route?.page === 'fleet' && ctx.route.scene_key !== scene_key) {
+    const hash = scene_key ? `#/fleet/${scene_key}@${t_ms ?? 0}` : '#/fleet';
+    history.replaceState(null, '', hash); wsHash = hash;
+    ctx.route = parseRoute(hash); if (pageContext) pageContext.route = ctx.route;
+    state.sourceTag = { hash, workspace: 'fleet', scene_key: scene_key ?? null, trip_id: scene_key ?? null };
+    store(LAST_ROUTE, hash); renderSourceTag(); bus.emit('route', ctx.route);
+  }
+  if (changed) { followContext.t_range = null; timeline.clearBrush(); }
+  if (run) { run.activeScene = scene_key; run.activeMoment = run.moments.find((m) => m.scene_key === scene_key && t_ms != null && m.t0_ms <= t_ms && t_ms < m.t1_ms) ?? null; renderClaims(); }
+  renderContext();
+});
 clock.onTick(renderContext);
 window.addEventListener('hashchange', onRoute);
 $('#ask-form').addEventListener('submit', (e) => {
@@ -1179,9 +1192,10 @@ $('#followup .fu-ctx').addEventListener('click', (e) => {
   renderContext();
 });
 timeline.onBrush(({ t0, t1 }) => {
-  const key = ctx.route.scene_key ?? run?.activeScene;
+  const key = (ctx.route.workspace === 'fleet' ? state.activeFleetScene ?? ctx.route.scene_key : ctx.route.scene_key) ?? run?.activeScene;
   const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
   const sourceT = (t) => replay ? Math.round(replay.source_start_ms + (t - replay.replay_start_ms) * replay.rate) : t;
+  if (clock.domain.kind === 'fleet' && key) bus.emit('fleet:active', { scene_key: key, t_ms: sourceT(t0) });
   followContext.t_range = [sourceT(t0), sourceT(t1)];
   renderContext();
 });

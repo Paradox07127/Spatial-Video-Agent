@@ -62,6 +62,7 @@ function sync(t) {
     // play() rejects when a pause() interrupts it; that is expected here.
     if (ctx.clock.playing) video.play().catch(() => {});
   }
+  video.playbackRate = ctx.clock.rate;
   const target = Math.max(0, (t - c.t0_ms) / 1000);
   if (Math.abs(video.currentTime - target) > (ctx.clock.playing ? 0.25 : 1 / S.mf.fps)) video.currentTime = target;
 }

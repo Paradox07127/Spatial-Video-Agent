@@ -511,3 +511,6 @@ body[data-stage="evidence"] :is(.lbl-model, .fl-model, .fl-pin, .fl-cluster) { d
 .media-status { position: absolute; inset: 0; z-index: 7; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; padding: 12px; color: var(--ink-2); background: var(--paper); font-size: var(--fs-2); text-align: center; }
 .media-status[hidden] { display: none; }
 .media-unavailable video, .media-unavailable canvas, .media-unavailable .fl-cols { visibility: hidden; }
+
+/* Expanding all trip lanes preserves the investigation stage. */
+body[data-ws="fleet"] .tl-lanes { max-height: min(180px, 25vh) !important; overflow-y: auto; }
