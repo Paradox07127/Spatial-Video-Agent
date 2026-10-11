@@ -12,12 +12,12 @@ from pipeline.common import schema_check as sc
 from .conftest import FIXTURES, SVA, SVA_OUT, WH_KEY, load
 
 EXPECTED = {"manifest", "entities", "timeline", "events", "boxes", "skeleton", "visibility", "forklift", "tracks", "cosmos",
-            "trip", "ego", "buildings", "search", "ask_sse", "ui_cmd", "agent_run", "situation_map", "dets2d"}
+            "trip", "ego", "buildings", "search", "ask_sse", "ask_sse_v2", "ui_cmd", "agent_run", "situation_map", "dets2d"}
 L1 = FIXTURES / "l1"
 ST_KEY = "st-fixture_cam_1-clip01"
 
 
-def test_nineteen_valid_schemas():
+def test_all_contract_schemas_are_valid():
     names = {p.stem for p in (SVA / "schemas").glob("*.json")}
     assert names == EXPECTED
     for n in names:
