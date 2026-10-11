@@ -542,7 +542,18 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                          'not_measured':['speed uncertainty']}
                         else:
                             explain={'note':'Speed comes from the sampled entity track.' if scalar_speed_q else 'Position is a sampled ground point in scene world coordinates, not camera visibility.'}
-                        yield claim_frame(predicates,explain=explain,key=key)
+                        hit=None
+                        if ev:
+                            cams=store.manifest(key)['cams']
+                            observed=[o.cam_id for o in ev.observation_ids if any(c['id']==o.cam_id for c in cams)]
+                            cam=observed[0] if observed else cams[0]['id'] if cams else ''
+                            hit=MomentCard(moment_id=f'm_{key}_{requested_time}',scene_key=key,t0_ms=requested_time,t1_ms=requested_time+1,
+                                           cams=[cam] if cam else [],primary_cam=cam,actor_refs=[target],evidence_ids=[ev.eid],score=1,
+                                           why=['sampled entity measurement','source view; position proof comes from the measured world point'] if world_position_q else ['sampled track speed'],
+                                           thumb=tools.thumbnail(store,key,cam,requested_time) if cam else None,
+                                           backend=getattr(store,'backend','duckdb'),exec_state=res.envelope.exec_state)
+                            yield hits([hit],special=True)
+                        yield claim_frame(predicates,explain=explain,key=key,moment=hit.moment_id if hit else None)
                         t.output({'predicates':[p.model_dump(mode='json') for p in predicates],'explain':explain})
                     if ev:
                         yield from ui('seek',{'t_ms':requested_time,'scene_key':key},key)

@@ -166,3 +166,20 @@ def test_missing_speed_uncertainty_keeps_value_without_sigma_or_motion_proof(sto
     assert status=='UNRESOLVED' and 'uncertainty unavailable' in answer['text']
     assert [r['field'] for r in answer['measure_refs']]==['value','t0_ms']
     assert all(p['status']=='unknown' for p in [f['data'] for f in frames if f['event']=='claim'][-1]['predicates'])
+
+
+@pytest.mark.parametrize('q,entity,method',[('Where is P2?','P2','ground_position'),('What is the speed of F1?','F1','track_speed')])
+def test_direct_measurement_keeps_its_timestamp_hit_actor_and_evidence(store,q,entity,method):
+    status,answer,evidence,frames=ask(store,q,t_ms=2100)
+    assert status=='SUPPORTED'
+    hit=next(f['data'] for f in frames if f['event']=='hits')
+    assert hit['auto_open']==KEY and len(hit['moments'])==1
+    card=hit['moments'][0]
+    assert card['t0_ms']==2100 and card['t1_ms']==2101 and card['scene_key']==KEY
+    assert [a['entity_id'] for a in card['actor_refs']]==[entity]
+    assert card['thumb'] and card['primary_cam'] in [c['id'] for c in store.manifest(KEY)['cams']]
+    assert {evidence[eid]['method'] for eid in card['evidence_ids']}=={method}
+    claim=[f['data'] for f in frames if f['event']=='claim'][-1]
+    assert claim['moment_id']==card['moment_id']
+    run_id=next(f['data']['run_id'] for f in frames)
+    assert store.get_run(run_id).hits[0].moment_id==card['moment_id']
