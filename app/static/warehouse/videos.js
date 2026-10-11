@@ -33,21 +33,43 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
 
   const vids = cams.map((c) => {
     const fig = el.querySelector(`.wh-vcell[data-cam="${CSS.escape(c.id)}"]`);
-    const x = { c, fig, v: fig.querySelector('video'), cv: fig.querySelector('canvas'), nov: fig.querySelector('.wh-nov'), ms: null };
-    const onFrame = (now, md) => {
-      if (!alive) return;
-      if (!x.media.present()) { x.v.requestVideoFrameCallback(onFrame); return; }
-      x.ms = md.mediaTime * 1000 + c.offset_ms;
+    const x = { c, fig, v: fig.querySelector('video'), cv: fig.querySelector('canvas'), nov: fig.querySelector('.wh-nov'), ms: null, generation: 0, pending: null };
+    const invalidate = () => { x.generation++; x.pending = null; };
+    x.v.addEventListener('seeking', invalidate);
+    x.v.addEventListener('loadstart', invalidate);
+    x.invalidate = invalidate;
+    const publish = (deferred = false) => {
+      const p = x.pending;
+      if (!p || !x.media.available || x.v.seeking || x.v.readyState < 2 || x.v.error) return;
+      x.pending = null;
+      if (p.generation !== x.generation || p.source !== x.v.src) return;
+      // currentTime only validates a deferred callback; the published time always
+      // comes from actual presented-frame metadata, within the existing one-frame tolerance.
+      if (deferred && Math.abs(p.mediaTime - x.v.currentTime) > frame) return;
+      x.ms = p.mediaTime * 1000 + c.offset_ms;
       x.v.dataset.sceneMs = Math.round(x.ms);
       draw(x);
-      x.v.requestVideoFrameCallback(onFrame);
     };
-    x.v.requestVideoFrameCallback(onFrame);
+    const requestFrame = () => {
+      const source = x.v.src;
+      x.v.requestVideoFrameCallback((now, md) => onFrame(now, md, source));
+    };
+    const onFrame = (now, md, source) => {
+      if (!alive) return;
+      if (source === x.v.src) {
+        // Chromium may deliver this callback before seeked while paused. Keep
+        // that real frame until readiness returns, even if no second callback follows.
+        x.pending = { mediaTime: md.mediaTime, generation: x.generation, source };
+        if (x.media.present()) publish();
+      }
+      requestFrame();
+    };
+    requestFrame();
     x.v.addEventListener('loadedmetadata', () => sync(clock.t));
     x.media = createMediaStatus(x.v, {
       host: fig.querySelector('.wh-vframe'),
       onUnavailable() { x.ms = null; delete x.v.dataset.sceneMs; x.cv.getContext('2d').clearRect(0, 0, x.cv.width, x.cv.height); },
-      onReady() { if (alive) queueMicrotask(() => alive && sync(clock.t)); },
+      onReady() { if (alive) queueMicrotask(() => { if (alive) { publish(true); sync(clock.t); } }); },
     });
     return x;
   });
@@ -132,7 +154,10 @@ export function createVideos({ api, clock, key, mf, cams, lanes, entities, only 
     },
     dispose() {
       alive = false;
-      for (const { v, media } of vids) {
+      for (const { v, media, invalidate } of vids) {
+        invalidate();
+        v.removeEventListener('seeking', invalidate);
+        v.removeEventListener('loadstart', invalidate);
         media.dispose();
         v.pause();
         v.removeAttribute('src');
