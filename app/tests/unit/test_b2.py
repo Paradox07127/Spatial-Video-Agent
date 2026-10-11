@@ -183,23 +183,34 @@ def test_b2_concurrent_street_cache_publication(tmp_path, monkeypatch, artifact)
 
 
 def test_b2_vlm_cache_publishes_atomically(tmp_path, monkeypatch):
+    import json
     from app.tests.unit.test_vlm import _published_c1
     from app.core.models import CosmosRecord
-    record=CosmosRecord.model_validate(_published_c1(4600))
+    record=CosmosRecord.model_validate(_published_c1(4600, ids=[], rev='test'))
+    monkeypatch.setattr(vlm,'_manifest',lambda key:{'t0_ms':0,'t1_ms':10000,'cams':[{'id':'ceiling_00'}]})
+    monkeypatch.setattr(vlm,'_pick_cam',lambda *a:'ceiling_00')
     monkeypatch.setattr(vlm,'_cache_dir',lambda:tmp_path/'cache')
-    monkeypatch.setattr(vlm,'_cached',lambda *a:None)
+    monkeypatch.setattr(vlm,'_cached',lambda *a,**kw:None)
     monkeypatch.setattr(vlm,'_live',lambda *a:record)
     monkeypatch.setattr(vlm,'_cache_identity',lambda key:{'model':record.model_rev,'endpoint':'fixture','source':'fixture'})
     monkeypatch.setattr(vlm,'_rev',lambda *a:'test')
-    writes=[]
-    original=Path.write_text
-    def write(p,*a,**k):
-        writes.append(p)
-        assert p.parent.name!='cache' or p.suffix!='.json', 'published cache written directly'
-        return original(p,*a,**k)
-    monkeypatch.setattr(Path,'write_text',write)
+    publications=[]
+    original=os.replace
+    def publish(src,dst):
+        src,dst=Path(src),Path(dst)
+        assert src.parent==dst.parent==tmp_path/'cache'
+        assert src.suffix=='.tmp' and dst.suffix=='.json'
+        assert not dst.exists(), 'published cache must not appear before atomic rename'
+        saved=json.loads(src.read_text())
+        assert saved['record']==record.model_dump(mode='json')
+        assert saved['identity']['source']=='fixture'
+        publications.append((src,dst))
+        return original(src,dst)
+    monkeypatch.setattr(os,'replace',publish)
     r=vlm._call('C1',WH,None,4600,[],(1600,7600),[],'',{},None,None)
-    assert r==record and len(list((tmp_path/'cache').glob('*.json')))==1
+    assert r==record and len(publications)==1
+    assert len(list((tmp_path/'cache').glob('*.json')))==1
+    assert not publications[0][0].exists()
 
 
 @pytest.mark.parametrize('mode',['unavailable','unindexed','empty_frames','partial_frames'])
