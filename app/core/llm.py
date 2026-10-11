@@ -20,7 +20,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         template = 'unsupported'
     elif re.search(r'\b(link|same person|same one|before.*after|enter before|entered before|prior to|related)\b', text):
         template = 'link'
-    elif re.search(r'\b(what happened|describe|explain|summari[sz]e)\b', text):
+    elif re.search(r'\b(what happened|what is happening|what was happening|describe|explain|summary|summari[sz]e)\b', text):
         template = 'what_happened'
     elif re.search(r'\b(find|show|list)\b', text):
         template = 'find'

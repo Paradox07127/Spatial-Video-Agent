@@ -152,10 +152,39 @@ def distance_status(ev, operator, value):
         return 'unknown'
     if operator=='measured':
         return 'supported'
-    low, high = ev.value-ev.sigma, ev.value+ev.sigma
+    observed=ev.value['distance_m'] if ev.method=='bound_ego_distance' else ev.value
+    low, high = observed-ev.sigma, observed+ev.sigma
     supported, contradicted = {'lt':(high<value,low>=value),'le':(high<=value,low>value),
                                'gt':(low>value,high<=value),'ge':(low>=value,high<value)}[operator]
     return 'supported' if supported else 'contradicted' if contradicted else 'unknown'
+
+
+def render_cited_text(template, refs, values, names, formats):
+    """Resolve source placeholders once and record their exact Unicode codepoint spans."""
+    parts, spans, cursor, length = [], [], 0, 0
+    for match in re.finditer(r'\{\{([mn])(\d+)\}\}',template):
+        prefix=template[cursor:match.start()]
+        parts.append(prefix); length+=len(prefix)
+        i=int(match[2])
+        value=format(values[i],formats[i]) if match[1]=='m' else names[i]
+        if match[1]=='m':
+            spans.append({'start':length,'end':length+len(value),**refs[i]})
+        parts.append(value); length+=len(value); cursor=match.end()
+    parts.append(template[cursor:])
+    return ''.join(parts),spans
+
+
+def join_answer_parts(parts, **extra):
+    text,spans,offset=[],[],0
+    for part in parts:
+        if text: offset+=1
+        spans.extend({**span,'start':span['start']+offset,'end':span['end']+offset}
+                     for span in part.get('text_spans',[]))
+        text.append(part['text']); offset+=len(part['text'])
+    return dict(text=' '.join(text),claim_ids=[i for p in parts for i in p['claim_ids']],
+                cites=list(dict.fromkeys(e for p in parts for e in p['cites'])),
+                measure_refs=[r for p in parts for r in p['measure_refs']],text_spans=spans,
+                model_refs=[r for p in parts for r in p.get('model_refs',[])],**extra)
 
 
 class Budget(BaseModel):
@@ -170,6 +199,7 @@ class AskContext(BaseModel):
     scene_key: str | None = Field(default=None,pattern=r'^[a-z0-9_-]+$')
     scene_id: str | None = Field(default=None,pattern=r'^(wh|fl|st)/[a-z0-9_]+/[a-zA-Z0-9_-]+$')
     place: str | None = None
+    cam_id: Annotated[str,Field(strict=True,min_length=1,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')] | None = None
     t_ms: Annotated[int, Field(strict=True,ge=0)] | None = None
     t_range: tuple[Annotated[int, Field(strict=True,ge=0)], Annotated[int, Field(strict=True,ge=0)]] | None = None
     selection: list[Annotated[str, Field(strict=True)]] | None = None
@@ -179,9 +209,7 @@ class AskContext(BaseModel):
 
     @model_validator(mode='after')
     def ordered_range(self):
-        if self.workspace is None:
-            if self.scope!='corpus':
-                raise ValueError('context.workspace is required unless scope is corpus')
+        if self.workspace is None and self.scope=='corpus':
             # the parser needs a workspace; corpus scope does not read it
             self.workspace = 'warehouse'
         if self.t_range and self.t_range[0]>=self.t_range[1]:
@@ -196,6 +224,24 @@ class AskRequest(BaseModel):
     q: str = Field(min_length=1, max_length=500)
     context: AskContext
     budget: Budget = Field(default_factory=Budget)
+    protocol_version: Literal[1,2] = 1
+    session_id: str | None = Field(default=None,pattern=r'^s_[0-9a-f]{24}$')
+    parent_turn_id: str | None = Field(default=None,pattern=r'^t_[0-9a-f]{24}$')
+    expected_revision: Annotated[int,Field(strict=True,ge=0)] | None = None
+    request_id: str | None = Field(default=None,min_length=1,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')
+
+    @model_validator(mode='after')
+    def protocol_session_fields(self):
+        session_fields=(self.session_id,self.parent_turn_id,self.expected_revision,self.request_id)
+        if self.protocol_version==1 and any(v is not None for v in session_fields):
+            raise ValueError('Session fields require protocol_version=2')
+        if not self.session_id and any(v is not None for v in (self.parent_turn_id,self.expected_revision,self.request_id)):
+            raise ValueError('parent_turn_id, expected_revision and request_id require session_id')
+        if self.session_id and (self.request_id is None or self.expected_revision is None):
+            raise ValueError('session_id requires request_id and expected_revision')
+        if self.context.workspace is None and not (self.protocol_version==2 and self.session_id):
+            raise ValueError('context.workspace is required unless scope is corpus or a persistent session supplies it')
+        return self
 
 
 class ConfirmRequest(BaseModel):
@@ -234,9 +280,12 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     sent_hits, auto_open = False, None
     quantifier = 'any'
     parsed = None
+    hard_cam = context.get('cam_id')
     statistics_complete = None
     direct_pair_distance = False
     ego_measured = False
+    observations = []
+    ego_measurement = None
 
     def frame(event, **data):
         f = {'event':event,'data':{'run_id':run.run_id,**data}}
@@ -301,6 +350,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             read.update({e.eid:e for e in res.evidence})
             yield frame('tool_result',step_id=parent.step_id,call_id=t.step_id,ok=res.envelope.exec_state!='failed',
                         envelope=res.envelope.model_dump(mode='json'),evidence=[e.model_dump(mode='json') for e in res.evidence])
+            if isinstance(res.envelope.output,dict) and res.envelope.output.get('observation'):
+                observation = res.envelope.output['observation']
+                observations.append(observation)
+                yield frame('observation',observation=observation)
             if isinstance(res.envelope.output,dict) and 'record' in res.envelope.output:
                 record = res.envelope.output['record']
                 yield frame('model_result',scene_key=res.envelope.input_range.scene_key,t_ms=record['t_ms'],results=[record])
@@ -415,6 +468,14 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     t.exec_state('live')
                     child.output(parsed.model_dump(mode='json'))
             parsed, constraint_reason = apply_constraints(body.q,context,parsed)
+            if parsed.scene_key:
+                source=store.manifest(parsed.scene_key)
+                source_cams={c['id'] for c in source['cams']}
+                named_cams={c for c in source_cams if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c)+r'(?![A-Za-z0-9_])',body.q,re.I)}
+                if hard_cam and (hard_cam not in source_cams or named_cams and named_cams!={hard_cam}):
+                    constraint_reason='conflicting_camera_constraints'
+                elif not hard_cam and len(named_cams)==1:
+                    hard_cam=next(iter(named_cams))
             quantifier = parsed.quantifier
             if parsed.workspace=='fleet' and not parsed.place:
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
@@ -456,6 +517,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                       and not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|brak\w*|near miss)\b',body.q,re.I))
             scalar_speed_q=bool(warehouse and re.search(r'\b(how fast|speed)\b',body.q,re.I) and not speeding_q
                                 and not re.search(r'\b(dodge\w*|yield\w*|cross\w*|brak\w*)\b',body.q,re.I))
+            ego_named=bool(re.search(r'\b(ego|recording (?:car|vehicle)|camera car|this car)\b',body.q,re.I))
+            bound_ego_q=bool(fleet and ego_named and spatial and spatial[0]=='distance')
+            ego_scalar_q=bool(fleet and ego_named and not speeding_q and re.search(r'\b(how fast|speed)\b',body.q,re.I)
+                              and not re.search(r'\b(dodg\w*|cross\w*|brak\w*)\b',body.q,re.I))
             world_position_q=bool(warehouse and parsed.template=='where_is' and not parsed.place and spatial and spatial[0]=='ground_position')
             closest_q = direct_pair_distance or (bool(warehouse) and {'person','forklift'}<=requested_kinds
                          and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
@@ -468,6 +533,93 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             elif context.get('t_ms') is not None and not any(
                     store.manifest(s['scene_key'])['t0_ms']<=context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
+            elif body.protocol_version==2 and parsed.template=='what_happened':
+                if len(scoped)!=1:
+                    yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='visual_observation',
+                                                 value=None,unit=None,status='unknown',eids=[])],
+                                      explain={'note':'Select one source scene for a bounded visual observation.'})
+                else:
+                    from app.core.model_observation import observe
+                    manifest=store.manifest(scoped[0]['scene_key'])
+                    key=manifest['scene_key']
+                    requested_cams=[c for c in manifest['cams'] if re.search(
+                        r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',body.q,re.I)]
+                    cameras=([c for c in manifest['cams'] if c['id']==hard_cam] if hard_cam else requested_cams or manifest['cams'][:1])
+                    lo,hi=parsed.t_range or (manifest['t0_ms'],min(manifest['t1_ms'],manifest['t0_ms']+6000))
+                    lo,hi=max(lo,manifest['t0_ms']),min(hi,manifest['t1_ms'])
+                    known={e.entity_id:e for e in store.entities(key)} if manifest['workspace']!='street' else {}
+                    subjects=[EntityRef(scene_key=key,entity_id=e,kind=known[e].kind) for e in selection if e in known]
+                    if len(subjects)!=len(selection) or not cameras:
+                        yield claim_frame([Predicate(predicate_id='p1',subject_refs=subjects,operator='visual_observation',
+                                                     value=None,unit=None,status='unknown',eids=[])],key=key,
+                                          explain={'note':'The selected source has no readable camera or requested entity binding.'})
+                    else:
+                        observation_eids=[]
+                        for camera in cameras:
+                            cam=camera['id']
+                            with trace.traced(run,'assess',{'scene_key':key,'cam':cam,'t_range':[lo,hi]},state='inspect') as t:
+                                yield step_frame(t,'inspect','Inspect sampled video frames for a sourced visual observation')
+                                res=yield from call(t,'observe_window','inspect',{'scene_key':key,'cam':cam,'t_range':[lo,hi],
+                                    'actor_refs':[s.model_dump() for s in subjects]},
+                                    lambda:observe(store,key,cam,(lo,hi),subjects,run=run))
+                                observation_eids.extend(e.eid for e in res.evidence)
+                                record=res.envelope.output.get('observation')
+                                if record and record.get('frame_refs'):
+                                    tm=record['frame_refs'][0]['t_ms']
+                                    card=MomentCard(moment_id=f'{key}:{cam}:{tm}:observation',scene_key=key,
+                                        t0_ms=record['t0_ms'],t1_ms=record['t1_ms'],cams=[cam],primary_cam=cam,
+                                        actor_refs=subjects,evidence_ids=[e.eid for e in res.evidence],score=1,
+                                        why=['model_observation'],thumb=tools.thumbnail(store,key,cam,tm),
+                                        tag=tag_of(manifest))
+                                    moments.append(card)
+                                t.output({'observation_id':record.get('observation_id') if record else None,
+                                          'verification':'unverified'})
+                        if moments:
+                            yield hits(moments)
+                            yield from ui('seek',{'t_ms':moments[0].t0_ms,'scene_key':key},key)
+                        yield claim_frame([Predicate(predicate_id='p1',subject_refs=subjects,operator='visual_observation',
+                                                     value=None,unit=None,status='unknown',eids=observation_eids)],key=key,
+                                          moment=moments[0].moment_id if moments else None,
+                                          explain={'note':'Visual model observations are unverified; they do not create measured event or geometry facts.'})
+                final,stop_reason='UNRESOLVED','no_new_info'
+            elif bound_ego_q or ego_scalar_q:
+                key=scoped[0]['scene_key']
+                note=None
+                if len(scoped)!=1 or scoped[0]['workspace']!='fleet': note='Select one Fleet source for an ego measurement.'
+                elif ego_scalar_q and (selection or parsed.zone): note='OBD speed belongs only to the recording vehicle; actor or zone constraints were not verified.'
+                elif ego_scalar_q and re.search(r'\b(greater|less|more than|under|above|below|over|at least|at most)\b|\d+(?:\.\d+)?\s*(?:m/s|km/h|mps)\b',body.q,re.I): note='The requested speed comparison was not verified.'
+                elif bound_ego_q and (len(selection)!=1 or not selection[0].startswith('P')): note='Select one named pedestrian for a bound ego distance.'
+                elif ego_scalar_q and requested_time is None: note='Specify a time for the recording vehicle speed sample.'
+                elif bound_ego_q and parsed.t_range is None: note='Specify a time or window for the bound ego distance.'
+                if note:
+                    yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='ego_measurement',value=None,
+                                                 unit=None,status='unknown',eids=[])],key=key,explain={'note':note})
+                    final,stop_reason='UNRESOLVED','abstained'
+                else:
+                    target=EntityRef(scene_key=key,entity_id='ego' if ego_scalar_q else selection[0],
+                                     kind='vehicle' if ego_scalar_q else 'person')
+                    with trace.traced(run,'assess',{'scene_key':key,'target':target.entity_id,'t_range':parsed.t_range},state='measure') as t:
+                        yield step_frame(t,'measure','Read the bound recording-vehicle measurement')
+                        if ego_scalar_q:
+                            res=yield from call(t,'ego_speed','measure',{'scene_key':key,'t_ms':requested_time},
+                                                lambda:tools.ego_speed(store,key,requested_time))
+                        else:
+                            res=yield from call(t,'bound_ego_distance','measure',{'scene_key':key,'t_range':parsed.t_range,
+                                'target':target.model_dump(),'zone':parsed.zone},
+                                lambda:tools.bound_ego_distance(store,key,parsed.t_range,target,zone=parsed.zone))
+                        ev=res.evidence[0] if res.evidence else None
+                        _,operator,value,unit=spatial
+                        status='supported' if ev and ego_scalar_q else distance_status(ev,operator,value)
+                        yield claim_frame([Predicate(predicate_id='p1',subject_refs=[] if ego_scalar_q else [target],
+                            operator='measured_speed' if ego_scalar_q else operator,value=value,
+                            unit='km/h' if ego_scalar_q else unit,status=status,eids=[ev.eid] if ev else [])],key=key,
+                            explain={'note':res.envelope.output.get('reason')} if not ev else None)
+                        final=claims[-1].aggregate
+                        if ev:
+                            ego_measurement={'eid':ev.eid,'target':target.entity_id,'speed':ego_scalar_q}
+                            yield from ui('seek',{'t_ms':ev.t0_ms,'scene_key':key},key)
+                        t.output({'aggregate':final,'measurement':res.envelope.output})
+                    stop_reason='enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
             elif direct_pair_distance and len(warehouse)!=1:
                 yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='measured',value=None,unit='m',status='unknown',eids=[])],
                                   explain={'note':'Select one source scene: entity IDs are local to each scene.',
@@ -562,7 +714,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if ev:
                             cams=store.manifest(key)['cams']
                             observed=[o.cam_id for o in ev.observation_ids if any(c['id']==o.cam_id for c in cams)]
-                            cam=observed[0] if observed else cams[0]['id'] if cams else ''
+                            cam=hard_cam or (observed[0] if observed else cams[0]['id'] if cams else '')
                             hit=MomentCard(moment_id=f'm_{key}_{requested_time}',scene_key=key,t0_ms=requested_time,t1_ms=requested_time+1,
                                            cams=[cam] if cam else [],primary_cam=cam,actor_refs=[target],evidence_ids=[ev.eid],score=1,
                                            why=['sampled entity measurement','source view; position proof comes from the measured world point'] if world_position_q else ['sampled track speed'],
@@ -701,7 +853,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                 status='supported',eids=[e.eid for e in scan.evidence])]
                     t.output({'predicates':[p.model_dump(mode='json') for p in predicates],'missing':closest['missing']})
                 if nearest:
-                    cam = next(s['cams'] for s in warehouse if s['scene_key']==key)[0]
+                    cam = next(c for s in warehouse if s['scene_key']==key for c in s['cams'] if not hard_cam or c['id']==hard_cam)
                     hit = MomentCard(moment_id=f'm_{key}_{tm}',scene_key=key,t0_ms=tm,t1_ms=tm+1,cams=[cam['id']],primary_cam=cam['id'],
                                      actor_refs=[person,vehicle],evidence_ids=[e.eid for e in [*scan.evidence,*res.evidence]],score=1,
                                      why=['closest_approach'],thumb=tools.thumbnail(store,key,cam['id'],tm),
@@ -799,7 +951,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                               and capabilities(store.manifest(parsed.scene_key or scoped[0]['scene_key']))['ground_position']['ok']):
                             key=parsed.scene_key or scoped[0]['scene_key']
                             tm=context['t_ms']
-                            cam=store.manifest(key)['cams'][0]['id']
+                            cam=hard_cam or store.manifest(key)['cams'][0]['id']
                             res=yield from call(t,'get_synced_views','retrieve',{'scene_key':key,'t_ms':tm,'cam':cam},
                                                 lambda:tools.get_synced_views(store,key,tm,cam=cam))
                             ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)] or context.get('selection',[])
@@ -815,7 +967,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             if parsed.template=='where_is' and context.get('t_ms') is not None:
                                 pass  # apply_constraints already intersected the exact requested timestamp
                             filters = {'workspace':parsed.workspace,'scene_key':parsed.scene_key,'t_range':parsed.t_range,
-                                       'place':parsed.place,'zone':parsed.zone,'sources':parsed.sources,'selection':context.get('selection'),'t_ms':context.get('t_ms'),**({'scope':'corpus'} if corpus else {})}
+                                       'place':parsed.place,'zone':parsed.zone,'sources':parsed.sources,'selection':context.get('selection'),'t_ms':context.get('t_ms'),'cam_id':hard_cam,**({'scope':'corpus'} if corpus else {})}
                             res = yield from call(t,'search','retrieve',{'q':body.q,'filters':filters},
                                                   lambda:tools.search(store,body.q,filters,parsed=parsed,vss=vss,deadline=run.deadline))
                             moments = [MomentCard.model_validate(m) for m in res.envelope.output['moments']]
@@ -1023,7 +1175,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                 height_max = max(c['cam2world'][14] for c in manifest['cams'])
                                 candidates = [{'cam':c['id'],'gain':c['cam2world'][14]/height_max if c['id'] in seen and c['id'] in observed else 0,
                                                'reason':'visible floor cell and tracked observation' if c['id'] in seen and c['id'] in observed else 'no additional observation'}
-                                              for c in manifest['cams'] if c['id']!=cam and tools.sync_trusted(manifest,c)]
+                                              for c in manifest['cams'] if not hard_cam and c['id']!=cam and tools.sync_trusted(manifest,c)]
                             with trace.traced(run,'policy.plan_next',{'aggregate':aggregate_of(predicates),'tools_used':count},state='plan') as t:
                                 yield step_frame(t,'plan','Choose the next evidence by coverage gain')
                                 decision = policy.plan_next({'aggregate':aggregate_of(predicates),'tools_left':body.budget.tools-count,
@@ -1160,8 +1312,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 group = [c for c in group if not abstained(c) and c.aggregate==final]
             if len(group)>1:
                 parts = [compose(final,[c],evidence) for c in group]
-                return dict(text=' '.join(p['text'] for p in parts),claim_ids=[i for p in parts for i in p['claim_ids']],
-                            cites=list(dict.fromkeys(e for p in parts for e in p['cites'])),measure_refs=[r for p in parts for r in p['measure_refs']])
+                return join_answer_parts(parts)
             evidence = {eid:evidence[eid] for c in group for p in c.predicates for eid in p.eids if eid in evidence}
             text = TEXT[final]
             if final=='UNSUPPORTED' and not re.search(llm.FORBIDDEN,body.q,re.I):
@@ -1327,25 +1478,30 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             if workspace=='warehouse' and final=='UNRESOLVED' and re.search(r'\b(footprint|clearance|edge)\b',body.q,re.I):
                 text='The requested footprint clearance was not measured. Forklift-center distance is a different quantity and cannot verify this condition.'
                 refs, cites, values, formats = [], [], [], []
+            if ego_measurement and ego_measurement['eid'] in evidence:
+                ev=evidence[ego_measurement['eid']]
+                measurement=('Recording vehicle OBD speed: '+ref(ev,'value',ev.value)+' km/h at sample '+ref(ev,'t0_ms',ev.t0_ms/1000)+
+                             ' s. Speed uncertainty is unavailable.' if ego_measurement['speed'] else
+                             'Minimum observed ground distance from '+name(ego_measurement['target'])+' to the recording vehicle origin: '+
+                             ref(ev,'value.distance_m',ev.value['distance_m'])+' m (±'+ref(ev,'sigma',ev.sigma)+' m) at '+ref(ev,'t0_ms',ev.t0_ms/1000)+' s. Times between samples were not verified.')
+                text=measurement if final in {'SUPPORTED','CONTRADICTED'} else text+' Independently measured: '+measurement
             cites=list(dict.fromkeys(cites))
             parts = re.split(r'(\{\{[mn]\d+\}\})',text)
             text=''.join(p if re.fullmatch(r'\{\{[mn]\d+\}\}',p) else llm.sanitize_numbers(p,[]) for p in parts)
-            for i,value in enumerate(values):
-                text=text.replace('{{m'+str(i)+'}}',format(value,formats[i]))
-            for i,value in enumerate(names):
-                text=text.replace('{{n'+str(i)+'}}',value)
-            return dict(text=text,claim_ids=[c.claim_id for c in group],cites=cites,measure_refs=refs)
+            text,spans=render_cited_text(text,refs,values,names,formats)
+            return dict(text=text,claim_ids=[c.claim_id for c in group],cites=cites,measure_refs=refs,text_spans=spans)
 
         def statistics_sentence(cards):
             evidence = {eid:read[eid] for c in cards for p in c.predicates for eid in p.eids if eid in read}
-            parts, refs = [], []
+            parts, refs, values = [], [], []
             for e in evidence.values():
                 if e.method not in {'bytetrack_people_count','yolo_people_peak'}:
                     continue
                 v = e.value
                 def number(field):
                     refs.append({'eid':e.eid,'field':'value.'+field})
-                    return format(v[field],'.4g')
+                    values.append(v[field])
+                    return '{{m'+str(len(values)-1)+'}}'
                 prefix = 'Measured' if v['coverage']==1 else 'In the covered portion, measured'
                 if e.method=='bytetrack_people_count':
                     text = 'Camera '+e.cam_id+' observed '+number('count')+' person tracks in '+number('t0_s')+'–'+number('t1_s')+' s. Line crossings and unique identities were not measured.'
@@ -1359,7 +1515,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if any(c.aggregate!='SUPPORTED' for c in cards) and v['coverage']==1:
                     text += ' Other conditions were not measured; the full question remains unresolved.'
                 parts.append(text)
-            return dict(text=' '.join(parts),claim_ids=[c.claim_id for c in cards],cites=list(evidence),measure_refs=refs)
+            text,spans=render_cited_text(' '.join(parts),refs,values,[],['.4g']*len(values))
+            return dict(text=text,claim_ids=[c.claim_id for c in cards],cites=list(evidence),measure_refs=refs,text_spans=spans)
 
         def street_sentence(cards):
             """L1: what the 2D detections show; a spatial question keeps its abstain text and cites no measurement."""
@@ -1392,9 +1549,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             # a level the special path could not check
             parts += [dict(text=c.text+'. '+c.explain['abstain']['text'],claim_ids=[c.claim_id],cites=[],measure_refs=[])
                       for c in group if not c.scene_key]
-            return dict(text=' '.join(p['text'] for p in parts),claim_ids=[i for p in parts for i in p['claim_ids']],
-                        cites=list(dict.fromkeys(e for p in parts for e in p['cites'])),measure_refs=[r for p in parts for r in p['measure_refs']],
-                        evidence_level=lv)
+            return join_answer_parts(parts,evidence_level=lv)
 
         with trace.traced(run,'answer',{'final':final,'read_eids':sorted(run.read_eids)},state='answer') as t:
             yield step_frame(t,'answer','Generate an answer from the evidence read')
@@ -1411,6 +1566,21 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 answers = [street_sentence(claims)]
             else:
                 answers = [compose(final,claims,read)]
+            if body.protocol_version==2 and observations:
+                facts=[(record,i,fact) for record in observations for i,fact in enumerate(record['facts'])]
+                if facts:
+                    unmet=list(dict.fromkeys(quantity_name(p) for c in claims for p in c.predicates
+                                              if p.status=='unknown' and p.operator!='visual_observation'))
+                    answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+
+                                  '. These sampled visual observations do not independently verify the full question or a geometric measurement.'+
+                                  (' Unverified conditions: '+', '.join(unmet)+'.' if unmet else ''),
+                                  claim_ids=[c.claim_id for c in claims],cites=list(dict.fromkeys(record['eid'] for record,_,_ in facts)),
+                                  measure_refs=[],text_spans=[],model_refs=[{'observation_id':record['observation_id'],
+                                      'eid':record['eid'],'field':'facts.'+str(i)+'.text'} for record,i,_ in facts])]
+            if body.protocol_version==2:
+                answers=[{'text_spans':[],'model_refs':[],**a} for a in answers]
+            else:
+                answers=[{k:v for k,v in a.items() if k not in {'text_spans','model_refs'}} for a in answers]
             answers = [{'sentence_id':'a'+str(i+1),**a} for i, a in enumerate(answers)]
             t.output(answers[0] if len(answers)==1 else answers)
             for answer in answers:
@@ -1433,23 +1603,31 @@ def ask_frames(store, body: AskRequest, *, vss=None):
 
 @router.post('/api/agent/ask')
 def ask(request: Request, body: AskRequest):
-    context = body.context.model_dump(exclude_unset=True)
-    key = context.get('scene_key') or (context['scene_id'].replace('/','-').lower() if context.get('scene_id') else None)
-    if key:
-        try:
-            manifest = request.app.state.store.manifest(key)
-        except FileNotFoundError:
-            raise HTTPException(422,'context scene does not exist') from None
-        if manifest['workspace']!=context['workspace']:
-            raise HTTPException(422,'context scene does not belong to workspace')
     settings=getattr(request.app.state,'settings',None)
     if getattr(settings,'mode','dev')=='site' and getattr(request.app.state,'vss',None) is None:
         raise HTTPException(503,'site VSS is not configured')
     store=request.app.state.store
+    if body.protocol_version==2 and body.session_id:
+        # The durable service resolves inherited context before validating its
+        # source; an omitted workspace must not be indexed here prematurely.
+        service=request.app.state.investigations
+        job=service.submit(body)
+        return StreamingResponse(service.stream(job['job_id']),media_type='text/event-stream',
+            headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no',
+                     'X-SVA-Session':job['session_id'],'X-SVA-Turn':job['turn_id'],'X-SVA-Job':job['job_id']})
+    context = body.context.model_dump(exclude_unset=True)
+    key = context.get('scene_key') or (context['scene_id'].replace('/','-').lower() if context.get('scene_id') else None)
+    if key:
+        try:
+            manifest = store.manifest(key)
+        except FileNotFoundError:
+            raise HTTPException(422,'context scene does not exist') from None
+        if manifest['workspace']!=context['workspace']:
+            raise HTTPException(422,'context scene does not belong to workspace')
     def sse(frame):
         return 'event: '+frame['event']+'\ndata: '+json.dumps(frame['data'],ensure_ascii=False)+'\n\n'
     def stream():
-        hit=cache.replay(store,body.q,context)
+        hit=cache.replay(store,body.q,context) if body.protocol_version==1 else None
         if hit:
             yield from map(sse,hit[1])
             return
@@ -1466,7 +1644,7 @@ def ask(request: Request, body: AskRequest):
                       for r in results)
                   and not any(s.name.startswith('tool.') and s.exec_state=='failed'
                               for s in store.get_run(frames[0]['data']['run_id']).steps))
-        if status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'} and complete:
+        if body.protocol_version==1 and status and status['stop_reason'] in {'enough_evidence','no_new_info','abstained'} and complete:
             # every frame is already sent; a failed cache write must not break the stream
             try:
                 cache.put(store,body.q,context,frames,getattr(store,'backend','duckdb'),frames[0]['data']['run_id'])

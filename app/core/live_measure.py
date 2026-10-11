@@ -119,7 +119,7 @@ def _closest_pair(people, p_xy, others, o_xy):
     return best
 
 
-def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('person', 'forklift'), *, rows) -> dict:
+def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('person', 'forklift'), *, rows, target_ids=None) -> dict:
     """Closest ground approach of the pair on one live camera over [t0_ms, t1_ms).
 
     rows: site-map rows ({source, scene_key, cam_id, t_ms}), e.g. site_map.load(path)[0].values(); the sidecar of each
@@ -141,6 +141,9 @@ def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('p
     if not manifest.get('metric',False):
         return {'value_m':None,'reason':'scene_not_metric','n_frames':0,'n_boxes':0,'source_uris':[],
                 'scene_coverage':{scene_key:{'coverage':0,'reason':'scene_not_metric'}},'timing_ms':timing}
+    if target_ids:
+        return {'value_m':None,'reason':'live_target_binding_unverified','n_frames':0,'n_boxes':0,
+                'source_uris':[],'binding_verified':False,'requested_entity_ids':list(target_ids),'timing_ms':timing}
     cam = next(c for c in manifest['cams'] if c['id'] == cam_id)
     fleet = manifest['workspace'] == 'fleet'
     segs = covering_rows(rows, scene_key, cam_id, t0_ms, t1_ms)
@@ -168,5 +171,8 @@ def measure(store, scene_key: str, cam_id: str, t0_ms: int, t1_ms: int, pair=('p
             result['reason'] = f'no frame of {scene_key}/{cam_id} in [{t0_ms}, {t1_ms}) has both {pair[0]} and {pair[1]} on the ground'
     if best is not None:
         result.update(value_m=round(best[0], 3), sigma_m=round(best[1], 3), t_ms=best[2], track_ids=best[3])
+    result.update(binding_verified=False,entity_ids=None,
+                  target_class='pedestrian' if fleet else 'vehicle_proxy',
+                  target_class_verified=fleet,measurement_scope='anonymous detector tracks')
     timing['total'] = round((time.perf_counter() - start) * 1000, 1)
     return result

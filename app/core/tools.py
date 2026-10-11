@@ -349,6 +349,57 @@ def ego_distance(store, scene_key, cam, t0_ms, t1_ms, *, rows):
                                           'reason':live['reason']},cam=cam,evidence=[ev],pts_read=len(peds),coverage=None,started=started)
 
 
+def bound_ego_distance(store, scene_key, t_range, target, *, zone=None):
+    """Distance to one named published pedestrian, never the anonymous live nearest proxy."""
+    m=store.manifest(scene_key)
+    lo,hi=t_range
+    if m['workspace']!='fleet' or not m['metric'] or target.kind!='person':
+        return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'unsupported_bound_ego_measurement'})
+    directory=m['assets'].get('ego_dir')
+    candidates=[]
+    area=Polygon(zone) if zone else None
+    for chunk in range(lo//10000,(hi-1)//10000+1):
+        remaining(30)
+        try:
+            frames=store.asset_json(scene_key,f'{directory}/{chunk:05d}.json')['frames'] if directory else []
+        except FileNotFoundError:
+            frames=[]
+        for frame in frames:
+            if not lo<=frame['t_ms']<hi: continue
+            for p in frame['peds']:
+                if p['entity_id']!=target.entity_id or area and not area.covers(Point(p['x'],p['y'])): continue
+                if not all(isinstance(p.get(k),(int,float)) and math.isfinite(p[k]) for k in ('x','y','sigma_m')) or p['sigma_m']<0: continue
+                candidates.append((math.hypot(p['x'],p['y']),frame['t_ms'],p))
+    if not candidates:
+        return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'missing_bound_ego_sample'},coverage=0,
+                      gaps=[(lo,hi,'missing_bound_ego_sample')])
+    distance,tm,p=min(candidates,key=lambda row:(row[0],row[1]))
+    ev=evidence(store,scene_key,None,tm,tm+1,'measure','bound_ego_distance',{'distance_m':distance,'target_entity_id':target.entity_id,
+                'reference_entity':'ego','coordinate_frame':'ego_ground','t_s':tm/1000},unit='m',sigma=p['sigma_m'],
+                params={'a':target.entity_id,'b':'ego','source':'published_ego_frames','zone':zone,
+                        'distance_from':'ego_ground_origin','distance_to':'pedestrian_ground_point'})
+    return result(scene_key,lo,hi,{'value':distance,'sigma':p['sigma_m'],'t_ms':tm,'entity_id':target.entity_id,
+                  'minimum_basis':'valid observed samples','coverage_basis':'full-window coverage not measured'},
+                  evidence=[ev],pts_read=len(candidates))
+
+
+def ego_speed(store, scene_key, t_ms):
+    """The recording vehicle's OBD sample, with explicit sample age and absent uncertainty."""
+    m=store.manifest(scene_key)
+    if m['workspace']!='fleet' or 'trip' not in m['assets']:
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'no_ego_speed'})
+    trip=store.asset_json(scene_key,m['assets']['trip'])
+    points=[f['properties'] for f in trip['features'][1:] if f['properties'].get('t_ms') is not None]
+    p=next((p for p in reversed(points) if p['t_ms']<=t_ms<p['t_ms']+500),None)
+    speed=p.get('speed') if p else None
+    if not p or p.get('state') not in {'observed','interpolated'} or not isinstance(speed,(int,float)) or not math.isfinite(speed):
+        return result(scene_key,t_ms,t_ms+1,{'status':'UNRESOLVED','reason':'missing_ego_speed_sample'},coverage=0)
+    ev=evidence(store,scene_key,None,p['t_ms'],p['t_ms']+1,'measure','obd_speed',speed*3.6,unit='km/h',
+                params={'entity_id':'ego','sample_age_ms':t_ms-p['t_ms'],'uncertainty':'unavailable'})
+    return result(scene_key,t_ms,t_ms+1,{'value':speed*3.6,'t_ms':p['t_ms'],'sigma':None,
+                  'unit':'km/h','entity_id':'ego','uncertainty':'unavailable'},evidence=[ev],pts_read=1)
+
+
 def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
     """The smallest person-forklift ground distance at the skeleton sample times, reading each track asset once;
     with a zone, only people standing inside it count."""

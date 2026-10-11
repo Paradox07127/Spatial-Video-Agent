@@ -25,6 +25,7 @@ class SearchRequest(BaseModel):
     scene_key: str | None = Field(default=None, pattern=r'^[a-z0-9_-]+$')
     t_range: tuple[Annotated[int, Field(ge=0)], Annotated[int, Field(ge=0)]] | None = None
     t_ms: Annotated[int, Field(ge=0)] | None = None
+    cam_id: Annotated[str,Field(strict=True,min_length=1,max_length=128,pattern=r'^[A-Za-z0-9_.:-]+$')] | None = None
     selection: list[str] | None = None
     place: str | None = None
     zone: list[tuple[float, float]] | None = Field(default=None, min_length=3)
@@ -95,6 +96,11 @@ def retrieve(store, request: SearchRequest, *, parsed=None, vss=None):
                 and (not parsed.sources or tag_of(m) in parsed.sources)]
     cam_ids = list(dict.fromkeys(c['id'] for m in selected for c in m['cams']
                                 if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c['id'])+r'(?![A-Za-z0-9_])',request.q,re.I)))
+    if request.cam_id:
+        available={c['id'] for m in selected for c in m['cams']}
+        if request.cam_id not in available or cam_ids and set(cam_ids)!={request.cam_id}:
+            return parsed,result(key or 'all',0,0,{**empty,'abstain':'UNRESOLVED','reason':'conflicting_camera_constraints'},started=started)
+        cam_ids=[request.cam_id]
     filters = SearchFilters(workspace=parsed.workspace,scene_keys=[m['scene_key'] for m in selected],
                             cam_ids=cam_ids or None,t_range=parsed.t_range,k=50)
     if not selected:
