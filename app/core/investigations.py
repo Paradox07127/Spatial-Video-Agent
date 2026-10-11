@@ -268,6 +268,18 @@ class Investigations:
             for frame in iterator:
                 if self.closing.is_set():
                     return  # running row is recoverable on next process startup
+                canonical = None
+                if frame['event'] == 'done':
+                    from app.api.agent import AskContext
+                    # Preserve the compiler's effective hard constraints, not
+                    # just the HTTP context. The original question can narrow
+                    # time, actors, source and camera too.
+                    run = self.store.get_run(frame['data']['run_id'])
+                    if run:
+                        receipt = next((s.output['effective_context'] for s in run.steps
+                                        if isinstance(s.output, dict) and s.output.get('effective_context') is not None), None)
+                        if receipt is not None:
+                            canonical = AskContext.model_validate(receipt).model_dump(mode='json')
                 with self.transaction() as db:
                     current = self.job(job['job_id'])
                     if current['cancel_requested']:
@@ -295,6 +307,8 @@ class Investigations:
                         final = frame['data']['final']
                     completed = frame['event'] == 'done'
                     if completed:
+                        if canonical is not None:
+                            db.execute('UPDATE investigation_turns SET context=? WHERE turn_id=?', [encode(canonical), job['turn_id']])
                         db.execute("UPDATE investigation_jobs SET status='done',lease_started=NULL,error=NULL WHERE job_id=?", [job['job_id']])
                         db.execute("UPDATE investigation_turns SET status='done',final=? WHERE turn_id=?", [final, job['turn_id']])
                     self.mirror('investigation_jobs', job['job_id'])

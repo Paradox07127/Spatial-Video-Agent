@@ -48,10 +48,9 @@ def test_application_durable_model_answers_inherit_scope_replay_and_restart(inde
         session = client.post('/api/agent/sessions',json={'title':'Bounded source review'})
         assert session.status_code == 201
         sid = session.json()['session_id']
-        initial = dict(q='Describe the scene',protocol_version=2,session_id=sid,
+        initial = dict(q='Describe P1 at second 2 in eye_00',protocol_version=2,session_id=sid,
             request_id='api-first',expected_revision=0,
-            context={'workspace':'warehouse','scene_key':KEY,'cam_id':'eye_00',
-                     't_range':[1000,3000],'t_ms':2000,'selection':['P1']})
+            context={'workspace':'warehouse','scene_key':KEY})
         response = client.post('/api/agent/ask',json=initial)
         first = decode(response)
         assert check_sse_sequence(first,protocol_version=2) == []
@@ -70,6 +69,10 @@ def test_application_durable_model_answers_inherit_scope_replay_and_restart(inde
         history = client.get('/api/agent/sessions/'+sid).json()
         assert history['revision'] == 1 and len(history['turns'][0]['observations']) == 1
         assert history['turns'][0]['answers'][0]['text'] == answer['text']
+        assert history['turns'][0]['context']['t_ms'] == 2000
+        assert history['turns'][0]['context']['t_range'] == [2000,2001]
+        assert history['turns'][0]['context']['selection'] == ['P1']
+        assert history['turns'][0]['context']['cam_id'] == 'eye_00'
         followup = dict(q='Describe it again',protocol_version=2,session_id=sid,
             parent_turn_id=tid,request_id='api-second',expected_revision=1,context={})
         second_response = client.post('/api/agent/ask',json=followup)
