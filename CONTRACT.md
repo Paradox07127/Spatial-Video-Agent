@@ -343,7 +343,9 @@ status, attempt, run ID, `last_seq`, and `current_attempt_start_seq`. GET its
 client checks attempt first and replays only the current attempt when it changes.
 Disconnecting a subscriber does not cancel execution. POST `/cancel` explicitly
 requests cancellation; a blocking model call exits at the next execution boundary,
-and no later answer or observation is committed. Cancelled/failed jobs may close
+and no later answer or observation enters the current investigation history or
+event stream. The aborted run trace may retain completed-call audit data.
+Cancelled/failed jobs may close
 without a protocol `done` frame; clients read the job snapshot for the reason.
 
 One process owns the bounded local worker and application database. Requests,
