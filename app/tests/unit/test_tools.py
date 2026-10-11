@@ -72,7 +72,9 @@ def test_blind_presence_intervals(tmp_path, monkeypatch):
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_00',0,10000)
     # P2 is occluded from ceiling_00 from frame 3.6 s through frame 9.2 s (10 fps skeleton)
     assert [(e.value['entity_id'],e.t0_ms,e.t1_ms,e.value['seen_by']) for e in r.evidence]==[
-        ('P2',3600,9300,['ceiling_04','eye_00']),('P1',4000,6000,['ceiling_04','eye_00'])]
+        ('P2',3600,6000,['ceiling_04','eye_00']),('P1',4000,6000,['ceiling_04','eye_00']),
+        ('P2',6000,7000,['ceiling_04']),('P2',7000,9300,['ceiling_04','eye_00'])]
+    assert 'eye_00' not in r.evidence[2].value['seen_by'] and 'eye_00' in r.evidence[3].value['seen_by']
     assert all((e.kind,e.method,e.cam_id)==('measure','blind_presence','ceiling_00') for e in r.evidence)
     assert r.envelope.coverage==1
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_04',4000,10000)
@@ -133,11 +135,11 @@ def test_blind_presence_merges_frames_on_a_rounded_15_fps_grid(tmp_path, monkeyp
         return doc
     monkeypatch.setattr(s,'asset_json',fps15)
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_00',0,10000)
-    runs={}
-    for e in r.evidence:
-        runs.setdefault(e.value['entity_id'],[]).append((e.t0_ms,e.t1_ms))
-    # SDG skeletons store 15 fps stamps rounded to the ms (0, 67, 133, ...); one blind run must stay one interval
-    assert all(b[0]-a[1]>100 for v in runs.values() for a,b in zip(v,v[1:])), runs
+    # Rounded 15 fps stamps must merge throughout each stable witness epoch,
+    # while the eye_00 outage at 6 s still splits the continuing blind run.
+    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms,e.value['seen_by']) for e in r.evidence]==[
+        ('P2',2400,6000,['ceiling_04','eye_00']),('P1',3333,4867,['ceiling_04','eye_00']),
+        ('P2',6000,6200,['ceiling_04'])]
 
 
 def test_street_scene_tools_abstain_with_the_capability_reason(tmp_path):
@@ -173,7 +175,11 @@ def test_blind_presence_splits_at_visible_samples(tmp_path, monkeypatch):
         return {**states,'ceiling_00':'visible'} if 4800<=t_ms<5100 else states
     monkeypatch.setattr(tools.geometry,'floor_visibility',flicker)
     r=tools.blind_presence(s,'wh-sdg-fixture-01','ceiling_00',0,10000)
-    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms) for e in r.evidence]==[('P2',3600,4800),('P1',4000,4800),('P1',5100,6000),('P2',5100,9300)]
+    assert [(e.value['entity_id'],e.t0_ms,e.t1_ms,e.value['seen_by']) for e in r.evidence]==[
+        ('P2',3600,4800,['ceiling_04','eye_00']),('P1',4000,4800,['ceiling_04','eye_00']),
+        ('P1',5100,6000,['ceiling_04','eye_00']),('P2',5100,6000,['ceiling_04','eye_00']),
+        ('P2',6000,7000,['ceiling_04']),('P2',7000,9300,['ceiling_04','eye_00'])]
+    assert all('eye_00' not in e.value['seen_by'] for e in r.evidence if e.t0_ms==6000)
 
 
 WH, FL = 'wh-sdg-fixture-01', 'fl-pie-fixture-01'
