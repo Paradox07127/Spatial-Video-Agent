@@ -235,7 +235,7 @@ A question about a place or time outside the footage ends Out of range; a search
 
 ## Deployed version
 
-Validated on ws on 2026-10-10 (America/New_York; 2026-10-11 UTC), using real corpus data. The tested code release is `c06e85fb4c07c167d29458ebb7962ff4df211ab5`; `/api/dependencies` identifies the currently deployed commit, including later documentation-only updates.
+Validated on ws on 2026-10-11 (America/New_York), using real corpus data. UI and contract tests used `40baf92d79a1e2eb0333ad9194e39a20876a4a83`; the full backend suite used `746654ea32d69559c62b0b47bb5958907c268726`; `/api/dependencies` identifies the deployed commit, including later documentation-only updates.
 
 | Item | Value |
 |---|---|
@@ -244,12 +244,14 @@ Validated on ws on 2026-10-10 (America/New_York; 2026-10-11 UTC), using real cor
 | Corpus | 143 scenes / 4,188 clips: 80 warehouse scenes, 53 fleet trips, 10 street cameras |
 | Dependency status | `/api/dependencies` reports inexpensive TCP reachability separately from `/health`; it does not certify inference |
 | Asset readiness | All 143 local scenes passed readiness; S3 releases validate indexed manifests and direct references asynchronously before readiness |
-| Runtime acceptance | 25 completed real investigations, 40 numeric references and 12 targeted semantic/source checks passed; original 2 actions and 2 zones retained |
+| Runtime acceptance | 25 completed legacy requests, 40 numeric references and 16 targeted semantic/source checks passed; real v2 model observations and persisted follow-up/replay scope checked; original 2 actions and 2 zones retained |
 | Real UI | Answer/evidence navigation, Fleet first → GPS-only candidate → cited first candidate, panel keyboard resizing, command palette focus and 486 px layout checked |
 
-LLM and Cosmos completed separate inference smoke requests during this repair session. TCP reachability alone is not an inference or accuracy benchmark. The older VAST site deployment is described in the deployment guide; its current state, real S3 and VastDB end-to-end behavior are outside this ws acceptance.
+Cosmos read the requested source-video window and its actual frame references reached v2 answers and persistent investigation history. Contradictory time/camera follow-ups remained unresolved without a model observation. These observations stay unverified; this is an inference smoke check rather than an accuracy benchmark. The older VAST site deployment is described in the deployment guide; its current state, real S3 and VastDB end-to-end behavior are outside this ws acceptance.
 
-The nine walkthrough images were recaptured from the accepted ws release at 1440 × 900. The browser supplied native JPEG captures; PNG exports preserve the decoded pixels exactly, without resizing, cropping, image adjustments or further lossy encoding. [Capture provenance](docs/screenshots/capture.json) records source and pixel hashes.
+Legacy localization frame labels currently use hundredths of a second. At a frame boundary, that rounding can cause a model interval to be rejected conservatively; actual read-frame bounds remain enforced.
+
+The nine walkthrough images show the earlier accepted measurement interface at 1440 × 900; they predate the persistent investigation controls. The browser supplied native JPEG captures; PNG exports preserve the decoded pixels exactly, without resizing, cropping, image adjustments or further lossy encoding. [Capture provenance](docs/screenshots/capture.json) records source and pixel hashes.
 
 ## Repository layout
 
@@ -299,7 +301,7 @@ bash app/scripts/gate.sh
 
 `gate.sh` runs all pytest suites, the fixture schema check, the fixture determinism check, the vendor manifest check, the Playwright e2e (root path and `/app` prefix), the ConfigMap size check and a secret scan. Set `SVA_E2E_PORT` to give a parallel run its own port.
 
-Release validation: **857 backend tests, 520 UI tests (260 root + 260 prefixed), 112 contract tests and 68 pipeline tests passed**. Schema validation, 31 generated fixture files with no differences, 19 local vendor hashes, ConfigMap size (3,950 bytes) and the tracked-source/new-commit secret scan passed. Backend and contract used `c06e85f`; UI used `ceda23e`. Their application code, UI tests, fixtures, schemas and pipeline Git blobs/modes are identical; only the corrected Python map-wording test differs.
+Release validation: **1010 backend tests, 578 UI tests (root and `/app` prefix), 113 W0 contract tests and 68 pipeline tests passed** on independent verified snapshots. Backend used `746654ea32d69559c62b0b47bb5958907c268726`; final UI and W0/pipeline used `40baf92d79a1e2eb0333ad9194e39a20876a4a83`. The only changes between them are the first-visit investigation controller null guard and its real-browser regressions; all backend, schema, fixture and pipeline blobs/modes are identical. The W0 tests overlap the backend suite and are not an additional total. Schema validation, 31 generated fixture files with no differences, 19 local vendor hashes, ConfigMap size (3,950 bytes) and tracked-source/new-commit secret scans passed. All 395 tracked Git blobs and modes in each tested snapshot matched that snapshot's own commit; subsequent release documentation changes affect only this README.
 
 The e2e specs in `app/tests/e2e/` describe each interaction of the UI above: `home.spec.js`, `shell.spec.js`, `kernel.spec.js`, `warehouse.spec.js`, `fleet.spec.js`, `fleet-intersection.spec.js`, `timeline.spec.js`, `run.spec.js`, `runpage.spec.js`.
 
