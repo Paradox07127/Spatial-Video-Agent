@@ -1083,7 +1083,7 @@ async function flash(eid, field = null) {
   const value = field?.split('.').reduce((o, k) => o?.[k], evidence);
   const scale = TIME_REF_MS.get(field), time = scale !== undefined && typeof value === 'number' && Number.isFinite(value) ? value * scale : null;
   // A time reference owns its instant; retain the stored evidence's original window for ordinary citations.
-  const e = time === null ? evidence : { ...evidence, t0_ms: time };
+  const e = time === null ? evidence : { ...evidence, t0_ms: Math.round(time), t1_ms: Math.round(time) + 1 };
   await activateEvidence(e, () => focusEvidence(eid, e));
 }
 

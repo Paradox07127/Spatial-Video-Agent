@@ -53,3 +53,30 @@ for (const [workspace, key, cam, field, value, sourceMs, wallMs] of [
   await expect.poll(()=>clock(page,'c.t')).toBe(workspace==='fleet'?20000:0);
   expect(errors).toEqual([]);
 });
+
+test('window endpoint references focus a valid instant outside the stored measurement and clamp the scene clock', async ({page})=>{
+  await mockApi(page);
+  const eid='e_closest_endpoint', base={run_id:'r_endpoint'};
+  const evidence={eid,scene_key:WH,cam_id:'ceiling_04',t0_ms:4900,t1_ms:4901,observation_ids:[],analysis_rev:'fx-0001',kind:'measure',method:'closest_approach',
+    value:{distance_m:1.5,t_s:4.9004,window_t0_s:0,window_t1_s:10},unit:null,sigma:null,artifact_ref:null};
+  await mockAskFrames(page,[
+    {event:'step',data:{...base,step_id:'s0',i:0,state:'measure',elapsed_ms:1,summary:'Closest approach',exec_state:'precomputed'}},
+    {event:'tool_call',data:{...base,step_id:'s0',call_id:'c0',name:'closest_approach',args:{scene_key:WH},why:'Scan window'}},
+    {event:'tool_result',data:{...base,step_id:'s0',call_id:'c0',ok:true,envelope:{input_range:{scene_key:WH,t0_ms:0,t1_ms:10000},elapsed_ms:1,exec_state:'precomputed'},evidence:[evidence]}},
+    {event:'answer',data:{...base,sentence_id:'a0',text:'Closest distance was 1.5 m at 4.9 s in the window 0–10 s.',claim_ids:[],cites:[eid],measure_refs:['distance_m','t_s','window_t0_s','window_t1_s'].map(field=>({eid,field:`value.${field}`}))}},
+    {event:'status',data:{...base,final:'SUPPORTED',stop_reason:'enough_evidence'}},
+    {event:'done',data:base},
+  ]);
+  await page.goto('#/test');
+  await page.evaluate(async()=> (await import(new URL('kernel/bus.js',document.baseURI))).bus.on('evidence:focus',e=>window.__referenceFocus={t0:e.t0_ms,t1:e.t1_ms}));
+  await page.locator('#ask-input').fill('What happened within this window?'); await page.locator('#ask-input').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-run','done');
+  for (const [field,t0,target] of [['window_t1_s',10000,9999],['window_t0_s',0,0],['t_s',4900,4900]]) {
+    await page.locator(`#answer [data-ref-field="value.${field}"]`).click();
+    await expect.poll(()=>page.evaluate(()=>window.__referenceFocus?.t0)).toBe(t0);
+    expect(await page.evaluate(()=>window.__referenceFocus)).toEqual({t0,t1:t0+1});
+    await expect.poll(()=>clock(page,'c.t')).toBe(target);
+  }
+  const stored=await page.evaluate(async eid=>{const e=(await import(document.querySelector('script[src*="app.js"]').src)).currentRun().evidence.get(eid); return [e.t0_ms,e.t1_ms];},eid);
+  expect(stored).toEqual([4900,4901]);
+});
