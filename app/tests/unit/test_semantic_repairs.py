@@ -94,7 +94,7 @@ def test_byte_tracking_counts_continuous_person_once_and_new_person_twice(store,
     rows = [[t,'person',10,20,40,80,.95] for t in range(0,1000,100)]
     rows += [[t,'person',200,20,230,80,.95] for t in range(400,1000,100)]
     monkeypatch.setattr(street,'detections',lambda *a:{'rows':rows,'frame_times':list(range(0,1000,100)),
-                                                     'source':'test','gaps':[],'frames_read':10})
+                                                     'source':'test','gaps':[],'frames_read':10,'exec_state':'precomputed'})
     stats = street.people_statistics(store,L1_KEY,L1_CAM,0,1000,'tracked_count')
     assert stats.envelope.output['count']==2
     peak = street.people_statistics(store,L1_KEY,L1_CAM,0,1000,'peak_count')
@@ -135,7 +135,7 @@ def test_explicit_ids_use_full_interval_closest_path(store):
 def test_tracker_uses_detection_sampling_rate_not_video_fps(store,monkeypatch):
     rows = [[t,'person',10,20,40,80,.95] for t in range(0,4000,1000)]
     monkeypatch.setattr(street,'detections',lambda *a:{'rows':rows,'frame_times':list(range(0,4000,1000)),
-                                                     'source':'test','gaps':[],'frames_read':4})
+                                                     'source':'test','gaps':[],'frames_read':4,'exec_state':'precomputed'})
     rates = []
     original = street.live_measure.track
     def track(frames,fps,labels):
