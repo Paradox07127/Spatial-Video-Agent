@@ -132,7 +132,8 @@ def test_ground_position_capability_matches_tool_requirements(tmp_path):
     m=s.manifest(WH)
     assert capabilities(m)['ground_position']['ok']
     assert capabilities({**m,'metric':False})['ground_position']['reason']=='scene_not_metric'
-    assert not capabilities(s.manifest(FL))['ground_position']['ok']
+    # fleet keeps its metric flag: "no_geometry" text would claim the dashcam has no geometry
+    assert capabilities({**s.manifest(FL),'metric':False})['ground_position']['reason']=='scene_not_metric'
 
 
 def test_c2_prefix_and_circuit(tmp_path, monkeypatch):
