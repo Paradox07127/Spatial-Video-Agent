@@ -295,7 +295,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 p.status = 'unknown'
         unknown = [p.operator for p in predicates if p.status=='unknown']
         if unknown:
-            explain = {**(explain or {}),'not_measured':unknown}
+            explain = {**(explain or {}),'not_measured':list(dict.fromkeys([*(explain or {}).get('not_measured',[]),*unknown]))}
         aggregate = aggregate_of(predicates)
         claim = Claim(run_id=run.run_id,claim_id=claim_id,text=text,predicates=[p.model_copy(deep=True) for p in predicates],
                       aggregate=aggregate,before=before,after=aggregate,examined_eids=list(read),
@@ -425,6 +425,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             elif context.get('t_ms') is not None and not any(
                     store.manifest(s['scene_key'])['t0_ms']<=context['t_ms']<store.manifest(s['scene_key'])['t1_ms'] for s in scoped):
                 final, stop_reason = 'OUT_OF_RANGE','abstained'
+            elif warehouse and spatial and spatial[0]=='distance' and re.search(r'\b(footprint|clearance|edge)\b',body.q,re.I):
+                _,operator,value,unit = spatial
+                yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator=operator,value=value,
+                                             unit=unit,status='unknown',eids=[])],key=warehouse[0]['scene_key'],
+                                  explain={'note':'Footprint clearance was not measured. Forklift-center distance is a different quantity.',
+                                           'not_measured':['footprint clearance (center distance is a different quantity)']})
+                final,stop_reason = 'UNRESOLVED','abstained'
             elif (speeding_q or building_q) and (selection or parsed.zone):
                 yield claim_frame([Predicate(predicate_id='p1',subject_refs=[],operator='selected_entity_or_zone',value=None,
                                              unit=None,status='unknown',eids=[])],
@@ -745,12 +752,19 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                           if e.entity_id in ids and e.kind in {'forklift','vehicle'}]
                                 vehicle=vehicles[0] if len(vehicles)==1 else None
                                 subjects=list({s.entity_id:s for s in [*subjects,*([vehicle] if vehicle else [])]}.values())
+                            near_miss_center = has_distance and manifest['workspace']=='warehouse' and 'near miss' in body.q.lower()
+                            explicit_distance = bool(re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',body.q,re.I))
+                            mismatched_clearance = near_miss_center and explicit_distance and not re.search(r'\bcent(?:er|re)\b',body.q,re.I)
+                            if near_miss_center:
+                                explain['note']='The near-miss rule uses footprint clearance. The separately measured distance is from the worker ground point to the forklift center.'
+                                explain['not_measured']=['footprint clearance (center distance is a different quantity)']
                             if speeding:
                                 operator, value, unit = 'gt', None, 'km/h'
                             elif has_distance:
                                 _, operator, value, unit = spatial
-                                if 'near miss' in body.q.lower() and value==2.:
-                                    value = next((e.params['threshold_m'] for e in related if 'threshold_m' in e.params),2.)
+                                if near_miss_center and not explicit_distance:
+                                    # The event's footprint threshold cannot be applied to a center distance.
+                                    operator, value = 'measured', None
                             elif spatial:
                                 _, operator, value, unit = spatial
                             else:
@@ -764,6 +778,19 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                           isinstance(read[eid].value,dict) and read[eid].value.get('event_id') in event_ids]
                             if not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|near miss)\b',body.q,re.I):
                                 event_eids = []
+                            def assess_distance(ev):
+                                if mismatched_clearance:
+                                    # Keep the user's comparison, but do not judge clearance with a center measurement.
+                                    predicates[0].status, predicates[0].eids = 'unknown', []
+                                    center = next((p for p in predicates if p.operator=='measured'),None)
+                                    if center is None:
+                                        center = Predicate(predicate_id='p'+str(len(predicates)+1),subject_refs=subjects,
+                                                           operator='measured',value=None,unit='m',status='supported',eids=[])
+                                        predicates.append(center)
+                                    center.eids = [ev.eid]
+                                else:
+                                    predicates[0].status=distance_status(ev,operator,predicates[0].value)
+                                    predicates[0].eids=[ev.eid] if near_miss_center else [ev.eid,*event_eids]
                             measure_result = None
                             with trace.traced(run,'assess',{'scene_key':key,'t_ms':tm,'cam':cam},state='inspect') as t:
                                 yield step_frame(t,'inspect','Inspect the primary camera and spatial evidence')
@@ -841,8 +868,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                     predicates[0].eids=event_eids
                                 if measure_result and measure_result.evidence:
                                     ev = measure_result.evidence[0]
-                                    predicates[0].status=distance_status(ev,operator,predicates[0].value)
-                                    predicates[0].eids=[ev.eid,*event_eids]
+                                    assess_distance(ev)
                                 if 'action_modifier:moving' in parsed.constraints:
                                     moving_vehicle = moving_target(body.q,subjects,vehicle)
                                     if moving_vehicle:
@@ -884,8 +910,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                                      lambda:tools.measure(store,key,tm,person,vehicle,'distance',cam=cam))
                                     if measure_result.evidence:
                                         ev = measure_result.evidence[0]
-                                        predicates[0].status=distance_status(ev,operator,predicates[0].value)
-                                        predicates[0].eids=[ev.eid,*event_eids]
+                                        assess_distance(ev)
                                     if measure_result.envelope.output.get('reason') in ABSTAIN_TEXT:
                                         reason = measure_result.envelope.output['reason']
                                         explain['abstain'] = {'reason':reason,'text':ABSTAIN_TEXT[reason]}
@@ -1081,6 +1106,27 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         clause+=(', ' if clause else 'The '+who+' was ')+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m) from the '+whom
                     if clause:
                         text=clause+'.' if final=='SUPPORTED' else text+' '+clause+'.'
+            if workspace=='warehouse' and 'near miss' in body.q.lower() and group:
+                center = next((e for e in evidence.values() if e.kind=='measure' and e.method=='ground_distance'),None)
+                independent = next((e for e in evidence.values() if e.kind=='measure' and e.method.startswith('event_')
+                                    and isinstance(e.value,dict) and e.value.get('type')=='near_miss'),None)
+                refs, cites, values = [], [], []
+                if final=='SUPPORTED' and independent:
+                    text='An independently recorded near-miss event started at '+ref(independent,'value.t_s',independent.value['t_s'])+' s.'
+                elif final=='UNRESOLVED':
+                    text=('The requested near-miss distance comparison is unresolved: center distance does not measure footprint clearance.'
+                          if re.search(r'(\d+(?:\.\d+)?)\s*(?:m\b|meters?\b)',body.q,re.I)
+                          else 'The near-miss question remains unresolved; a center distance alone does not establish an independent near-miss event.')
+                else:
+                    text=TEXT[final]
+                if independent and independent.eid not in cites:
+                    cites.append(independent.eid)
+                if center:
+                    text+=' Separately measured distance from the worker ground point to the forklift center: '+ref(center,'value',center.value)+' m (±'+ref(center,'sigma',center.sigma)+' m).'
+                text+=' Center distance is not footprint clearance; footprint clearance was not measured in this run.'
+            if workspace=='warehouse' and final=='UNRESOLVED' and re.search(r'\b(footprint|clearance|edge)\b',body.q,re.I):
+                text='The requested footprint clearance was not measured. Forklift-center distance is a different quantity and cannot verify this condition.'
+                refs, cites, values = [], [], []
             cites=list(dict.fromkeys(cites))
             parts = re.split(r'(\{\{[mn]\d+\}\})',text)
             text=''.join(p if re.fullmatch(r'\{\{[mn]\d+\}\}',p) else llm.sanitize_numbers(p,[]) for p in parts)
