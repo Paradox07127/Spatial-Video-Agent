@@ -91,8 +91,8 @@ class Investigations:
         for turn in turns:
             job = self.job(turn['job_id'])
             turn.update(status=job['status'], attempt=job['attempt'], last_seq=job['last_seq'])
-            frames = self.rows('investigation_events', 'WHERE job_id=? AND attempt=? ORDER BY seq',
-                               [job['job_id'], job['attempt']])
+            frames = self.rows('investigation_events', 'WHERE job_id=? AND attempt=? AND seq>=? ORDER BY seq',
+                               [job['job_id'], job['attempt'],job['current_attempt_start_seq']])
             turn['answers'] = [r['frame_json']['data'] for r in frames if r['frame_json']['event'] == 'answer']
             turn['observations'] = [r['observation_json'] for r in self.rows('investigation_observations',
                                     'WHERE turn_id=? AND run_id=? ORDER BY created,observation_id', [turn['turn_id'],job['run_id']])]
@@ -191,6 +191,11 @@ class Investigations:
                 db.execute('UPDATE investigation_jobs SET status=?,spent_ms=?,lease_started=NULL,updated=? WHERE job_id=?',
                            [status, charged, stamp(), job['job_id']])
                 db.execute('UPDATE investigation_turns SET status=? WHERE turn_id=?', [status, job['turn_id']])
+                if status == 'queued':
+                    # Retired partial output is audit history, not the restored
+                    # turn's current projection while it waits for a new lease.
+                    db.execute('UPDATE investigation_jobs SET run_id=NULL,current_attempt_start_seq=last_seq+1 WHERE job_id=?', [job['job_id']])
+                    db.execute('UPDATE investigation_turns SET run_id=NULL,final=NULL WHERE turn_id=?', [job['turn_id']])
                 self.mirror('investigation_jobs', job['job_id'])
                 self.mirror('investigation_turns', job['turn_id'])
         self.thread = Thread(target=self.work, name='investigations', daemon=True)
@@ -316,13 +321,15 @@ class Investigations:
         self.job(jid)
         cursor = after_seq
         while not self.closing.is_set():
-            rows = self.rows('investigation_events', 'WHERE job_id=? AND seq>? ORDER BY seq LIMIT 256', [jid, cursor])
+            current = self.job(jid)
+            rows = self.rows('investigation_events', 'WHERE job_id=? AND seq>? AND seq>=? ORDER BY seq LIMIT 256',
+                             [jid, cursor,current['current_attempt_start_seq']])
             for row in rows:
                 cursor = row['seq']
                 frame = row['frame_json']
                 yield f"id: {cursor}\nevent: {frame['event']}\ndata: {encode(frame['data'])}\n\n"
             job = self.job(jid)
-            if job['status'] in TERMINAL and cursor >= job['last_seq']:
+            if job['status'] in TERMINAL and max(cursor,job['current_attempt_start_seq']-1) >= job['last_seq']:
                 return
             with self.changed:
                 self.changed.wait(timeout=1)
