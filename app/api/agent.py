@@ -139,6 +139,13 @@ def abstained(claim):
     return bool((claim.explain or {}).get('abstain'))
 
 
+def quantity_name(predicate):
+    if predicate.operator=='measured' and predicate.unit=='m':
+        return 'distance'
+    return {'located':'position','measured_speed':'speed','present_in_blind_zone':'sampled blind-zone presence'}.get(
+        predicate.operator,predicate.operator.replace('_',' '))
+
+
 def distance_status(ev, operator, value):
     if ev is None:
         return 'unknown'
@@ -619,7 +626,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if t0 >= t1:
                             continue
                         with trace.traced(run,'assess',{'scene_key':key,'cam':blind_cam,'t0_ms':t0,'t1_ms':t1},state='inspect') as t:
-                            yield step_frame(t,'inspect','Check people in the camera blind spot frame by frame')
+                            yield step_frame(t,'inspect','Check sampled person ground points against the camera floor visibility grid')
                             res = yield from call(t,'blind_presence','inspect',{'scene_key':key,'cam':blind_cam,'t0_ms':t0,'t1_ms':t1},
                                                   lambda:tools.blind_presence(store,key,blind_cam,t0,t1,**({'selection':selection} if selection else {}),**({'zone':parsed.zone} if parsed.zone else {})))
                             intervals = res.envelope.output['intervals']
@@ -629,7 +636,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                                                     operator='present_in_blind_zone',value=blind_cam,unit=None,status=status,
                                                     eids=[e.eid for e in res.evidence])]
                             t.output({'predicates':[p.model_dump(mode='json') for p in predicates]})
-                        checked.append((key,intervals,persons,predicates))
+                        checked.append((key,intervals,persons,predicates,res.envelope.coverage))
                         cams = {c['id']:c for c in scene['cams']}
                         for interval, ev in zip(intervals,res.evidence):
                             primary = (interval['seen_by'] or [blind_cam])[0]
@@ -644,12 +651,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     exhausted = True
                 if cards:
                     yield hits(cards[:5],special=True)
-                for scene_index, (key, intervals, persons, predicates) in enumerate(checked):
+                for scene_index, (key, intervals, persons, predicates, coverage) in enumerate(checked):
                     claim_id='c'+str(scene_index+1)
                     if intervals:
                         yield from ui('seek',{'t_ms':intervals[0]['t0_ms'],'scene_key':key},key)
                         yield from ui('highlight',{'ids':persons,'mode':'outline'},key)
-                    yield claim_frame(predicates,key=key)
+                    yield claim_frame(predicates,explain={'note':'Only '+('selected' if selection else 'known')+' people at checked pose sample times were tested against the floor visibility grid. '+('Sampling coverage is incomplete. ' if coverage!=1 else '')+'Unobserved people and times between samples were not verified.',
+                                                          'not_measured':['unobserved people','times between samples']},key=key)
                 # one scene with nobody in the blind zone must not veto another scene's finding
                 aggregates = [c.aggregate for c in claims]
                 final = 'SUPPORTED' if 'SUPPORTED' in aggregates else 'CONTRADICTED' if aggregates and all(a=='CONTRADICTED' for a in aggregates) and not exhausted else 'UNRESOLVED'
@@ -737,7 +745,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         yield from ui('seek',{'t_ms':found['t_ms'],'scene_key':found['scene_key']},found['scene_key'])
                     if found['building']:
                         yield from ui('highlight',{'ids':[found['building']['bid']],'mode':'outline'},found['scene_key'])
-                    yield claim_frame(predicates,key=found.get('scene_key') or asked[0]['trip_id'],
+                    yield claim_frame(predicates,explain={'not_measured':['camera-visible building name or sign']},key=found.get('scene_key') or asked[0]['trip_id'],
                                       moment=f"m_{found['scene_key']}_{found['t_ms']}" if found['building'] else None)
                     final = aggregate_of(predicates)
                     stop_reason = 'enough_evidence' if final=='SUPPORTED' else 'no_new_info'
@@ -1141,21 +1149,23 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             cites=list(dict.fromkeys(e for p in parts for e in p['cites'])),measure_refs=[r for p in parts for r in p['measure_refs']])
             evidence = {eid:evidence[eid] for c in group for p in c.predicates for eid in p.eids if eid in evidence}
             text = TEXT[final]
+            if final=='UNSUPPORTED' and not re.search(llm.FORBIDDEN,body.q,re.I):
+                text='This question could not be mapped to a supported investigation template.'
             abstain = next((c.explain['abstain']['text'] for c in group if abstained(c)),None)
             if final=='UNRESOLVED' and abstain:
                 text=abstain
-            missing = list(dict.fromkeys(p.operator for c in group for p in c.predicates if p.status=='unknown'))
+            missing = list(dict.fromkeys(quantity_name(p) for c in group for p in c.predicates if p.status=='unknown'))
             if final=='UNRESOLVED' and missing and not abstain:
                 text='Not measured: '+', '.join(missing).replace('_',' ')+'. The full question remains unresolved.'
             if final=='UNRESOLVED' and (any(p.operator in {'measured_speed','located'} for c in group for p in c.predicates) or direct_pair_distance):
                 notes=[c.explain.get('note') for c in group if c.explain and c.explain.get('note')]
                 if notes and not any(p.status=='supported' and p.operator in {'measured_speed','located'} for c in group for p in c.predicates):
                     text=' '.join(notes)+' The full question remains unresolved.'
-            refs, cites, values, names = [], [], [], []
-            def ref(e, field, value):
+            refs, cites, values, names, formats = [], [], [], [], []
+            def ref(e, field, value, fmt='.4g'):
                 if e.kind=='model':
                     raise ValueError('Model output cannot create measurement references')
-                refs.append({'eid':e.eid,'field':field}); cites.append(e.eid); values.append(value)
+                refs.append({'eid':e.eid,'field':field}); cites.append(e.eid); values.append(value); formats.append(fmt)
                 return '{{m'+str(len(values)-1)+'}}'
             def name(value):
                 # identifiers such as ceiling_00 or P1 bypass the number sanitizer
@@ -1188,23 +1198,34 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             direct_numeric=any(p.operator in {'measured_speed','located'} and any(
                 eid in evidence and evidence[eid].method in {'track_speed','ground_position'} for eid in p.eids) for p in predicates)
             unresolved_text=text
+            independent_distance=next((evidence[eid] for p in predicates if p.status=='supported' and p.operator=='measured'
+                                       for eid in p.eids if eid in evidence and evidence[eid].kind=='measure' and evidence[eid].method=='ground_distance'),None)
             if final in {'SUPPORTED','CONTRADICTED'} or direct_numeric:
                 cites=list(dict.fromkeys(eid for c in group for p in c.predicates for eid in p.eids))
                 blind=next((p for p in predicates if p.operator=='present_in_blind_zone'),None)
                 facade=next((p for p in predicates if p.operator=='facade'),None)
                 speed = next((e for e in evidence.values() if e.method=='obd_speed'),None)
                 if facade:
-                    text='The building '+SIDES[building['side']]+' at '+name(parsed.place)+' is '+name(facade.value)+'.'
+                    mapped=next((e for e in evidence.values() if e.method=='osm_facade'),None)
+                    poi_label=next((p.get('name') for p in mapped.value.get('pois',[])),None) if mapped else None
+                    label_source=('building name' if mapped and mapped.value.get('name') else 'POI label' if poi_label else 'address' if mapped and mapped.value.get('addr') else 'OSM identifier')
+                    text='The mapped facade '+SIDES[building['side']]+' at '+name(parsed.place)+' has '+label_source+' '+name(facade.value)+'. This map association does not verify the camera-visible building name or sign.'
                 elif blind:
                     found=sorted((evidence[e] for p in predicates if p.operator=='present_in_blind_zone' for e in p.eids),
                                  key=lambda e:(e.t0_ms,e.value['entity_id']))
                     if found:
-                        text='People are present in the '+name(blind.value)+' blind spot: '+'; '.join(
+                        text='Sampled ground points of '+('selected people' if selection else 'known people')+' fall in the floor blind cells of '+name(blind.value)+': '+'; '.join(
                             'the '+noun('person',workspace)+' '+name(e.value['entity_id'])+' at '+ref(e,'value.t0_s',e.value['t0_s'])+'–'
-                            +ref(e,'value.t1_s',e.value['t1_s'])+' s ('+('visible to '+name(', '.join(e.value['seen_by'])) if e.value['seen_by'] else 'not visible to any other camera')+')'
+                            +ref(e,'value.t1_s',e.value['t1_s'])+' s (floor cells '+('visible to '+name(', '.join(e.value['seen_by'])) if e.value['seen_by'] else 'not visible to any other camera')+')'
                             for e in found)+'.'
                     else:
-                        text='Checked frame by frame: nobody is present in the '+name(blind.value)+' blind spot.'
+                        text='No blind-zone presence was found among '+('selected people' if selection else 'known people')+' at checked ground-point sample times in the '+name(blind.value)+' floor visibility grid.'
+                elif any(e.method=='gps_position' for e in evidence.values()) and any(p.operator=='located' for p in predicates):
+                    gps=next(e for e in evidence.values() if e.method=='gps_position')
+                    text=('The recording vehicle GPS position was latitude '+ref(gps,'value.lat',gps.value['lat'],'.6f')+
+                          '°, longitude '+ref(gps,'value.lon',gps.value['lon'],'.6f')+'° at GPS sample time '+
+                          ref(gps,'value.t_ms',gps.value['t_ms']/1000)+' s ('+name(gps.value['state'])+
+                          '; uncertainty unavailable). Camera observations were not checked.')
                 elif any(e.method in {'ground_position','track_speed'} for e in evidence.values()) and any(p.operator in {'located','measured_speed'} for p in predicates):
                     position=next((e for e in evidence.values() if e.method=='ground_position'),None)
                     speed=next((e for e in evidence.values() if e.method=='track_speed'),None)
@@ -1247,8 +1268,19 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         clause='The '+who+' '+verb.replace('{other}','the '+whom)+' at '+at+' s' if verb else 'The event started at '+at+' s in the scene'
                     if ev:
                         clause+=(', ' if clause else 'The '+who+' was ')+ref(ev,'value',ev.value)+' m (±'+ref(ev,'sigma',ev.sigma)+' m) from the '+whom
+                    if ev and when and not event:
+                        clause+=' at sampled time '+ref(ev,'t0_ms',ev.t0_ms/1000)+' s'
                     if clause:
                         text=clause+'.' if final=='SUPPORTED' else text+' '+clause+'.'
+            if final=='UNRESOLVED' and independent_distance and not direct_numeric and not any((c.explain or {}).get('conflict') for c in group):
+                quantity=('distance from the worker ground point to the forklift center' if workspace=='warehouse' else 'ground distance between the requested entities')
+                text+=' Independently measured '+quantity+': '+ref(independent_distance,'value',independent_distance.value)+' m (±'+ref(independent_distance,'sigma',independent_distance.sigma)+' m) at '+ref(independent_distance,'t0_ms',independent_distance.t0_ms/1000)+' s.'
+            if any(p.operator=='present_in_blind_zone' for p in predicates):
+                if final=='UNRESOLVED':
+                    text+=' Ground-point samples of '+('selected people' if selection else 'known people')+' were checked against the requested floor visibility grid.'
+                    if any('Sampling coverage is incomplete.' in (c.explain or {}).get('note','') for c in group):
+                        text+=' Sampling coverage is incomplete.'
+                text+=' Unobserved people and times between samples were not verified.'
             if final=='UNRESOLVED' and any((c.explain or {}).get('conflict') for c in group):
                 numeric = next((evidence[eid] for c in group for p in c.predicates if p.status=='supported'
                                 for eid in p.eids if eid in evidence and evidence[eid].kind=='measure'
@@ -1261,7 +1293,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 center = next((e for e in evidence.values() if e.kind=='measure' and e.method=='ground_distance'),None)
                 independent = next((e for e in evidence.values() if e.kind=='measure' and e.method.startswith('event_')
                                     and isinstance(e.value,dict) and e.value.get('type')=='near_miss'),None)
-                refs, cites, values = [], [], []
+                refs, cites, values, formats = [], [], [], []
                 if final=='SUPPORTED' and independent:
                     text='An independently recorded near-miss event started at '+ref(independent,'value.t_s',independent.value['t_s'])+' s.'
                 elif final=='UNRESOLVED' and any((c.explain or {}).get('conflict') for c in group):
@@ -1279,12 +1311,12 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 text+=' Center distance is not footprint clearance; footprint clearance was not measured in this run.'
             if workspace=='warehouse' and final=='UNRESOLVED' and re.search(r'\b(footprint|clearance|edge)\b',body.q,re.I):
                 text='The requested footprint clearance was not measured. Forklift-center distance is a different quantity and cannot verify this condition.'
-                refs, cites, values = [], [], []
+                refs, cites, values, formats = [], [], [], []
             cites=list(dict.fromkeys(cites))
             parts = re.split(r'(\{\{[mn]\d+\}\})',text)
             text=''.join(p if re.fullmatch(r'\{\{[mn]\d+\}\}',p) else llm.sanitize_numbers(p,[]) for p in parts)
             for i,value in enumerate(values):
-                text=text.replace('{{m'+str(i)+'}}',format(value,'.4g'))
+                text=text.replace('{{m'+str(i)+'}}',format(value,formats[i]))
             for i,value in enumerate(names):
                 text=text.replace('{{n'+str(i)+'}}',value)
             return dict(text=text,claim_ids=[c.claim_id for c in group],cites=cites,measure_refs=refs)
@@ -1328,7 +1360,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             else:
                 text = 'The street camera frames read do not show '+what+' together; a missed 2D detection does not rule this out.'
             abstain = next((c.explain['abstain']['text'] for c in cards if abstained(c)),None)
-            missing = list(dict.fromkeys(p.operator for c in cards for p in c.predicates if p.status=='unknown' and p.operator!='detected'))
+            missing = list(dict.fromkeys(quantity_name(p) for c in cards for p in c.predicates if p.status=='unknown' and p.operator!='detected'))
             if missing:
                 text += ' Not measured: '+', '.join(missing).replace('_',' ')+'. The full question remains unresolved.'
             return dict(text=text+(' '+abstain if abstain else ''),claim_ids=[c.claim_id for c in cards],
@@ -1353,7 +1385,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             yield step_frame(t,'answer','Generate an answer from the evidence read')
             if corpus and claims:
                 # an overall sentence, then one per level group
-                answers = [dict(text=TEXT[final],claim_ids=[c.claim_id for c in claims],cites=[],measure_refs=[],evidence_level=None),
+                overall=('At least one checked source supports the question; other sources may remain unresolved.' if final=='SUPPORTED'
+                         else 'The checked sources leave the full question unresolved.' if final=='UNRESOLVED' else TEXT[final])
+                answers = [dict(text=overall,claim_ids=[c.claim_id for c in claims],cites=[],measure_refs=[],evidence_level=None),
                            *(level_sentence(lv,[c for c in claims if c.evidence_level==lv]) for lv in LEVELS
                              if any(c.evidence_level==lv for c in claims))]
             elif corpus:

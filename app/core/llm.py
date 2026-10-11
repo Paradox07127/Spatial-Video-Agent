@@ -19,7 +19,7 @@ def rule_parse(q: str, ctx: dict) -> Query:
         template = 'unsupported'
     elif re.search(r'\b(link|same person|same one|before.*after|enter before|entered before|prior to|related)\b', text):
         template = 'link'
-    elif re.search(r'\b(what happened|describe|explain)\b', text):
+    elif re.search(r'\b(what happened|describe|explain|summari[sz]e)\b', text):
         template = 'what_happened'
     elif re.search(r'\b(find|show|list)\b', text):
         template = 'find'
@@ -97,6 +97,8 @@ def rule_parse(q: str, ctx: dict) -> Query:
                   else 'none' if re.search(r'\b(?:(?:no|neither)\s+'+subjects+r'|none|nobody|no one)\b',text) else 'any')
     if quantifier != 'any':
         constraints.append('exhaustive_coverage')
+    if re.search(r'\bpass(?:es|ed|ing)?\s+close\s+to\b',text):
+        constraints.append('passing')
     for modifier in re.findall(r'\b(moving|running|riding|carrying)\b',text):
         constraints.append('action_modifier:'+modifier)
     if re.search(r'\bhow many\s+(?:people|persons?|workers?|pedestrians?|vehicles?|cars?|forklifts?)\b', text):
