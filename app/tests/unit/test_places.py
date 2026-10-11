@@ -73,7 +73,10 @@ def test_place_pass_bounds_the_evidence_not_only_the_clips(store, monkeypatch):
     monkeypatch.setattr(store, 'events_in', events_in)
     _, r = retrieve(store, SearchRequest(q=ROM_Q, workspace='fleet'))
     assert r.envelope.output['moments']==[]
-    assert ask(store, ROM_Q)[-2]['data']['final']=='NO_MATCH'
+    frames=ask(store,ROM_Q)
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert any(p['operator']=='requested_action:crossing' and p['status']=='unknown'
+               for f in frames if f['event']=='claim' for p in f['data']['predicates'])
 
 
 def test_place_moments_lie_inside_the_pass(store):
@@ -104,9 +107,11 @@ def test_no_hit_answer_states_the_checked_video(store, monkeypatch):
     original = store.events_in
     monkeypatch.setattr(store, 'events_in', lambda *a: [e for e in original(*a) if e.type!='ped_crossing'])
     frames = ask(store, ROM_Q)
-    assert frames[-2]['data']['final']=='NO_MATCH'
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert any(p['operator']=='requested_action:crossing' and p['status']=='unknown'
+               for f in frames if f['event']=='claim' for p in f['data']['predicates'])
     answer = answer_of(frames)
-    assert answer['text']=='Checked 1 video(s) passing ROM (fl-pie-fixture-01, 0–4.5 s); no evidence that the pedestrian crossed in front of the car.', answer['text']
+    assert answer['text']=='Checked 1 video(s) passing ROM (fl-pie-fixture-01, 0–4.5 s); no evidence that the pedestrian crossed in front of the car. The requested event remains unresolved; this search does not verify absence.', answer['text']
     read = {e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data']['evidence']}
     assert [(read[r['eid']]['method'],r['field']) for r in answer['measure_refs']]==[
         ('searched_passes','value.count'),('gps_pass','value.t0_s'),('gps_pass','value.t1_s')]
@@ -125,9 +130,11 @@ def test_no_hit_answer_states_the_searched_intervals(store, monkeypatch, q, pass
     if passes:
         monkeypatch.setattr(geo, 'find_passes', lambda *a: [dict(p) for p in passes])
     frames = ask(store, q)
-    assert frames[-2]['data']['final']=='NO_MATCH'
+    assert frames[-2]['data']['final']=='UNRESOLVED'
+    assert any(p['operator']=='requested_action:crossing' and p['status']=='unknown'
+               for f in frames if f['event']=='claim' for p in f['data']['predicates'])
     answer = answer_of(frames)
-    assert answer['text']==f'Checked 1 video(s) passing ROM (fl-pie-fixture-01, {interval}); no evidence that the pedestrian crossed in front of the car.', answer['text']
+    assert answer['text']==f'Checked 1 video(s) passing ROM (fl-pie-fixture-01, {interval}); no evidence that the pedestrian crossed in front of the car. The requested event remains unresolved; this search does not verify absence.', answer['text']
     read = {e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data']['evidence']}
     cited = [read[e] for e in answer['cites'] if read[e]['method']=='gps_pass']
     assert [f"{e['value']['t0_s']:g}–{e['value']['t1_s']:g} s" for e in cited]==[interval]

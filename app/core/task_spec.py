@@ -74,3 +74,20 @@ def build_task_spec(q):
     for label,pattern in [('dodge',r'\bdodg\w*\b|\byield\w*\b|\bgive way\b|\bstep back\b'),('crossing',r'\bcross\w*\b'),('braking',r'\bbrak\w*\b')]:
         for m in re.finditer(pattern,q,re.I): requirements.append(Requirement('action:'+label,q[m.start():m.end()],m.start(),m.end()))
     return TaskSpec(q,tuple(requirements),tuple(ranges),tuple(time_spans))
+
+
+def consume_verified_place_prefix(q, place, constraints):
+    """Consume a leading `place:` span only after the caller geocoded it."""
+    prefix=re.match(r'\s*([^:?,]+)\s*:',q)
+    if not prefix:
+        return constraints
+    def normalized(value):
+        value=re.sub(r'\s+(?:junction|intersection)\s*$','',value.strip(),flags=re.I)
+        return re.sub(r'\s*(?:&|/|\band\b)\s*',' & ',value,flags=re.I).casefold()
+    if normalized(prefix[1])!=normalized(place):
+        return constraints
+    requirements=[r for r in build_task_spec(q).requirements if r.kind=='unconsumed']
+    consumed={r.span.casefold() for r in requirements if r.end<=prefix.end()}
+    elsewhere={r.span.casefold() for r in requirements if r.end>prefix.end()}
+    return [c for c in constraints if not (c.startswith('unconsumed:') and
+            c.split(':',1)[1].casefold() in consumed-elsewhere)]

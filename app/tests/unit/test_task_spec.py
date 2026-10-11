@@ -95,3 +95,10 @@ def test_source_universe_grammar_never_widens_a_scene_scope(q,scope,expected):
     parsed=rule_parse(q,{'workspace':'warehouse','scope':scope})
     assert ('unconsumed:site' in parsed.constraints)==expected
     assert not {'unconsumed:me','unconsumed:any'}&set(parsed.constraints)
+
+
+def test_verified_place_prefix_does_not_consume_matching_words_elsewhere():
+    from app.core.task_spec import consume_verified_place_prefix
+    assert consume_verified_place_prefix('ROM: did any pedestrian cross?','ROM',['unconsumed:ROM','requested_action:crossing'])==['requested_action:crossing']
+    assert consume_verified_place_prefix('ROM: describe the ROM sign','ROM',['unconsumed:ROM','unconsumed:sign'])==['unconsumed:ROM','unconsumed:sign']
+    assert consume_verified_place_prefix('Unknown: did any pedestrian cross?','ROM',['unconsumed:Unknown'])==['unconsumed:Unknown']

@@ -953,6 +953,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         if place.envelope.output is None:
                             final,stop_reason = 'OUT_OF_RANGE','abstained'
                         else:
+                            from app.core.task_spec import consume_verified_place_prefix
+                            parsed=parsed.model_copy(update={'constraints':consume_verified_place_prefix(body.q,parsed.place,parsed.constraints)})
                             passes = yield from call(t,'find_passes','retrieve',{'place_id':place.envelope.output['place_id'],'r_m':geo.NEAR_M,'fov_deg':360},
                                                      lambda:tools.find_passes(store,place.envelope.output['place_id'],geo.NEAR_M,360))
                             if not passes.envelope.output:
@@ -1384,13 +1386,15 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                       else 'The trips passing '+name(parsed.place)+' have no video, so buildings on either side cannot be viewed.')
             if final=='UNRESOLVED' and closest and closest['missing']:
                 text='No '+' and '.join(noun(k,'warehouse') for k in closest['missing'])+' tracks are available in the selected range, so the closest distance between the worker and forklift cannot be measured.'
-            if final=='NO_MATCH' and covered:
+            if final in {'NO_MATCH','UNRESOLVED'} and covered:
                 kind=next(iter(event_types(body.q) or ()),None)
                 what='the '+noun('person',workspace)+' '+VERBS[kind].replace('{other}','the '+noun('vehicle',workspace)) if kind in VERBS else 'a matching event occurred'
                 count,*intervals=covered
                 text=('Checked '+ref(count,'value.count',count.value['count'])+' video(s) passing '+name(parsed.place)+' ('+'; '.join(
                     name(trip_name(e.scene_key))+', '+ref(e,'value.t0_s',e.value['t0_s'])+'–'+ref(e,'value.t1_s',e.value['t1_s'])+' s'
                     for e in intervals)+'); no evidence that '+what+'.')
+                if final=='UNRESOLVED':
+                    text+=' The requested event remains unresolved; this search does not verify absence.'
             predicates=[p for c in group for p in c.predicates]
             direct_numeric=any(p.operator in {'measured_speed','located'} and any(
                 eid in evidence and evidence[eid].method in {'track_speed','ground_position'} for eid in p.eids) for p in predicates)
