@@ -173,8 +173,26 @@ def test_b1_intent_and_identity_are_unsupported(monkeypatch, q):
 
 
 @pytest.mark.parametrize('time_text', ['at 5 s', 'at 5 seconds', 'at second 5', 'at 5.25 seconds'])
-def test_b1_point_time_overrides_context_interval(time_text):
+def test_b1_point_time_intersects_context_interval_without_widening(time_text):
     start = 5250 if '5.25' in time_text else 5000
     parsed = llm.rule_parse('How far was the worker from the forklift '+time_text+'?',
                             {'workspace':'warehouse','t_range':[0,10000]})
-    assert parsed.t_range==(start,start+1000)
+    assert parsed.t_range==(start,start+1)
+    from app.core.investigation_context import apply_constraints
+    constrained,reason=apply_constraints(
+        'How far was the worker from the forklift '+time_text+'?',
+        {'workspace':'warehouse','t_range':[0,10000]},parsed)
+    assert constrained.t_range==(start,start+1) and reason is None
+
+
+@pytest.mark.parametrize('context',[
+    {'workspace':'warehouse','t_range':[6000,7000]},
+    {'workspace':'warehouse','t_range':[0,10000],'t_ms':5001},
+])
+def test_point_time_never_overrides_conflicting_context(context):
+    from app.core.investigation_context import apply_constraints
+    question='How far was the worker from the forklift at second 5?'
+    parsed=llm.rule_parse(question,context)
+    constrained,reason=apply_constraints(question,context,parsed)
+    assert reason=='conflicting_time_constraints'
+    assert constrained.t_range[0]>=constrained.t_range[1]
