@@ -109,3 +109,31 @@ def test_conflicting_hard_camera_is_unresolved_before_model(store,monkeypatch):
         context={'workspace':'warehouse','scene_key':'wh-sdg-fixture-01','cam_id':'ceiling_00'})))
     assert next(f['data']['final'] for f in frames if f['event']=='status')=='UNRESOLVED'
     assert not any(f['event']=='observation' for f in frames)
+
+
+@pytest.mark.parametrize('source',['wh-sdg-fixture-02','wh-sdg-does-not-exist'])
+def test_explicit_source_cannot_describe_different_active_scene(store,monkeypatch,source):
+    monkeypatch.setattr(vlm,'observe_window',lambda *a,**k:(_ for _ in ()).throw(AssertionError('Conflicting source must not reach model')),raising=False)
+    frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe '+source,protocol_version=2,
+        context={'workspace':'warehouse','scene_key':'wh-sdg-fixture-01'})))
+    assert next(f['data']['final'] for f in frames if f['event']=='status')=='UNRESOLVED'
+    assert not any(f['event']=='observation' for f in frames)
+
+
+def test_explicit_source_names_bind_unscoped_visual_observations(store,monkeypatch):
+    calls=[]
+    def observed(*args,**kwargs):
+        calls.append(args);return receipt(*args,**kwargs)
+    monkeypatch.setattr(vlm,'observe_window',observed,raising=False)
+    frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe wh-sdg-fixture-01',protocol_version=2,
+        context={'workspace':'warehouse'})))
+    assert calls[0][0]=='wh-sdg-fixture-01'
+    assert any(f['event']=='observation' for f in frames)
+
+
+def test_unknown_text_camera_cannot_fall_back_to_default_camera(store,monkeypatch):
+    monkeypatch.setattr(vlm,'observe_window',lambda *a,**k:(_ for _ in ()).throw(AssertionError('Unknown camera must not reach model')),raising=False)
+    frames=list(agent.ask_frames(store,agent.AskRequest(q='Describe P1 in eye_98',protocol_version=2,
+        context={'workspace':'warehouse','scene_key':'wh-sdg-fixture-01'})))
+    assert next(f['data']['final'] for f in frames if f['event']=='status')=='UNRESOLVED'
+    assert not any(f['event']=='observation' for f in frames)

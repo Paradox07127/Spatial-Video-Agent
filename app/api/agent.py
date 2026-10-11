@@ -467,11 +467,31 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     child.exec_state('live')
                     t.exec_state('live')
                     child.output(parsed.model_dump(mode='json'))
+            named_sources=set(re.findall(r'(?<![A-Za-z0-9_])(?:wh|fl|st)-[a-z0-9_]+(?:-[a-z0-9_]+)*(?![A-Za-z0-9_])',body.q.lower()))
+            source_reason=None
+            if named_sources:
+                if len(named_sources)!=1 or parsed.scene_key and named_sources!={parsed.scene_key}:
+                    source_reason='conflicting_source_constraints'
+                else:
+                    named_key=next(iter(named_sources))
+                    try:
+                        named_manifest=store.manifest(named_key)
+                    except FileNotFoundError:
+                        source_reason='unknown_source_constraint'
+                    else:
+                        if named_manifest['workspace']!=parsed.workspace:
+                            source_reason='conflicting_workspace_constraints'
+                        else:
+                            parsed=parsed.model_copy(update={'scene_key':named_key})
             parsed, constraint_reason = apply_constraints(body.q,context,parsed)
+            constraint_reason=constraint_reason or source_reason
             if parsed.scene_key:
                 source=store.manifest(parsed.scene_key)
                 source_cams={c['id'] for c in source['cams']}
                 named_cams={c for c in source_cams if re.search(r'(?<![A-Za-z0-9_])'+re.escape(c)+r'(?![A-Za-z0-9_])',body.q,re.I)}
+                opaque_refs={token.lower() for token in re.findall(r'\b[a-z]+_\d+(?::\d+)?\b',body.q,re.I)}
+                if opaque_refs-{c.lower() for c in source_cams}:
+                    constraint_reason=constraint_reason or 'unknown_reference_constraint'
                 if hard_cam and (hard_cam not in source_cams or named_cams and named_cams!={hard_cam}):
                     constraint_reason='conflicting_camera_constraints'
                 elif not hard_cam and len(named_cams)==1:
