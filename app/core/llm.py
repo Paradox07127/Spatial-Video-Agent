@@ -156,7 +156,9 @@ def complete_json(messages: list[dict], *, role: str, timeout: float = 5) -> dic
     with httpx.Client(timeout=remaining(timeout)) as client:
         response = client.post(url+'/chat/completions', headers=headers,
                                json={'model': model, 'messages': messages, 'temperature': 0,
-                                     'response_format': {'type': 'json_object'}})
+                                     'response_format': {'type': 'json_object'},
+                                     # a reasoning parse model otherwise overruns the parse timeout and search returns nothing
+                                     **({'chat_template_kwargs': {'enable_thinking': False}} if role == 'parse' else {})})
         response.raise_for_status()
     return json.loads(response.json()['choices'][0]['message']['content'])
 

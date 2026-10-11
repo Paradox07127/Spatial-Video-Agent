@@ -22,6 +22,20 @@ def test_complete_json_auth(monkeypatch, env, auth):
     assert seen[0].headers.get('Authorization') == auth
 
 
+def test_parse_requests_skip_reasoning(monkeypatch):
+    monkeypatch.setenv('LLM_URL', 'http://llm/v1')
+    seen = []
+
+    def handler(request):
+        seen.append(__import__('json').loads(request.content))
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{"ok": 1}'}}]})
+    client = httpx.Client
+    monkeypatch.setattr(llm.httpx, 'Client', lambda **kw: client(transport=httpx.MockTransport(handler), **kw))
+    llm.complete_json([{'role': 'user', 'content': 'q'}], role='parse')
+    llm.complete_json([{'role': 'user', 'content': 'q'}], role='answer')
+    assert seen[0]['chat_template_kwargs'] == {'enable_thinking': False} and 'chat_template_kwargs' not in seen[1]
+
+
 ANCHOR = 'Show me every clip, from any camera in any site, where a person is close to a moving vehicle'
 
 
