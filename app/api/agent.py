@@ -509,8 +509,6 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 parsed = parsed.model_copy(update={'place':geo.named_place(store,body.q)})
             parsed_output={**parsed.model_dump(mode='json'),'task_spec':build_task_spec(body.q).as_dict()}
             valid_time=(parsed.t_range is None or 0<=parsed.t_range[0]<parsed.t_range[1])
-            if valid_time and parsed.t_range and parsed.scene_key and parsed.scope=='scene':
-                valid_time=source['t0_ms']<parsed.t_range[1] and parsed.t_range[0]<source['t1_ms']
             if constraint_reason is None and valid_time:
                 explicit_ids=[e for e in parsed.entities if re.fullmatch(r'[PFV]\d+',e)]
                 effective={**context,**{k:parsed_output[k] for k in

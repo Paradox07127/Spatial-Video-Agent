@@ -145,7 +145,7 @@ def test_unknown_text_camera_cannot_fall_back_to_default_camera(store,monkeypatc
     ('How far is P1 from F1 in eye_00 at second 4?',{'t_ms':4000,'t_range':[4000,4001],'selection':['P1','F1'],'cam_id':'eye_00'}),
     ('Describe the scene',{'t_range':None,'selection':None,'cam_id':None}),
     ('How far is P1 from F1 at second 4 after second 7?',None),
-    ('How far is P1 from F1 at second 40?',None),
+    ('How far is P1 from F1 at second 40?',{'t_ms':40000,'t_range':[40000,40001],'selection':['P1','F1'],'cam_id':None}),
 ])
 def test_parse_receipt_retains_only_valid_effective_question_context(store,q,expected):
     frames=list(agent.ask_frames(store,agent.AskRequest(q=q,context={
@@ -160,4 +160,7 @@ def test_parse_receipt_retains_only_valid_effective_question_context(store,q,exp
         assert all(receipt.get(k)==v for k,v in expected.items())
         if receipt['t_range'] is None:
             assert receipt.get('t_ms') is None
+        if receipt.get('t_ms')==40000:
+            assert next(f['data']['final'] for f in frames if f['event']=='status')=='OUT_OF_RANGE'
+            assert not any(f['event']=='tool_call' for f in frames)
     assert check_sse_sequence(frames)==[]
