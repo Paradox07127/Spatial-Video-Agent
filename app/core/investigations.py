@@ -106,6 +106,9 @@ class Investigations:
     def submit(self, body):
         request = body.model_dump(mode='json')
         submitted = json.loads(encode(request))
+        # Omission inherits, while explicit null clears. model_dump alone loses
+        # that distinction and must not collapse different idempotent requests.
+        submitted['_context_fields'] = sorted(body.context.model_fields_set)
         sid, parent, rid = request['session_id'], request.get('parent_turn_id'), request.get('request_id')
         if not rid or request.get('expected_revision') is None:
             raise HTTPException(422, 'Persistent asks require request_id and expected_revision')

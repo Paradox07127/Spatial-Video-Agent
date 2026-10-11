@@ -65,6 +65,11 @@ def test_idempotency_revision_parent_and_history(store):
     with pytest.raises(HTTPException) as conflict:
         s.submit(first.model_copy(update={'q':'A different request'}))
     assert conflict.value.status_code == 409
+    changed_context = first.model_copy(deep=True)
+    changed_context.context.selection = None
+    with pytest.raises(HTTPException) as conflict:
+        s.submit(changed_context)
+    assert conflict.value.status_code == 409
     with pytest.raises(HTTPException) as conflict:
         s.submit(first.model_copy(update={'request_id':'request-2'}))
     assert conflict.value.status_code == 409
