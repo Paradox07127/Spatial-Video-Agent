@@ -61,8 +61,7 @@
             "items": {
               "enum": [
                 "tri",
-                "ankle",
-                "boxbottom"
+                "ankle"
               ]
             }
           },

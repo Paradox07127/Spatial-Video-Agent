@@ -111,6 +111,15 @@ def test_schema_rejects_extra_and_missing_fields():
     assert sc.schema_errors(ev, "events.json")
 
 
+def test_box_bottom_roots_are_not_publishable():
+    sk = load(f"sva-out/{WH_KEY}/skeleton.json")
+    sk["persons"][next(iter(sk["persons"]))]["root_method"][0] = "boxbottom"
+    assert sc.schema_errors(sk, "skeleton.json")
+    tr = load(f"sva-out/{WH_KEY}/tracks.json")
+    tr["tracks"][0]["source"] = "boxbottom"
+    assert sc.schema_errors(tr, "tracks.json")
+
+
 @pytest.fixture
 def street_copy(tmp_path):
     dst = tmp_path / ST_KEY

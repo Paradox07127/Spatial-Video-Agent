@@ -91,7 +91,6 @@
             "enum": [
               "tri",
               "ankle",
-              "boxbottom",
               "yolo_wedge",
               "gt",
               "fisheye_ground"

@@ -375,7 +375,7 @@ class Event(_M):
 class PersonAtMoment(_M):
     entity_id: str
     root_world: tuple[float, float]
-    root_method: Literal["tri", "ankle", "boxbottom"]
+    root_method: Literal["tri", "ankle"]
     sigma_m: float
     xyz17: list[list[float] | None] | None = None
     seen_by: list[str]      # cameras whose floor cell under the root is visible (geometry)
