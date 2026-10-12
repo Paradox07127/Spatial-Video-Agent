@@ -141,7 +141,7 @@ test('pinhole projection stays finite and remap is identity while fisheye keeps 
 test('Fleet sidecar completion from an old seek epoch cannot redraw the new frame', async () => {
   const fs = require('fs'), path = require('path'), vm = require('vm');
   const src = fs.readFileSync(path.resolve(__dirname,'../../static/fleet/page.js'),'utf8');
-  const code = src.slice(src.indexOf('async function presented('),src.indexOf('function tick(wall)'));
+  const code = src.slice(src.indexOf('async function presented('),src.indexOf('function tick(t)'));
   let release; const deferred = new Promise(r=>release=r), draws=[];
   const cur={trip:{},video:{epoch:3,draw:(f)=>draws.push(f.t_ms),clear:()=>draws.push('clear')}};
   const c={ix:cur,chunk:async(_,kind)=>{await deferred;return kind==='ego'?[{t_ms:1000,peds:[],vehs:[],buildings:[]}]:[];}};

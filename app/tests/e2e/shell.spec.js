@@ -35,7 +35,7 @@ test('#/ and the bare URL show the home page without redirecting; ask, panel and
   await page.goto('#/');
   await expect(page.locator('#home-input')).toBeVisible();
   await expect(page.locator('#home-input')).toHaveAttribute('placeholder', 'Ask about any moment in the footage');
-  await expect(page.locator('.home .preset')).toHaveCount(3);
+  await expect(page.locator('.home-chips .preset')).toHaveCount(3);
   await expect(body(page)).toHaveAttribute('data-view', 'home');
   await expect(page.locator('#ask-form')).toBeHidden();
   await expect(page.locator('#panel')).toBeHidden();
@@ -132,7 +132,7 @@ test('a fleet place chip on home runs against all trips; a typed question search
   const sent = [];
   page.on('request', (r) => r.url().endsWith('/api/agent/ask') && sent.push(r.postDataJSON().context));
   await page.goto('#/');
-  await page.locator('.home .preset[data-ws="fleet"]').click();
+  await page.locator('.home-chips .preset[data-ws="fleet"]').click();
   await expect.poll(() => sent.length).toBe(1);
   await page.locator('#home-input').fill('Near the ROM, did a pedestrian cross in front of the car?');
   await page.keyboard.press('Enter');
