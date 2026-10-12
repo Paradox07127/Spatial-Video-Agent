@@ -7,7 +7,7 @@ import { state } from '../kernel/state.js';
 import { createMediaStatus } from '../kernel/media.js';
 import { source, level } from '../kernel/badges.js';
 
-const WINDOW_MS = 10000, ACTIVITY_MS = 60000;
+const WINDOW_MS = 10000, ACTIVITY_MS = 60000, BAR_PX = 3;
 const MEASURE = '#56B4E9';
 // gen_fixture.py street_clips: a frame's vehicle count is its boxes of these labels.
 const VEHICLES = new Set(['bicycle', 'car', 'motorcycle', 'bus', 'truck']);
@@ -165,33 +165,38 @@ function drawActivity() {
   if (c.width !== W || c.height !== H) Object.assign(c, { width: W, height: H });
   g.clearRect(0, 0, W, H);
   if (!S?.act) return;
-  const { mf, act } = S, css = getComputedStyle(root), dur = mf.t1_ms - mf.t0_ms;
+  const { mf, act } = S, css = getComputedStyle(root), dur = mf.t1_ms - mf.t0_ms, n = act.person.length;
   const peak = Math.max(1, ...act.person.map((n) => n ?? 0), ...act.vehicle.map((n) => n ?? 0));
   const x = (t) => ((t - mf.t0_ms) / dur) * W, y = (n) => H - px - (n / peak) * (H - 6 * px);
   root.querySelector('.st-act-max').textContent = `max ${peak}`;
-  if (state.stageMode === 'evidence' && S.focus) {
+  const answer = state.stageMode === 'evidence';
+  if (answer && S.focus) {
     g.fillStyle = 'rgb(86 180 233 / 0.16)';
     g.fillRect(x(S.focus.t0_ms), 0, Math.max(2 * px, x(S.focus.t1_ms) - x(S.focus.t0_ms)), H);
   }
-  const series = (vals, color, dash) => {
-    g.beginPath();
-    let pen = false;
-    vals.forEach((n, i) => {
-      if (n == null) return (pen = false);
-      const t = mf.t0_ms + i * 1000;
-      if (pen) g.lineTo(x(t), y(n));
-      else g.moveTo(x(t), y(n));
-      g.lineTo(x(Math.min(t + 1000, mf.t1_ms)), y(n));
-      pen = true;
-    });
-    g.setLineDash(dash);
-    g.strokeStyle = color;
-    g.lineWidth = 1.5 * px;
-    g.stroke();
-    g.setLineDash([]);
-  };
-  series(act.vehicle, css.getPropertyValue('--ink-2'), [4 * px, 3 * px]);
-  series(act.person, css.getPropertyValue('--ink'), []);
+  // Per-second lines are noise on a long clip: one bin per BAR_PX of width (at most one per second) holds its seconds' most.
+  const bins = Math.max(1, Math.min(n, Math.floor(c.clientWidth / BAR_PX)));
+  const most = (vals, a, b) => vals.slice(a, b).reduce((m, v) => (v == null ? m : Math.max(m ?? 0, v)), null);
+  S.bins = Array.from({ length: bins }, (_, i) => {
+    const a = Math.floor((i * n) / bins), b = Math.floor(((i + 1) * n) / bins);
+    return { t0_ms: mf.t0_ms + a * 1000, t1_ms: Math.min(mf.t0_ms + b * 1000, mf.t1_ms), person: most(act.person, a, b), vehicle: most(act.vehicle, a, b) };
+  });
+  g.fillStyle = css.getPropertyValue('--ink-2');
+  for (const b of S.bins) {
+    if (b.person != null) g.fillRect(x(b.t0_ms), y(b.person), Math.max(px, x(b.t1_ms) - x(b.t0_ms) - px), H - y(b.person));
+  }
+  g.beginPath();
+  let pen = false;
+  for (const b of S.bins) {
+    if (b.vehicle == null) { pen = false; continue; }
+    const at = (x(b.t0_ms) + x(b.t1_ms)) / 2;
+    if (pen) g.lineTo(at, y(b.vehicle));
+    else g.moveTo(at, y(b.vehicle));
+    pen = true;
+  }
+  g.strokeStyle = css.getPropertyValue('--ink');
+  g.lineWidth = px;
+  g.stroke();
   const cursor = (t, color, dash) => {
     g.beginPath();
     g.setLineDash(dash);
@@ -202,6 +207,15 @@ function drawActivity() {
     g.stroke();
     g.setLineDash([]);
   };
+  if (answer && S.peak != null) {
+    cursor(S.peak, css.getPropertyValue('--src-measure'), []);
+    g.fillStyle = css.getPropertyValue('--src-measure');
+    g.beginPath();
+    g.moveTo(x(S.peak) - 4 * px, 0);
+    g.lineTo(x(S.peak) + 4 * px, 0);
+    g.lineTo(x(S.peak), 6 * px);
+    g.fill();
+  }
   cursor(ctx.clock.t, css.getPropertyValue('--ink-2'), []);
   if (S.hover != null) cursor(S.hover, css.getPropertyValue('--thread'), [3 * px, 3 * px]);
 }
@@ -454,7 +468,9 @@ export async function mount(el, c) {
   const onFocus = (e) => {
     if (!S || e.scene_key !== S.key) return;
     S.focus = e;
-    S.cited = new Set([...Object.keys(e.value?.counts ?? {}), ...(e.value?.classes ?? [])]);
+    // A peak count names its time (yolo_people_peak value.t_s).
+    S.peak = Number.isFinite(e.value?.t_ms) ? e.value.t_ms : Number.isFinite(e.value?.t_s) ? Math.round(e.value.t_s * 1000) : null;
+    S.cited =new Set([...Object.keys(e.value?.counts ?? {}), ...(e.value?.classes ?? [])]);
     if (/people|person|pedestrian|bytetrack|yolo_people/.test(e.method)) S.cited.add('person');
     setSpatial('evidence');
     renderMode();
@@ -514,7 +530,7 @@ async function load(key) {
   root.querySelector('.st-vbox').style.setProperty('--ar', cam.w / cam.h);
   ctx.bus.emit('source:camera',{scene_key:key,cam_id:cam.id});
   const s = S = { key, mf, cam, chunks, cur: -1, presented: null, blind: false, dets: new Map(), moments: [], boxes: 0, rows: [],
-    cited: new Set(), focus: null, boxMode: 'all', tab: 'detections', act: null, hover: null, segments: null };
+    cited: new Set(), focus: null, peak: null, boxMode: 'all', tab: 'detections', act: null, bins: null, hover: null, segments: null };
   setBoxes(state.stageMode === 'evidence' ? 'cited' : 'all');
   fitOverlay();
   renderBands();
@@ -554,5 +570,5 @@ export async function applyUI({ cmd, args }) {
 export function applyModelResults() {}
 export function showMeasure() {}
 
-// e2e hook: the scene shown, the clock, the boxes drawn and the Activity counts.
-export const probe = () => ({ scene_key: S?.key ?? null, t_ms: ctx.clock.t, boxes: S?.boxes ?? 0, activity: S?.act ?? null });
+// e2e hook: the scene shown, the clock, the boxes drawn, the Activity counts, its drawn bins and the cited peak time.
+export const probe = () => ({ scene_key: S?.key ?? null, t_ms: ctx.clock.t, boxes: S?.boxes ?? 0, activity: S?.act ?? null, bins: S?.bins ?? null, peak_ms: S?.peak ?? null });

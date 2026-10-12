@@ -64,7 +64,7 @@ export function mount(root, c) {
     <div class="home" data-view-mode="scenes">
       <header class="home-head">
         <div class="home-brand-wrap">
-          <div class="home-brand"><span class="home-mark mono">SVA</span>Spatial Video Agent</div>
+          <div class="home-brand">Spatial Video Agent</div>
           <span class="home-summary mono muted" id="home-summary">Loading workspaces…</span>
         </div>
         <div class="home-filters seg" role="group" aria-label="Source filter">

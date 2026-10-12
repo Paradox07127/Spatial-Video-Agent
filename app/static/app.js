@@ -218,6 +218,7 @@ async function resetTimeline(sceneKey, ws, generation) {
     : tl?.lanes ?? {};
   if (generation !== navigation) return;
   timeline.clear();
+  timeline.addLane('agent', AGENT_LANE);
   if (sceneKey) {
     clock.bind({ kind: 'scene' });
     clock.setRange(mf.t0_ms, mf.t1_ms);
@@ -227,8 +228,7 @@ async function resetTimeline(sceneKey, ws, generation) {
     }
     timeline.setEvents(tl?.events ?? []);
   }
-  timeline.addLane('agent', AGENT_LANE);
-  timeline.setLaneData('agent', run?.lane ?? []);
+  timeline.setLaneData('agent', agentLane());
 }
 
 async function onRoute() {
@@ -421,7 +421,9 @@ async function activateEvidence(e, after = null, automatic = false) {
   renderModels();
   if (document.body.dataset.run === 'done') { renderTabs(); renderFollowup(); }
   if (automatic) return replayEvidence();
-  const m = run.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms);
+  // On the fleet page applyHits opens and binds the trip, so evidence that no moment covers stands in for one.
+  const m = run.moments.find((m) => m === e || m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms)
+    ?? (pageKind === 'fleet' ? { scene_key: e.scene_key, t0_ms: e.t0_ms, t1_ms: e.t1_ms, evidence_ids: e.eid ? [e.eid] : [] } : null);
   await toPage((p, owns) => m && p.applyHits([m], owns));
   await replayEvidence();
   await toPage(() => {
@@ -575,7 +577,7 @@ const sceneT = () => {
   return replay ? Math.round(replay.source_start_ms + (clock.t - replay.replay_start_ms) * replay.rate) : clock.map(clock.t)?.t_ms ?? clock.t;
 };
 let followContext = { time: true, selection: true, t_range: null, zone: null };
-// The last brushed range in timeline time (t_range is in scene time).
+// The last brushed range: [scene_key, t0_ms, t1_ms] in scene time.
 let brushRange = null;
 const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT(), follow: true });
 
@@ -634,8 +636,8 @@ const handlers = {
     const item = run.items.find((it) => it.call?.call_id === d.call_id);
     if (item) item.result = d;
     const r = d.envelope.input_range;
-    run.lane.push([clock.toWall(r.scene_key ?? evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t0_ms), clock.toWall(r.scene_key ?? evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t1_ms), d.ok ? 'done' : 'failed']);
-    timeline.setLaneData('agent', run.lane);
+    run.lane.push([r.scene_key ?? evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t0_ms, r.t1_ms, d.ok ? 'done' : 'failed']);
+    timeline.setLaneData('agent', agentLane());
   },
   hits(d) {
     if (!d.moments.length) return;
@@ -783,8 +785,12 @@ function finish() {
     if (run !== r || !r.final || r.userExplored || document.body.dataset.run !== 'done') return;
     const primary = r.measureRefs.find((x) => !/_(ms|s)$/.test(x.field) && r.evidence.get(x.eid)?.kind === 'measure') ?? r.measureRefs.find((x) => r.evidence.has(x.eid));
     const eid = primary?.eid ?? r.cites.find((id) => r.evidence.has(id));
-    // The default view after an answer: the cited moment ±10 s on the ruler.
-    const cited = Number.isFinite(r.activeMoment?.t0_ms) ? r.activeMoment : r.evidence.get(eid);
+    // The default view after an answer: the cited moment ±10 s on the ruler; an instant the answer cites on that evidence
+    // (a peak's time) wins over the window start.
+    const ref = r.measureRefs.find((x) => x.eid === eid && INSTANT_REFS.includes(x.field)), e = r.evidence.get(eid);
+    const at = ref && ref.field.split('.').reduce((o, k) => o?.[k], e) * TIME_REF_MS.get(ref.field);
+    const cited = Number.isFinite(at) ? { scene_key: e.scene_key, t0_ms: Math.round(at) } : Number.isFinite(r.activeMoment?.t0_ms) ? r.activeMoment : e;
+    if (Number.isFinite(at)) clock.seek(clock.toWall(e.scene_key, Math.round(at)));
     if (cited) zoomAround(cited, 10000);
     if (eid) focusEvidence(eid, r.evidence.get(eid));
     else setStage('evidence', null);
@@ -871,6 +877,8 @@ const TIME_REF_MS = new Map([
   ...['t0_ms', 't1_ms', 'value.t_ms', 'value.t0_ms', 'value.t1_ms', 'value.t_min_ms'].map((field) => [field, 1]),
   ...['value.t_s', 'value.t0_s', 'value.t1_s', 'value.window_t0_s', 'value.window_t1_s'].map((field) => [field, 1000]),
 ]);
+// Time fields that name one instant of the evidence (a peak or closest sample), not its window.
+const INSTANT_REFS = ['value.t_ms', 'value.t_s', 'value.t_min_ms'];
 function numbered(d) {
   if (run.protocolVersion === 2 || Array.isArray(d.text_spans)) {
     const chars = Array.from(d.text); let cursor = 0, html = '';
@@ -978,6 +986,8 @@ const evMarks = () => evIds().map((eid) => {
   const e = run.evidence.get(eid);
   return { eid, kind: e.kind, t0_ms: clock.toWall(e.scene_key, e.t0_ms), t1_ms: clock.toWall(e.scene_key, e.t1_ms) };
 });
+// The Agent looked lane in wall time; run.lane keeps scene time: [scene_key, t0_ms, t1_ms, state].
+const agentLane = () => (run?.lane ?? []).map(([key, t0, t1, s]) => [clock.toWall(key, t0), clock.toWall(key, t1), s]);
 
 function renderTabs() {
   const last = ctx.route.workspace === 'fleet' ? ['trip', 'Trip'] : ['videos', 'Videos'];
@@ -1282,6 +1292,11 @@ bus.on('fleet:active', ({ scene_key, t_ms, cam_id = null, commit = true }) => {
   if (run) { run.activeScene = scene_key; run.activeMoment = run.moments.find((m) => m.scene_key === scene_key && t_ms != null && m.t0_ms <= t_ms && t_ms < m.t1_ms) ?? {moment_id:'unassessed',scene_key}; renderClaims(); renderKeyframe(); renderModels(); }
   renderContext();
 });
+// Lane items and marks were converted in the old domain.
+bus.on('clock:domain', () => {
+  timeline.setLaneData('agent', agentLane());
+  if (run) timeline.setEvidence(evMarks());
+});
 bus.on('source:camera', camera=>{state.activeCamera=camera;});
 bus.on('route',()=>{state.activeCamera=null;});
 clock.onTick(() => {
@@ -1343,7 +1358,7 @@ $('#stage').addEventListener('wheel', takeOver, { passive: true });
 $('.stage-controls').addEventListener('click', (e) => { const mode = e.target.closest('[data-mode]')?.dataset.mode; if (!mode) return; if (run) run.userExplored = mode === 'explore'; setStage(mode, mode === 'evidence' ? run?.cites[0] ?? null : null); });
 bus.on('stage:mode', ({ mode }) => $('.stage-controls').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode)));
 $('#followup .fu-ctx').addEventListener('click', (e) => {
-  if (e.target.closest('[data-zoom-range]')) return timeline.zoomTo(...brushRange);
+  if (e.target.closest('[data-zoom-range]')) return timeline.zoomTo(clock.toWall(brushRange[0], brushRange[1]), clock.toWall(brushRange[0], brushRange[2]));
   const key = e.target.closest('[data-context]')?.dataset.context;
   if (key === 'time' || key === 'selection') followContext[key] = false;
   if (key === 'range') { followContext.t_range = null; timeline.clearBrush(); }
@@ -1356,7 +1371,7 @@ timeline.onBrush(({ t0, t1 }) => {
   const sourceT = (t) => replay ? Math.round(replay.source_start_ms + (t - replay.replay_start_ms) * replay.rate) : t;
   if (clock.domain.kind === 'fleet' && key) bus.emit('fleet:active', { scene_key: key, t_ms: sourceT(t0), ...(state.activeCamera?.scene_key === key ? {cam_id:state.activeCamera.cam_id} : {}) });
   followContext.t_range = [sourceT(t0), sourceT(t1)];
-  brushRange = [t0, t1];
+  brushRange = [key, ...followContext.t_range];
   renderContext();
 });
 bus.on('context:zone', (zone) => { followContext.zone = zone; renderContext(); });

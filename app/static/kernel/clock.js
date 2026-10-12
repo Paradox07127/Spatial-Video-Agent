@@ -47,9 +47,11 @@ export const clock = {
     bus.on('clock:tick', fn);
     return () => bus.off('clock:tick', fn);
   },
-  // domain: {kind:'scene'} or {kind:'fleet', replay: ReplayMapping[]} (CONTRACT §3).
+  // domain: {kind:'scene'} or {kind:'fleet', replay: ReplayMapping[]} (CONTRACT §3). Emits clock:domain; times converted
+  // with toWall before it are stale.
   bind(domain) {
     clock.domain = domain;
+    bus.emit('clock:domain', domain);
   },
   // Wall ms -> {trip_id, t_ms}; scene domain is the identity. null when no trip covers wall_ms.
   map(wall_ms) {

@@ -64,6 +64,9 @@ body[data-ws="fleet"] .tl .tl-lanes { max-height: min(180px, 25vh); overflow-y: 
 
 /* Telemetry lanes (Fleet): speed sparkline with its two sources in the label; GPS state on the trip lane */
 .tl .lane-speed { height: 28px; }
+/* Fleet: the last lane keeps a gutter above the viewport edge; the Speed lane gives it up (its two label lines fit 24 px). */
+body[data-ws="fleet"] .tl { padding-bottom: 4px; }
+body[data-ws="fleet"] .tl .lane-speed { height: 24px; }
 .lane-speed .tl-label { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; padding-right: 4px; font-size: 10px; line-height: 12px; }
 .tl-sub { color: var(--src-map); }
 .lane-speed canvas { position: absolute; inset: 0; width: 100%; height: 100%; }

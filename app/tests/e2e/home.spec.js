@@ -20,7 +20,7 @@ test.afterEach(() => expect(errors).toEqual([]));
 
 test('#/ renders the home page in place: brand, headline, input, chips and principle line', async ({ page }) => {
   await page.goto('#/');
-  await expect(page.locator('.home-brand')).toHaveText('SVASpatial Video Agent');
+  await expect(page.locator('.home-brand')).toHaveText('Spatial Video Agent');
   await expect(page.locator('.home-title')).toHaveText('What happened, where, and how far apart?');
   await expect(page.locator('#home-input')).toBeVisible();
   await expect(page.locator('.home-chips .preset')).toHaveCount(3);
