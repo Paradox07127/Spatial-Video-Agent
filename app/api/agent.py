@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import bisect
 import concurrent.futures
 import functools
 import html
@@ -17,12 +16,12 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from shapely.geometry import Point, Polygon
 
 from app.api.search import event_types
-from app.core import cache, geo, geometry, llm, policy, street, tools, trace
+from app.core import cache, geo, llm, policy, street, tools, trace
 from app.core.investigation_context import apply_constraints
-from app.core.task_spec import build_task_spec
+from app.core.task_spec import UNIVERSAL_TIME, build_task_spec, consume_comparison_time
+from app.core.tools import farthest_sample
 from app.core.deadline import DeadlineExceeded, remaining, scope as deadline_scope
 from app.core.models import ABSTAIN_TEXT, Claim, EntityRef, MomentCard, Predicate, TriggerRequest, aggregate_of, capabilities, level_of, tag_of, Workspace, Scope, Tag
 from app.settings import Settings
@@ -51,7 +50,7 @@ NATIVE_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=NATIVE_WORKERS,t
 NATIVE_SLOTS = threading.BoundedSemaphore(NATIVE_WORKERS)
 
 
-def native_search(vss, q):
+def native_search(vss, q, *, deadline=None):
     """Start VSS /search in the background; the returned function waits at most its argument for the vss_native data.
     None when every comparison worker is busy: the comparison is skipped."""
     if not NATIVE_SLOTS.acquire(blocking=False):
@@ -60,7 +59,7 @@ def native_search(vss, q):
     box = []
     def search():
         try:
-            out = vss.search(q,10,{})
+            out = vss.search(q,10,{},timeout=remaining(30,deadline=deadline))
             data = {'status':'ok','sql_query':out['sql_query'],'hits':out['hits'][:10]}
         except Exception:
             logger.exception('VSS /search failed')
@@ -122,41 +121,6 @@ def distance_comparisons(q):
     if len(matches)==1:
         return [(comparison_of(q),float(matches[0][1]))]
     return [(comparison_of(q[before.end() if before else 0:m.start()]),float(m[1])) for before, m in zip([None,*matches],matches)]
-
-
-def farthest_sample(store, scenes, t_range=None, zone=None, *, selection=None):
-    """The largest person-forklift ground distance at the skeleton sample times closest_approach scans; picks a time only."""
-    area = Polygon(zone) if zone else None
-    selected = set(selection or [])
-    best, seen = None, set()
-    for m in scenes:
-        key, assets = m['scene_key'], m['assets']
-        t0, t1 = (max(m['t0_ms'],t_range[0]),min(m['t1_ms'],t_range[1])) if t_range else (m['t0_ms'],m['t1_ms'])
-        if not capabilities(m)['distance']['ok']:
-            continue
-        persons = store.asset_json(key,assets['skeleton']).get('persons',{}) if 'skeleton' in assets else {}
-        tracks = store.asset_json(key,assets['forklift'])['forklifts'] if 'forklift' in assets else []
-        samples = [(t,eid,root,s) for eid,p in persons.items() for t,root,s in zip(p['t_ms'],p['root_world'],p['root_sigma_m'])
-                   if t0<=t<t1 and root and (not {x for x in selected if x.startswith('P')} or eid in selected) and (area is None or area.covers(Point(root[0],root[1])))]
-        tracks = [(f['entity_id'],f['track'],[r['t_ms'] for r in f['track']]) for f in tracks
-                  if (not {x for x in selected if x.startswith('F')} or f['entity_id'] in selected) and f['track']]
-        seen |= {'person'} if samples else set()
-        seen |= {'forklift'} if tracks else set()
-        for t, eid, root, s in samples:
-            remaining(30)
-            for fid, track, times in tracks:
-                if not times[0]<=t<=times[-1]:
-                    continue
-                i = bisect.bisect_left(times,t)
-                i = i-1 if i>0 and t-times[i-1]<=times[i]-t else i
-                if abs(times[i]-t)>1000/m['fps']/2+1:
-                    continue
-                value, _ = geometry.distance({'x':root[0],'y':root[1],'sigma_m':s},track[i])
-                if best is None or (-value,t)<(-best['value'],best['t_ms']):
-                    best = {'scene_key':key,'t_ms':t,'a':eid,'b':fid,'value':value}
-    key = best['scene_key'] if best else scenes[0]['scene_key'] if scenes else 'all'
-    t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
-    return tools.result(key,t0,t1,{'farthest':best,'missing':[k for k in ('person','forklift') if k not in seen]})
 
 
 def spatial_of(q, template):
@@ -330,7 +294,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     run = trace.start_run(store,body.q,context)
     run.deadline = start+body.budget.seconds
     # site only: VSS's own retrieval, shown next to the answer for comparison; the answer never waits for it
-    native = native_search(vss,body.q) if vss is not None else None
+    native = native_search(vss,body.q,deadline=run.deadline) if vss is not None else None
     claims, frames, read, moments = [], [], {}, []
     count = 0
     final, stop_reason = 'UNRESOLVED', 'no_new_info'
@@ -348,6 +312,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
     hard_cam = context.get('cam_id')
     statistics_complete = None
     direct_pair_distance = False
+    distance_extreme = None
     ego_measured = False
     observations = []
     ego_measurement = None
@@ -446,7 +411,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     predicates.append(bound)
                 supported = distance_status(sample,operator,value)=='supported'
                 bound.status, bound.eids = ('supported',[sample.eid]) if supported else ('unknown',[])
-        conditions = parsed.constraints if parsed else []
+        distance_decided=bool(distance_extreme and any(p.operator in {'lt','le','gt','ge'} and p.unit=='m'
+                              and p.status!='unknown' and p.eids for p in predicates))
+        speed_decided=any(p.operator in {'lt','le','gt','ge'} and p.unit in {'m/s','km/h'} and p.status!='unknown'
+                          and any(e in read and read[e].method in {'obd_speed','track_speed'} for e in p.eids) for p in predicates)
+        conditions = consume_comparison_time(body.q,parsed.constraints,distance=distance_decided,speed=speed_decided) if parsed else []
         for condition in conditions:
             if condition.startswith('requested_action:'):
                 action = condition.split(':',1)[1]
@@ -653,13 +622,17 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             ego_scalar_q=bool(fleet and ego_named and not speeding_q and re.search(r'\b(how fast|speed)\b',body.q,re.I)
                               and not re.search(r'\b(dodg\w*|cross\w*|brak\w*)\b',body.q,re.I))
             world_position_q=bool(warehouse and parsed.template=='where_is' and not parsed.place and spatial and spatial[0]=='ground_position')
+            minimum_q=bool(re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I))
+            always_q=bool(re.search(UNIVERSAL_TIME,body.q,re.I))
+            maximum_q=bool(spatial and spatial[0]=='distance' and spatial[1] in {'lt','le','gt','ge'}
+                           and (spatial[1] in {'gt','ge'})!=always_q and not minimum_q)
             closest_q = direct_pair_distance or (bool(warehouse) and {'person','forklift'}<=requested_kinds
                          and (re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I)
+                              or always_q and spatial and spatial[0]=='distance'
                               or re.search(r'\bhow close\b.*\b(come|came|comes|coming|get|got|gets|getting)\b',body.q,re.I))
-                         and re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I))
-            minimum_q=bool(re.search(r'\b(closest|nearest|minimum)\b',body.q,re.I))
-            # "ever greater" needs the largest sampled distance; the minimum only answers less-than comparisons
-            farthest_q=bool(warehouse and spatial and spatial[0]=='distance' and spatial[1] in {'gt','ge'} and quantifier=='any'
+                         and (always_q or re.search(r'\b(distance|gap|how far|how many meters|how close|closest|nearest)\b',body.q,re.I)))
+            # Existential greater / universal less comparisons need the largest sampled distance.
+            farthest_q=bool(warehouse and maximum_q and quantifier=='any'
                             and {'person','forklift'}<=requested_kinds and not minimum_q
                             and not re.search(r'\b(when|dodge\w*|yield\w*|cross\w*|brak\w*|near miss|footprint|clearance|edge)\b',body.q,re.I))
             if not scoped or (parsed.t_range and (parsed.t_range[0]>=parsed.t_range[1] or
@@ -750,18 +723,19 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             res=yield from call(t,'bound_ego_distance','measure',{'scene_key':key,'t_range':parsed.t_range,
                                 'target':target.model_dump(),'zone':parsed.zone},
                                 lambda:tools.bound_ego_distance(store,key,parsed.t_range,target,zone=parsed.zone))
-                        ev=res.evidence[0] if res.evidence else None
+                        ev=res.evidence[1 if not ego_scalar_q and maximum_q else 0] if res.evidence else None
+                        distance_extreme=('max' if maximum_q else 'min') if not ego_scalar_q else None
                         _,operator,value,unit=spatial
                         status='supported' if ev and ego_scalar_q else distance_status(ev,operator,value)
-                        if not ego_scalar_q and operator in {'gt','ge'} and status=='contradicted' and not minimum_q:
-                            status='unknown'  # the minimum sample cannot show that no sample was farther
+                        if not ego_scalar_q and not minimum_q and status==('supported' if always_q else 'contradicted') and (always_q or operator in {'gt','ge'}):
+                            status='unknown'  # a sampled extreme cannot show what the unobserved times held
                         yield claim_frame([Predicate(predicate_id='p1',subject_refs=[] if ego_scalar_q else [target],
                             operator='measured_speed' if ego_scalar_q else operator,value=value,
                             unit='km/h' if ego_scalar_q else unit,status=status,eids=[ev.eid] if ev else [])],key=key,
                             explain={'note':res.envelope.output.get('reason')} if not ev else None)
                         final=claims[-1].aggregate
                         if ev:
-                            ego_measurement={'eid':ev.eid,'target':target.entity_id,'speed':ego_scalar_q}
+                            ego_measurement={'eid':ev.eid,'target':target.entity_id,'speed':ego_scalar_q,'extreme':distance_extreme}
                             yield from ui('seek',{'t_ms':ev.t0_ms,'scene_key':key},key)
                         t.output({'aggregate':final,'measurement':res.envelope.output})
                     stop_reason='enough_evidence' if final in {'SUPPORTED','CONTRADICTED'} else 'no_new_info'
@@ -996,6 +970,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if corpus:
                     yield from abstain_levels('blind_spot','warehouse')
             elif farthest_q:
+                distance_extreme='max'
                 _, operator, value, unit = spatial
                 predicates = [Predicate(predicate_id='p1',subject_refs=[],operator=operator,value=value,unit=unit,status='unknown',eids=[])]
                 hit = None
@@ -1031,6 +1006,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 if corpus and farthest:
                     yield from abstain_levels('distance','warehouse')
             elif closest_q:
+                distance_extreme='min'
                 with trace.traced(run,'plan',{'query':parsed.model_dump(mode='json')},state='plan') as t:
                     yield step_frame(t,'plan','Choose the closest approach path across the full interval')
                     t.output({'template':parsed.template,'path':['measure','answer']})
@@ -1706,7 +1682,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 ev=evidence[ego_measurement['eid']]
                 measurement=('Recording vehicle OBD speed: '+ref(ev,'value',ev.value)+' km/h at sample '+ref(ev,'t0_ms',ev.t0_ms/1000)+
                              ' s. Speed uncertainty is unavailable.' if ego_measurement['speed'] else
-                             'Minimum observed ground distance from '+name(ego_measurement['target'])+' to the recording vehicle origin: '+
+                             ('Maximum' if ego_measurement['extreme']=='max' else 'Minimum')+' observed ground distance from '+name(ego_measurement['target'])+' to the recording vehicle origin: '+
                              ref(ev,'value.distance_m',ev.value['distance_m'])+' m (±'+ref(ev,'sigma',ev.sigma)+' m) at '+ref(ev,'t0_ms',ev.t0_ms/1000)+' s. Times between samples were not verified.')
                 text=measurement if final in {'SUPPORTED','CONTRADICTED'} else text+' Independently measured: '+measurement
             cites=list(dict.fromkeys(cites))

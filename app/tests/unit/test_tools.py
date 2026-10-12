@@ -53,6 +53,34 @@ def test_bound_ego_distance_without_directory_does_not_scan(tmp_path,monkeypatch
     assert not r.evidence and r.envelope.output['status']=='UNRESOLVED'
 
 
+def test_bound_ego_distance_returns_valid_extremes_with_separate_evidence(tmp_path, monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.asset_json
+    def asset(key,path):
+        if path.startswith('ego/'):
+            samples=[(3000,14.,.2),(3500,5.,.1),(4000,14.,.3),(4500,99.,-1.),(5000,float('nan'),.1)]
+            return {'frames':[{'t_ms':t,'peds':[{'entity_id':'P1','x':x,'y':0.,'sigma_m':sigma}]} for t,x,sigma in samples]}
+        return original(key,path)
+    monkeypatch.setattr(s,'asset_json',asset)
+    create=tools.evidence
+    params=[]
+    def evidence(*a,**kw):
+        params.append(kw['params'])
+        return create(*a,**kw)
+    monkeypatch.setattr(tools,'evidence',evidence)
+    r=tools.bound_ego_distance(s,FL,(3000,8000),EntityRef(scene_key=FL,entity_id='P1',kind='person'))
+    assert len(r.evidence)==2, 'Both minimum and maximum need their own evidence'
+    low,high=r.evidence
+    assert low.eid!=high.eid and [p['extreme'] for p in params]==['min','max']
+    assert all(e.method=='bound_ego_distance' for e in r.evidence)
+    assert (low.value['distance_m'],low.sigma,low.t0_ms)==(5.,.1,3500)
+    assert (high.value['distance_m'],high.sigma,high.t0_ms)==(14.,.2,3000)
+    out=r.envelope.output
+    assert (out['value'],out['sigma'],out['t_ms'])==(5.,.1,3500)
+    assert (out['maximum_value'],out['maximum_sigma'],out['maximum_t_ms'])==(14.,.2,3000)
+    assert out['coverage_basis']=='full-window coverage not measured' and r.envelope.coverage is None
+
+
 def test_visibility_eids_bind_sample_time_and_point(tmp_path):
     s=fixture_store(tmp_path)
     a=tools.visibility(s,WH,0,'P1').evidence[0]

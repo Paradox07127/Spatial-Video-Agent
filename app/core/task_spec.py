@@ -7,6 +7,7 @@ N = r'\d+(?:\.\d+)?'
 UNIT = r'(?:s\b|seconds?\b)'
 TIME = rf'(?:(?P<number>{N})\s*{UNIT}|second\s+(?P<ordinal>{N}))'
 PLACE_NAME = r"[A-Z][A-Za-z.']*\b(?:(?:\s+|\s*(?:&|/|\band\b)\s*)[A-Z][A-Za-z.']*\b)*"
+UNIVERSAL_TIME = r'\b(?:always|throughout|the whole time)\b'
 @dataclass(frozen=True)
 class Requirement:
     kind: str
@@ -94,6 +95,19 @@ def build_task_spec(q):
     for label,pattern in [('dodge',r'\bdodg\w*\b|\byield\w*\b|\bgive way\b|\bstep back\b'),('crossing',r'\bcross\w*\b'),('braking',r'\bbrak\w*\b')]:
         for m in re.finditer(pattern,q,re.I): requirements.append(Requirement('action:'+label,q[m.start():m.end()],m.start(),m.end()))
     return TaskSpec(q,tuple(requirements),tuple(ranges),tuple(time_spans))
+
+
+def consume_comparison_time(q, constraints, *, distance=False, speed=False):
+    """Consume time quantifiers only after the caller decides an extremal comparison."""
+    if not (distance or speed):
+        return constraints
+    pattern=r'\bever\b'+('|'+UNIVERSAL_TIME+r'|\bat some point\b' if distance else '')
+    spans=[m.span() for m in re.finditer(pattern,q,re.I)]
+    requirements=[r for r in build_task_spec(q).requirements if r.kind=='unconsumed']
+    consumed={r.span.casefold() for r in requirements if any(a<=r.start and r.end<=b for a,b in spans)}
+    elsewhere={r.span.casefold() for r in requirements if not any(a<=r.start and r.end<=b for a,b in spans)}
+    return [c for c in constraints if not (c.startswith('unconsumed:') and
+            c.split(':',1)[1].casefold() in consumed-elsewhere)]
 
 
 def consume_verified_place_prefix(q, place, constraints):

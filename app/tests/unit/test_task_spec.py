@@ -129,3 +129,43 @@ def test_link_between_ids_and_in_these_seconds_are_consumed():
     assert not [r for r in build_task_spec('Link P1 between ceiling_04 and eye_00').requirements if r.kind == 'unconsumed']
     rs = build_task_spec('Was anyone where ceiling_00 cannot see in these 10 seconds?').requirements
     assert [(r.kind, r.span) for r in rs if r.kind in ('time', 'unconsumed')] == [('time', 'in these 10 seconds')]
+
+
+def test_ever_is_consumed_only_for_a_decided_comparison(store):
+    # The same quantifier stays unknown for an event or a scalar measurement.
+    for q in ['Did P1 ever dodge F1?', 'How far was P1 ever from F1?']:
+        assert 'unconsumed:ever' in llm.rule_parse(q,{'workspace':'warehouse'}).constraints
+        frames=ask(store,q)
+        assert final(frames)=='UNRESOLVED'
+        assert any(p['operator']=='unconsumed:ever' for f in frames if f['event']=='claim' for p in f['data']['predicates'])
+    frames=ask(store,'Was P1 ever more than 3 m from F1?')
+    assert final(frames)=='SUPPORTED'
+    assert all(p['operator']!='unconsumed:ever' for f in frames if f['event']=='claim' for p in f['data']['predicates'])
+
+
+@pytest.mark.parametrize('q,workspace,expected',[
+    ('Was P1 ever more than 10 m from the recording car between 3 and 8 s?','fleet','SUPPORTED'),
+    ('Was P1 at some point farther than 10 m from the recording car between 3 and 8 s?','fleet','SUPPORTED'),
+    # fleet samples exist only while P1 is seen, so they can refute but not establish an always-comparison
+    ('Was P1 always more than 3 m from the recording car between 3 and 8 s?','fleet','UNRESOLVED'),
+    ('Was P1 always less than 10 m from the recording car between 3 and 8 s?','fleet','CONTRADICTED'),
+    ('Was P1 always more than 3 m from F1?','warehouse','CONTRADICTED'),
+    ('Was P1 always less than 3 m from F1?','warehouse','CONTRADICTED'),
+])
+def test_comparison_time_quantifiers_choose_the_required_extreme(store, q, workspace, expected):
+    frames=ask(store,q,workspace,scene_key='fl-pie-fixture-01' if workspace=='fleet' else 'wh-sdg-fixture-01')
+    assert final(frames)==expected
+    answer=next(f['data'] for f in frames if f['event']=='answer')
+    evidence={e['eid']:e for f in frames if f['event']=='tool_result' for e in f['data']['evidence']}
+    measured=evidence[next(r['eid'] for r in answer['measure_refs'] if r['field'] in {'value','value.distance_m'})]
+    minimum='always more than' in q
+    expected_time=(7900 if minimum else 3000) if workspace=='fleet' else (4900 if minimum else 0)
+    assert measured['t0_ms']==expected_time
+
+
+def test_ever_speed_comparison_is_consumed_after_decision(store, monkeypatch):
+    from app.tests.unit.test_agent import set_limits
+    set_limits(store,monkeypatch,lambda key,t:5.)
+    frames=ask(store,'Was this car ever speeding?','fleet',scene_key='fl-pie-fixture-01',t_range=(0,4000))
+    assert final(frames)=='SUPPORTED'
+    assert all(p['operator']!='unconsumed:ever' for f in frames if f['event']=='claim' for p in f['data']['predicates'])

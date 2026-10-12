@@ -694,7 +694,7 @@ def test_site_ask_reports_vss_native_after_the_answer(setup, monkeypatch, behavi
     monkeypatch.setattr(agent, 'NATIVE_WAIT_S', .3)
     release = threading.Event()
     hit = {'rank':1,'source':'s3://seg/a.mp4','scene_key':None,'cam_id':None,'t_ms':None,'similarity':.42,'caption':'worker steps back'}
-    def search(q, top_k, filters):
+    def search(q, top_k, filters, *, timeout=30):
         if behaviour == 'raise':
             raise RuntimeError('vss down')
         if behaviour == 'hang':
@@ -734,7 +734,7 @@ def test_site_ask_sends_status_before_waiting_for_vss_native(setup, monkeypatch)
     monkeypatch.setattr(trace, 'finish_run', finish)
     monkeypatch.setattr(agent, 'NATIVE_WAIT_S', .5)
     release = threading.Event()
-    def search(q, top_k, filters):
+    def search(q, top_k, filters, *, timeout=30):
         release.wait(60)
         return {'hits':[],'sql_query':'SELECT 1'}
     frames, at = [], {}
@@ -1287,7 +1287,7 @@ def test_fleet_top_hit_measures_the_ego_distance_live(setup, monkeypatch, site):
                 'source_uris':['s3://bucket/detections/seg.json.gz'],'timing_ms':{'total':120.0}}
     monkeypatch.setattr(tools.live_measure, 'measure', measure)
     monkeypatch.setattr(agent, 'site_rows', lambda: ['site row'])
-    vss = SimpleNamespace(search=lambda q, k, f: {'sql_query':'SELECT 1','hits':[]}) if site else None
+    vss = SimpleNamespace(search=lambda q, k, f, **kw: {'sql_query':'SELECT 1','hits':[]}) if site else None
     frames = list(agent.ask_frames(store, agent.AskRequest(q=FLEET_Q, context={'workspace':'fleet'}), vss=vss))
     assert check_sse_sequence(frames)==[] and next(f for f in frames if f['event']=='status')['data']['final']=='SUPPORTED'
     assert seen==[('fl-pie-fixture-01','dashcam',('person','vehicle'),['site row'] if site else [])]
@@ -1382,17 +1382,104 @@ FL_FIXTURE = {'workspace':'fleet','scene_key':'fl-pie-fixture-01'}
 def test_ever_greater_is_judged_at_the_largest_sampled_distance(setup):
     _, store = setup
     frames = ask(store, 'Was P1 ever more than 3 meters from F1?', WH_MAIN['context'])
-    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']!='CONTRADICTED'
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
     p = of(frames,'claim')[-1]['predicates'][0]
     ev = {e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}[p['eids'][0]]
     assert (p['operator'],p['status'],ev['method'],ev['t0_ms'])==('gt','supported','ground_distance',0) and round(ev['value'],3)==9.055
+    assert p['eids']==of(frames,'answer')[0]['cites']
+    assert '9.055' in of(frames,'answer')[0]['text']
 
 
-def test_bound_ego_minimum_cannot_contradict_a_greater_comparison(setup):
+def test_bound_ego_greater_comparison_uses_maximum(setup):
     _, store = setup
     frames = ask(store, 'Was P1 more than 10 meters from the recording car between 3 and 8 s?', FL_FIXTURE)
-    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='UNRESOLVED'
+    assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
+    p=of(frames,'claim')[-1]['predicates'][0]
+    evidence={e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}
+    ev=evidence[p['eids'][0]]
+    out=of(frames,'tool_result')[0]['envelope']['output']
+    assert (ev['value']['distance_m'],ev['sigma'],ev['t0_ms'])==(out['maximum_value'],out['maximum_sigma'],out['maximum_t_ms'])
+    assert ev['value']['distance_m']>10
+    answer=of(frames,'answer')[0]
+    assert answer['cites']==p['eids'] and 'Maximum observed' in answer['text']
+    assert 'Times between samples were not verified' in answer['text']
+
+
+@pytest.mark.parametrize('phrase',['always more than','more than throughout','more than the whole time'])
+def test_bound_ego_always_greater_uses_minimum(setup, phrase):
+    _,store=setup
+    frames=ask(store,f'Was P1 {phrase} 10 meters from the recording car between 3 and 8 s?',FL_FIXTURE)
+    assert check_sse_sequence(frames)==[] and of(frames,'status')[-1]['final']=='CONTRADICTED'
+    p=of(frames,'claim')[-1]['predicates'][0]
+    evidence={e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}
+    ev=evidence[p['eids'][0]]
+    out=of(frames,'tool_result')[0]['envelope']['output']
+    assert (ev['value']['distance_m'],ev['sigma'],ev['t0_ms'])==(out['value'],out['sigma'],out['t_ms'])
+    assert ev['value']['distance_m']<10
+    assert of(frames,'answer')[0]['cites']==p['eids']
+
+
+@pytest.mark.parametrize('q',['Was P1 more than 100 meters from the recording car between 3 and 8 s?',
+                               'Was P1 always more than 0.1 meters from the recording car between 3 and 8 s?'])
+def test_bound_ego_samples_do_not_decide_what_unobserved_times_held(setup, q):
+    # no sample beyond 100 m does not show that P1 never was; every sample beyond 0.1 m does not show that P1 always was
+    _,store=setup
+    frames=ask(store,q,FL_FIXTURE)
+    assert check_sse_sequence(frames)==[] and of(frames,'status')[-1]['final']=='UNRESOLVED'
     assert of(frames,'claim')[-1]['predicates'][0]['status']=='unknown'
+
+
+@pytest.mark.parametrize('seconds',[.5,5,45])
+def test_site_search_timeout_fits_remaining_budget(setup, monkeypatch, seconds):
+    import threading
+    _,store=setup
+    seen=[]
+    submitted=[]
+    runs=[]
+    start_run=trace.start_run
+    def start(*a,**kw):
+        run=start_run(*a,**kw);runs.append(run)
+        return run
+    monkeypatch.setattr(trace,'start_run',start)
+    submit=agent.NATIVE_POOL.submit
+    def capture(fn):
+        submitted.append(runs[0].deadline-time.monotonic())
+        return submit(fn)
+    monkeypatch.setattr(agent.NATIVE_POOL,'submit',capture)
+    called=threading.Event()
+    def search(q, top_k, filters, *, timeout=None):
+        seen.append(timeout);called.set()
+        return {'hits':[],'sql_query':None}
+    stream=agent.ask_frames(store,agent.AskRequest(q=WH_MAIN['q'],context=WH_MAIN['context'],budget={'seconds':seconds}),
+                            vss=SimpleNamespace(search=search))
+    first=next(stream)
+    assert called.wait(5)
+    frames=[first,*stream]
+    assert check_sse_sequence(frames)==[]
+    assert seen[0] is not None, 'VSS search did not receive the run timeout'
+    assert 0<seen[0]<=min(30,submitted[0])
+
+
+def test_site_search_timeout_reports_retrieval_failure(setup):
+    import httpx
+    from app.core.vss import VSS
+    _,store=setup
+    seen=[]
+    def respond(request):
+        seen.append(request)
+        if request.url.path.endswith('/auth/login'):
+            return httpx.Response(200,json={'access_token':'fixture'})
+        raise httpx.ReadTimeout('search timed out',request=request)
+    settings=SimpleNamespace(vss_url='http://vss',vss_username='fixture',vss_password='fixture')
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        vss=VSS(settings,map_hit=lambda hit:None,client=client)
+        frames=list(agent.ask_frames(store,agent.AskRequest(q=WH_MAIN['q'],context=WH_MAIN['context'],budget={'seconds':2}),vss=vss))
+    assert check_sse_sequence(frames)==[] and frames[-1]['event']=='done'
+    assert of(frames,'status')[0]['stop_reason']!='error'
+    native=of(frames,'vss_native')[0]
+    assert (native['status'],native['hits'],native['sql_query'])==('error',[],None)
+    assert seen[-1].url.path.endswith('/search')
+    assert all(0<t<=2 for t in seen[-1].extensions['timeout'].values())
 
 
 def test_each_distance_bound_binds_to_its_own_clause(setup):
@@ -1472,7 +1559,7 @@ def test_same_time_card_without_evidence_keeps_the_measured_verdict(setup, monke
 def test_site_comparison_is_skipped_when_the_pool_is_saturated():
     import threading
     release, started = threading.Event(), []
-    def search(q, top_k, filters):
+    def search(q, top_k, filters, *, timeout=30):
         started.append(q)
         release.wait(10)
         return {'hits':[],'sql_query':None}

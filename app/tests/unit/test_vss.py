@@ -67,6 +67,25 @@ def test_search_logs_in_again_on_401():
     assert [r.url.path for r in seen].count('/api/v1/auth/login') == 2
 
 
+@pytest.mark.parametrize('injected',[False,True])
+def test_search_timeout_reaches_login_retry_and_search(monkeypatch, injected):
+    seen=[]
+    def respond(req):
+        seen.append(req)
+        if req.url.path.endswith('/auth/login'):
+            return httpx.Response(200,json={'access_token':'fixture'})
+        return httpx.Response(401) if sum(r.url.path.endswith('/search') for r in seen)==1 else httpx.Response(200,json={'results':[]})
+    client=httpx.Client
+    if not injected:
+        monkeypatch.setattr(httpx,'Client',lambda **kw:client(transport=httpx.MockTransport(respond),**kw))
+    settings=SimpleNamespace(vss_url='http://vss',vss_username='fixture',vss_password='fixture')
+    with client(transport=httpx.MockTransport(respond)) as supplied:
+        vss=VSS(settings,map_hit=lambda hit:None,client=supplied if injected else None)
+        assert vss.search('a car',5,{},timeout=1.5)['hits']==[]
+    assert len(seen)==4
+    assert all(0<t<=1.5 for req in seen for t in req.extensions['timeout'].values())
+
+
 @pytest.mark.parametrize('behaviour', ['hang', 'raise'])
 def test_site_retrieve_does_not_wait_for_vss(tmp_path, monkeypatch, behaviour):
     from app.api.search import SearchRequest, retrieve

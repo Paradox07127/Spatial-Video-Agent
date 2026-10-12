@@ -373,7 +373,7 @@ def ego_distance(store, scene_key, cam, t0_ms, t1_ms, *, rows):
 
 
 def bound_ego_distance(store, scene_key, t_range, target, *, zone=None):
-    """Distance to one named published pedestrian, never the anonymous live nearest proxy."""
+    """Minimum and maximum sampled distances to one named published pedestrian; evidence is ordered min, max."""
     m=store.manifest(scene_key)
     lo,hi=t_range
     lo,hi=min(max(lo,m['t0_ms']),m['t1_ms']),max(min(hi,m['t1_ms']),m['t0_ms'])
@@ -402,14 +402,18 @@ def bound_ego_distance(store, scene_key, t_range, target, *, zone=None):
     if not candidates:
         return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'missing_bound_ego_sample'},coverage=0,
                       gaps=[(lo,hi,'missing_bound_ego_sample')])
-    distance,tm,p=min(candidates,key=lambda row:(row[0],row[1]))
-    ev=evidence(store,scene_key,None,tm,tm+1,'measure','bound_ego_distance',{'distance_m':distance,'target_entity_id':target.entity_id,
-                'reference_entity':'ego','coordinate_frame':'ego_ground','t_s':tm/1000},unit='m',sigma=p['sigma_m'],
-                params={'a':target.entity_id,'b':'ego','source':'published_ego_frames','zone':zone,
-                        'distance_from':'ego_ground_origin','distance_to':'pedestrian_ground_point'})
-    return result(scene_key,lo,hi,{'value':distance,'sigma':p['sigma_m'],'t_ms':tm,'entity_id':target.entity_id,
-                  'minimum_basis':'valid observed samples','coverage_basis':'full-window coverage not measured'},
-                  evidence=[ev],pts_read=len(candidates))
+    extremes=[min(candidates,key=lambda row:(row[0],row[1])),min(candidates,key=lambda row:(-row[0],row[1]))]
+    evs=[]
+    for extreme,(distance,tm,p) in zip(('min','max'),extremes):
+        evs.append(evidence(store,scene_key,None,tm,tm+1,'measure','bound_ego_distance',{'distance_m':distance,'target_entity_id':target.entity_id,
+                    'reference_entity':'ego','coordinate_frame':'ego_ground','t_s':tm/1000},unit='m',sigma=p['sigma_m'],
+                    params={'a':target.entity_id,'b':'ego','source':'published_ego_frames','zone':zone,'extreme':extreme,
+                            'distance_from':'ego_ground_origin','distance_to':'pedestrian_ground_point'}))
+    low,high=evs
+    return result(scene_key,lo,hi,{'value':low.value['distance_m'],'sigma':low.sigma,'t_ms':low.t0_ms,'entity_id':target.entity_id,
+                  'maximum_value':high.value['distance_m'],'maximum_sigma':high.sigma,'maximum_t_ms':high.t0_ms,
+                  'minimum_basis':'valid observed samples','maximum_basis':'valid observed samples',
+                  'coverage_basis':'full-window coverage not measured'},evidence=evs,pts_read=len(candidates))
 
 
 def ego_speed(store, scene_key, t_ms):
@@ -502,6 +506,41 @@ def closest_approach(store, scenes, t_range=None, zone=None, *, selection=None):
     if scene_coverage and all(c['reason']=='scene_not_metric' for c in scene_coverage.values()):
         output.update(status='UNRESOLVED',reason='scene_not_metric')
     return result(key,t0,t1,output,evidence=evs,gaps=gaps,pts_read=pts,started=started)
+
+
+def farthest_sample(store, scenes, t_range=None, zone=None, *, selection=None):
+    """The largest person-forklift ground distance at the skeleton sample times closest_approach scans; picks a time only."""
+    area = Polygon(zone) if zone else None
+    selected = set(selection or [])
+    best, seen = None, set()
+    for m in scenes:
+        key, assets = m['scene_key'], m['assets']
+        t0, t1 = (max(m['t0_ms'],t_range[0]),min(m['t1_ms'],t_range[1])) if t_range else (m['t0_ms'],m['t1_ms'])
+        if not capabilities(m)['distance']['ok']:
+            continue
+        persons = store.asset_json(key,assets['skeleton']).get('persons',{}) if 'skeleton' in assets else {}
+        tracks = store.asset_json(key,assets['forklift'])['forklifts'] if 'forklift' in assets else []
+        samples = [(t,eid,root,s) for eid,p in persons.items() for t,root,s in zip(p['t_ms'],p['root_world'],p['root_sigma_m'])
+                   if t0<=t<t1 and root and (not {x for x in selected if x.startswith('P')} or eid in selected) and (area is None or area.covers(Point(root[0],root[1])))]
+        tracks = [(f['entity_id'],f['track'],[r['t_ms'] for r in f['track']]) for f in tracks
+                  if (not {x for x in selected if x.startswith('F')} or f['entity_id'] in selected) and f['track']]
+        seen |= {'person'} if samples else set()
+        seen |= {'forklift'} if tracks else set()
+        for t, eid, root, s in samples:
+            remaining(30)
+            for fid, track, times in tracks:
+                if not times[0]<=t<=times[-1]:
+                    continue
+                i = bisect.bisect_left(times,t)
+                i = i-1 if i>0 and t-times[i-1]<=times[i]-t else i
+                if abs(times[i]-t)>1000/m['fps']/2+1:
+                    continue
+                value, _ = geometry.distance({'x':root[0],'y':root[1],'sigma_m':s},track[i])
+                if best is None or (-value,t)<(-best['value'],best['t_ms']):
+                    best = {'scene_key':key,'t_ms':t,'a':eid,'b':fid,'value':value}
+    key = best['scene_key'] if best else scenes[0]['scene_key'] if scenes else 'all'
+    t0, t1 = t_range or (min((m['t0_ms'] for m in scenes),default=0),max((m['t1_ms'] for m in scenes),default=0))
+    return result(key,t0,t1,{'farthest':best,'missing':[k for k in ('person','forklift') if k not in seen]})
 
 
 def geocode(store, name):
