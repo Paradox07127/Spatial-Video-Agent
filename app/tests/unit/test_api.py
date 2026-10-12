@@ -37,7 +37,9 @@ def test_site_mode_builds_vss_without_login(index_db, tmp_path, monkeypatch):
 def test_scene_routes_and_json_contract(client):
     h = client.get('/health').json()
     assert h['ok'] and h['assets_ok'] and h['index_rows']['clips'] == 8
-    assert [w['id'] for w in client.get('/api/workspaces').json()] == ['warehouse', 'fleet', 'street']
+    ws = client.get('/api/workspaces').json()
+    assert [w['id'] for w in ws] == ['warehouse', 'fleet', 'street']
+    assert {s['scene_key']: s['n_cams'] for s in ws[0]['scenes']}[WH] == 3
     for kind in ('manifest', 'entities'):
         r = client.get(f'/api/scene/{WH}/{kind}')
         assert r.status_code == 200 and schema_errors(r.json(), kind + '.json') == []

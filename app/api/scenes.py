@@ -51,7 +51,8 @@ def workspaces(request: Request):
                 elif cam.get('chunks'):
                     thumb = f"/api/street/{key}/thumb?cam={cam['id']}&t={m['t0_ms']}"
             scenes.append({k: m[k] for k in ('scene_id', 'scene_key', 'title', 't0_ms', 't1_ms')} | {'thumb': thumb, 'n_events': len(store.events_in(key, m['t0_ms'], m['t1_ms'])),
-                                                                                                  'tag': tag_of(m), 'evidence_level': level_of(m), 'caps': capabilities(m)})
+                                                                                                  'tag': tag_of(m), 'evidence_level': level_of(m), 'caps': capabilities(m),
+                                                                                                  'n_cams': len(m['cams'])})
         grouped.append({'id': workspace, 'title': title, 'scenes': scenes})
     return grouped
 

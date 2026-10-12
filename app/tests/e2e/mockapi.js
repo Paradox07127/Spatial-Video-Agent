@@ -160,7 +160,7 @@ function fixtureWorkspaces() {
   const ws = Object.fromEntries(WORKSPACES.map(([id]) => [id, []]));
   for (const k of scenes()) {
     const mf = read(`${k}/manifest.json`);
-    ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null,
+    ws[mf.workspace].push({ scene_id: mf.scene_id, scene_key: k, title: mf.title, t0_ms: mf.t0_ms, t1_ms: mf.t1_ms, thumb: null, n_cams: mf.cams.length,
       n_events: mf.assets.events ? read(`${k}/${mf.assets.events}`).events.length : 0, tag: mf.workspace === 'street' ? 'fixed' : mf.workspace, evidence_level: levelOf(mf), caps: capabilities(mf) });
   }
   return WORKSPACES.map(([id, title]) => ({ id, title, scenes: ws[id] }));
