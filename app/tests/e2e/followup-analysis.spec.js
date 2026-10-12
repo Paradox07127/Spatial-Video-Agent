@@ -5,7 +5,7 @@ const { mockApi } = require('./mockapi');
 
 const SCENE = 'wh-sdg-fixture-01', SID = 's_followup', TID = 't_followup', JID = 'j_followup', RID = 'r_followup';
 const wire = (frames) => frames.map((f, i) => `id: ${i + 1}\nevent: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`).join('');
-const UNMET = 'What a person is doing is not measured; below are the measured distance, speed, camera views and recorded events at that moment. “That moment” refers to the time and objects selected on the timeline.';
+const UNMET = 'What a person is doing is not measured; below are the measured distance, speed, camera views and recorded events at that moment. “That moment” refers to the time selected on the timeline.';
 const FACT = 'At 4.9 s, the worker P1 was 1.409 m (±0.17 m) from forklift F1 (worker ground point to forklift center).';
 const EVENT = 'Recorded event: the worker started to dodge the forklift at 4.6 s.';
 const MODEL = 'Model description (Cosmos, unverified): The worker steps back from the forklift.';

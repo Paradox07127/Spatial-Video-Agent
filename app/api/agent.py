@@ -1781,11 +1781,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                         measure_refs=refs,text_spans=spans)
 
         def focus_of():
-            """The moment a follow-up refers to: the context's time and selection, else the first moment sent in hits."""
+            """The moment a follow-up refers to: the context's time (and selection), else the first moment sent in hits."""
             key = parsed.scene_key or context.get('scene_key')
             hit = next((m for f in frames if f['event']=='hits' for m in f['data']['moments']),None)
-            if context.get('t_ms') is not None and context.get('selection'):
-                t, ids, resolved = context['t_ms'], context['selection'], True
+            if context.get('t_ms') is not None:
+                t, ids, resolved = context['t_ms'], context.get('selection') or [], True
             # an unparsed time condition leaves the hit's time outside what the question allows
             elif hit and 'temporal_relation' not in parsed.constraints and not any(re.fullmatch(r'unconsumed:\d+',c) for c in parsed.constraints):
                 key, t, ids, resolved = key or hit['scene_key'], hit['t0_ms'], [r['entity_id'] for r in hit['actor_refs']], False

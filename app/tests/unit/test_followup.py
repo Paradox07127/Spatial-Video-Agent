@@ -127,6 +127,16 @@ def test_non_english_follow_up_gets_the_english_note_and_facts(client):
     assert answers(frames,'fact')
 
 
+def test_timeline_time_without_selection_is_the_focus(client):
+    session = Session(client)
+    frames = session.ask('What was the worker doing at that moment?',{**CTX,'t_ms':4900})
+    assert check_sse_sequence(frames,protocol_version=2) == []
+    assert ui(frames,'seek')[-1]['args']['t_ms'] == 4900
+    assert followup.RESOLVED_TEXT in answers(frames,'unmet')[0]['text']
+    distance = next(e for e in evidence(frames).values() if e['method']=='ground_distance')
+    assert distance['t0_ms'] == 4900
+
+
 def ask_v1(client, q):
     return decode(client.post('/api/agent/ask',json={'q':q,'context':CTX}))
 
@@ -165,7 +175,7 @@ def test_unmet_parts_are_plain_sentences():
     q = 'What was the worker doing at that moment?'
     parts = followup.unmet_parts(q,parsed(q),True)
     assert parts[0].startswith('What a person is doing is not measured')
-    assert '“That moment” refers to the time and objects selected on the timeline.' in parts
+    assert '“That moment” refers to the time selected on the timeline.' in parts
     assert 'The earlier moment this question refers to could not be identified.' in followup.unmet_parts(q,parsed(q),False)
     q = 'Is the forklift driver looking at the worker?'
     assert followup.unmet_parts(q,parsed(q),False) == ['Where a person is looking is not measured.',
