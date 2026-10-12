@@ -110,8 +110,9 @@ export function createStage(canvas) {
   let focusIds = null, back = null;
   // measure: {ids: [a, b], t0, t1}, drawn while t0 <= clock < t1; measureEnds: the [x, y] pair it was last drawn at
   let measure = null, measureEnds = null;
-  let activeCam = null; // the camera the stage video dock shows; its frustum is drawn in --ink
-  const frusta = new Map(), pickFns = new Set();
+  let activeCam = null; // the camera the source video shows; its frustum is drawn in --ink
+  let relabel = true; // the labelled content changed since the last label layout
+  const frusta = new Map(), pickFns = new Set(), hoverFns = new Set();
   const loader = new THREE.TextureLoader(), textures = new Map();
   const ownedTextures = new Set();
   let disposed = false;
@@ -132,6 +133,7 @@ export function createStage(canvas) {
     labels.setSize(w, h);
     free.aspect = w / h;
     free.updateProjectionMatrix();
+    relabel = true;
   }
   const ro = new ResizeObserver(layout);
   ro.observe(host);
@@ -267,10 +269,13 @@ export function createStage(canvas) {
     const r = canvas.getBoundingClientRect();
     ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), active());
   }
+  // The floor point under the pointer; null off the floor.
   function floorAt(e) {
     aim(e);
     const p = ray.ray.intersectPlane(floorPlane, new THREE.Vector3());
-    return p && [p.x, p.y];
+    if (!p || !mf) return null;
+    const { origin: [x0, y0], nx, ny, cell_m } = mf.ground;
+    return p.x >= x0 && p.x <= x0 + nx * cell_m && p.y >= y0 && p.y <= y0 + ny * cell_m ? [p.x, p.y] : null;
   }
   let down = null;
   const shown = (o) => !o || (o.visible && shown(o.parent));
@@ -283,10 +288,21 @@ export function createStage(canvas) {
     for (const fn of pickFns) fn(hit ? hit.object.userData.entity_id : null);
   });
   canvas.addEventListener('pointermove', (e) => zone.active && zone.hover(floorAt(e)));
+  canvas.addEventListener('pointermove', (e) => { for (const fn of hoverFns) fn(floorAt(e)); });
+  canvas.addEventListener('pointerleave', () => { for (const fn of hoverFns) fn(null); });
   // a drag takes the camera over from a running fly
   canvas.addEventListener('pointermove', (e) => down && e.buttons && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4 && (tween = null));
   canvas.addEventListener('dblclick', () => zone.active && zone.close());
+  // Esc while drawing cancels the zone only; capturing on window keeps it from the shell's Esc (one step back).
+  const onKey = (e) => {
+    if (e.key !== 'Escape' || !zone.active) return;
+    e.stopPropagation();
+    zone.cancel();
+  };
+  window.addEventListener('keydown', onKey, true);
 
+  // Label layout (declutter, Model tags) runs only on a frame whose camera, canvas or labelled content changed.
+  const seen = { cam: null, matrix: new THREE.Matrix4() };
   renderer.setAnimationLoop((now) => {
     if (tween) {
       const k = Math.min(1, (now - tween.t0) / tween.ms), e = k * k * (3 - 2 * k);
@@ -301,8 +317,12 @@ export function createStage(canvas) {
     renderer.render(scene, cam);
     labels.render(scene, cam);
     hideOffView(cam);
-    people.declutter(cam.position);
-    placeTags();
+    if (relabel || cam !== seen.cam || !cam.matrixWorld.equals(seen.matrix)) {
+      relabel = false;
+      seen.cam = cam;
+      seen.matrix.copy(cam.matrixWorld);
+      placeLabels(cam);
+    }
   });
 
   // CSS2DRenderer hides only labels behind the camera; this also hides those whose anchor projects off the canvas.
@@ -315,25 +335,28 @@ export function createStage(canvas) {
     });
   }
 
-  // Shifts each Model tag (CSS translate, on top of CSS2DRenderer's transform) to the first spot around its anchor that
-  // overlaps no other label, person ring, forklift box or earlier tag; nearer spots and "above" come first.
-  function placeTags() {
+  // Hides person labels that overlap a nearer one (people.declutter), then shifts each Model tag (CSS translate, on top of
+  // CSS2DRenderer's transform) to the first spot around its anchor that overlaps no other label, person ring, forklift box
+  // or earlier tag; nearer spots and "above" come first. Every rect is read before any style is written.
+  function placeLabels(cam) {
+    const hidden = people.declutter(cam.position);
     const tags = cosmos.tags.filter((o) => o.element.style.display !== 'none');
-    if (!tags.length) return;
-    const taken = [...labels.domElement.querySelectorAll('.wh-lbl:not(.lbl-model):not(.lbl-mline):not(.wh-hid), .wh-pin')]
-      .filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect());
-    for (const [x, y] of Object.values(people.drawn())) {
-      const q = stage.project(Array.from({ length: 8 }, (_, i) => [x + RING_R * Math.cos((i * Math.PI) / 4), y + RING_R * Math.sin((i * Math.PI) / 4), 0]));
+    const tagRects = tags.map((o) => o.element.getBoundingClientRect());
+    const taken = tags.length ? [...labels.domElement.querySelectorAll('.wh-lbl:not(.lbl-model):not(.lbl-mline), .wh-pin')]
+      .filter((e) => !hidden.get(e) && e.getClientRects().length).map((e) => e.getBoundingClientRect()) : [];
+    const boxOf = (q) => {
       const xs = q.map((p) => p[0]), ys = q.map((p) => p[1]);
-      taken.push({ left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) });
-    }
-    for (const c of lifts.corners()) {
-      const q = stage.project(c), xs = q.map((p) => p[0]), ys = q.map((p) => p[1]);
-      taken.push({ left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) });
+      return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+    };
+    if (tags.length) {
+      for (const [x, y] of Object.values(people.drawn())) {
+        taken.push(boxOf(stage.project(Array.from({ length: 8 }, (_, i) => [x + RING_R * Math.cos((i * Math.PI) / 4), y + RING_R * Math.sin((i * Math.PI) / 4), 0]))));
+      }
+      for (const c of lifts.corners()) taken.push(boxOf(stage.project(c)));
     }
     const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    for (const o of tags) {
-      const el = o.element, r = el.getBoundingClientRect(), [sx, sy] = o.userData.shift ?? [0, 0];
+    const shifts = tags.map((o, k) => {
+      const r = tagRects[k], [sx, sy] = o.userData.shift ?? [0, 0];
       const w = r.width, h = r.height, cx = r.left + w / 2 - sx, cy = r.top + h / 2 - sy;
       const at = ([dx, dy]) => ({ left: cx + dx - w / 2, right: cx + dx + w / 2, top: cy + dy - h / 2, bottom: cy + dy + h / 2 });
       const spots = [];
@@ -342,10 +365,14 @@ export function createStage(canvas) {
         spots.push([0, -Y], [X, 0], [-X, 0], [0, Y], [X, -Y], [-X, -Y], [X, Y], [-X, Y]);
       }
       const shift = spots.find((s) => !taken.some((b) => overlaps(at(s), b))) ?? spots[0];
-      o.userData.shift = shift;
-      el.style.translate = `${shift[0]}px ${shift[1]}px`;
       taken.push(at(shift));
-    }
+      return shift;
+    });
+    for (const [el, hide] of hidden) el.classList.toggle('wh-hid', hide);
+    tags.forEach((o, k) => {
+      o.userData.shift = shifts[k];
+      o.element.style.translate = `${shifts[k][0]}px ${shifts[k][1]}px`;
+    });
   }
 
   // Moves the distance line and its label onto the actors as drawn at t; hidden outside the moment or when one is not drawn.
@@ -360,10 +387,14 @@ export function createStage(canvas) {
   }
 
   // The line is a CSS element pivoted at end a, so it keeps a pixel width (3 px, its σ band, the hover glow): it is
-  // stretched and turned to end b's projection each frame.
+  // stretched and turned to end b's projection each frame. An end behind the camera projects mirrored, so then both hide.
   function stretchMeasure(cam) {
     const { width: W, height: H } = labels.getSize();
-    const [p, q] = measureEnds.map(([x, y]) => new THREE.Vector3(x, y, 0.02).project(cam)).map((v) => [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H]);
+    const ends = measureEnds.map(([x, y]) => new THREE.Vector3(x, y, 0.02).project(cam));
+    const front = ends.every((v) => Math.abs(v.z) <= 1);
+    for (const o of measureGroup.children) o.visible = front;
+    if (!front) return;
+    const [p, q] = ends.map((v) => [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H]);
     const line = measureGroup.children[0];
     line.element.style.width = `${Math.hypot(q[0] - p[0], q[1] - p[1])}px`;
     line.rotation2D = -Math.atan2(q[1] - p[1], q[0] - p[0]);
@@ -400,6 +431,7 @@ export function createStage(canvas) {
     },
     // id: people | forklift | measures | blind | cloud | frusta
     setLayer(id, on) {
+      relabel = true;
       layerGroups[id].visible = on;
     },
     setSkeleton: (json) => people.set((skeleton = json)),
@@ -409,6 +441,7 @@ export function createStage(canvas) {
       tracks = new Map(json.tracks.map((tr) => [tr.entity_id, tr]));
     },
     setTime(t) {
+      relabel = true;
       people.update(t);
       lifts.update(t);
       cells.update(t);
@@ -416,6 +449,7 @@ export function createStage(canvas) {
     },
     // m: {ids: [a, b], t0, t1, text, sub} of a measured ground distance, or null to clear; t: the clock now.
     setMeasure(m, t) {
+      relabel = true;
       kit.clear(measureGroup);
       measure = m;
       if (!m) return;
@@ -453,9 +487,16 @@ export function createStage(canvas) {
         f.edge.opacity = f.c.id === id ? 1 : 0.75;
       }
     },
-    setHazards: (zones, fresh) => hazards.set(zones, fresh),
-    setModelResults: (results) => cosmos.set(results),
+    setHazards(zones, fresh) {
+      relabel = true;
+      hazards.set(zones, fresh);
+    },
+    setModelResults(results) {
+      relabel = true;
+      cosmos.set(results);
+    },
     setAnswerMode(on) {
+      relabel = true;
       const groups = [cosmos.group, pinGroup, frustaGroup, trackGroup, hazards.group];
       if (on && !answerLayers) answerLayers = new Map(groups.map((g) => [g, g.visible]));
       for (const g of groups) g.visible = on ? false : answerLayers?.get(g) ?? g.visible;
@@ -463,6 +504,7 @@ export function createStage(canvas) {
     },
     // pins: [{id, xy, text, t_ms, on, kind:'event'|'label'}]
     setPins(pins) {
+      relabel = true;
       kit.clear(pinGroup);
       for (const p of pins) {
         const stem = kit.line([[...p.xy, 0], [...p.xy, 2.6]], new THREE.LineBasicMaterial({ color: color(p.kind === 'event' ? '--danger' : '--ink-2') }));
@@ -486,12 +528,14 @@ export function createStage(canvas) {
       return [s[1], s[2]];
     },
     highlight(ids, ask) {
+      relabel = true;
       selectedIds = ids;
       askable = ask;
       mark();
     },
     // ids: entity_ids an evidence cites, at full strength with the others dimmed; null shows the selection again.
     setFocus(ids) {
+      relabel = true;
       focusIds = ids;
       mark();
     },
@@ -559,6 +603,13 @@ export function createStage(canvas) {
       pickFns.add(fn);
       return () => pickFns.delete(fn);
     },
+    // fn([x, y] | null): the floor point under the pointer as it moves, null off the floor or canvas.
+    onHover(fn) {
+      hoverFns.add(fn);
+      return () => hoverFns.delete(fn);
+    },
+    cellOf: (xy) => cells.cellOf(xy),
+    cellStates: (cell, t) => cells.states(cell, t),
     // on: start drawing, resolves to the polygon (null if cancelled); off: cancel and clear the drawn zone.
     drawZone(on) {
       if (on) return zone.start();
@@ -603,9 +654,11 @@ export function createStage(canvas) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      window.removeEventListener('keydown', onKey, true);
       renderer.setAnimationLoop(null);
       ro.disconnect();
       controls.dispose();
+      cells.dispose();
       scene.background = null;
       kit.clear(scene);
       for (const tx of ownedTextures) tx.dispose();

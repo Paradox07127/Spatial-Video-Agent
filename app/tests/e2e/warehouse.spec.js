@@ -361,7 +361,7 @@ test('evidence:focus with a ground distance enters Evidence mode: others dimmed,
   await expect(dock.locator('.wh-vcell')).toHaveAttribute('data-cam', 'ceiling_00');
 });
 
-test('Videos tab: primary camera 214 px with the others in two 105 px columns, No video hatching, Pin to stage switches and opens the stage dock', async ({ page }) => {
+test('Videos tab: primary camera 214 px with the others in two 105 px columns, No video hatching, Pin to stage switches the source video', async ({ page }) => {
   test.skip(LIVE, 'needs the wh-main replay');
   mockActions(page);
   await mockVideoRange(page);
@@ -389,8 +389,6 @@ test('Videos tab: primary camera 214 px with the others in two 105 px columns, N
 
   const dock = page.locator('.wh-stage-video');
   await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
-  await dock.locator('.wh-sv-fold').click();
-  await expect(dock).toBeHidden();
   await pane.locator('.wh-vcell[data-cam="ceiling_04"] .wh-pip-btn').click();
   await expect(dock).toBeVisible();
   await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_04');
@@ -401,7 +399,7 @@ test('Videos tab: primary camera 214 px with the others in two 105 px columns, N
 
 const SSE = (frames) => frames.map((f) => `event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`).join('');
 
-test('stage video dock: one clock-slaved camera video at the stage bottom right, cam tabs in manifest order, its frustum and rail camera marked; disposed on #/', async ({ page }) => {
+test('source video: one clock-slaved camera video in the left cell under the 3D stage, cam tabs in manifest order, its frustum and rail camera marked; disposed on #/', async ({ page }) => {
   mockActions(page);
   await mockVideoRange(page);
   await open(page);
@@ -410,11 +408,10 @@ test('stage video dock: one clock-slaved camera video at the stage bottom right,
   await expect(dock.locator('video')).toHaveCount(1);
   await expect(dock.locator('.wh-sv-tabs button')).toHaveText(MF.cams.map((c) => c.id));
   await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
-  const s = await page.locator('#stage').boundingBox(), b = await dock.boundingBox();
-  expect(Math.abs(b.width - 360)).toBeLessThanOrEqual(4);
-  expect(Math.abs(b.height - 200)).toBeLessThanOrEqual(12);
-  expect(s.x + s.width - (b.x + b.width)).toBeLessThanOrEqual(20);
-  expect(s.y + s.height - (b.y + b.height)).toBeLessThanOrEqual(20);
+  const top = await page.locator('.wh-top-slot').boundingBox(), cell = await page.locator('.wh-spatial-left').boundingBox(), b = await dock.boundingBox();
+  expect(b).toEqual(cell);
+  expect(b.x).toBeCloseTo(top.x, 0);
+  expect(b.y).toBeGreaterThanOrEqual(top.y + top.height);
   await expect(page.locator('.wh-rcam.sel')).toHaveAttribute('data-view', 'cam:ceiling_00');
   expect((await probe(page)).active_cam).toBe('ceiling_00');
 
@@ -481,31 +478,6 @@ test('a hit switches the stage dock to its primary camera with the hit cameras a
   await expect(page.locator('body')).toHaveAttribute('data-view', 'default');
   await expect(dock.locator('.wh-sv-tabs button')).toHaveText(MF.cams.map((c) => c.id));
   await expect(dock.locator('.wh-sv-tabs button.on')).toHaveText('ceiling_00');
-});
-
-test('the stage video dock folds to a Video · <cam> tab, stays folded after a reload, and the tab opens it again', async ({ page }) => {
-  mockActions(page);
-  await open(page);
-  const dock = page.locator('.wh-stage-video'), tab = page.locator('.wh-sv-open');
-  await expect(dock).toBeVisible();
-  await expect(tab).toBeHidden();
-  await dock.locator('.wh-sv-fold').click();
-  await expect(dock).toBeHidden();
-  await expect(tab).toBeVisible();
-  await expect(tab).toHaveText('Video · ceiling_00');
-  await expect(page.locator('video')).toHaveCount(0);
-  await page.reload();
-  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
-  await expect(tab).toBeVisible();
-  await expect(dock).toBeHidden();
-  await expect(page.locator('video')).toHaveCount(0);
-  await tab.click();
-  await expect(dock).toBeVisible();
-  await expect(tab).toBeHidden();
-  await expect(dock.locator('video')).toHaveCount(1);
-  await page.reload();
-  await expect(page.locator('.wh')).toHaveAttribute('data-scene', KEY);
-  await expect(dock).toBeVisible();
 });
 
 test('with the agent camera taken over, agent focus and setView commands leave the view as it is', async ({ page }) => {
@@ -927,3 +899,4 @@ test('the clock at the scene end asks for no moment past it', async ({ page }) =
   await page.waitForTimeout(500);
   expect(asked.filter((t) => t >= MF.t1_ms)).toEqual([]);
 });
+

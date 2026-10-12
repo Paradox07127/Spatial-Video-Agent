@@ -73,5 +73,19 @@ export function createBlindCells(kit) {
       if (s !== shown) draw((shown = s));
     },
     blindCount: () => blind,
+    // [ix, iy] of the cell holding world point [x, y]; null off the grid or without visibility.json.
+    cellOf([x, y]) {
+      if (!vis) return null;
+      const { origin: [x0, y0], nx, ny, cell_m } = vis, ix = Math.floor((x - x0) / cell_m), iy = Math.floor((y - y0) / cell_m);
+      return ix >= 0 && ix < nx && iy >= 0 && iy < ny ? [ix, iy] : null;
+    },
+    // State name of cell [ix, iy] for each camera at t: [{cam, state}] (visible | occluded | out_of_fov | no_video | unknown).
+    states([ix, iy], t) {
+      if (!vis || ix < 0 || ix >= vis.nx || iy < 0 || iy >= vis.ny) return null;
+      const s = Math.min(Math.max(Math.floor(t / 1000) - vis.t0_s, 0), secs.length - 1), nc = vis.cam_bit_order.length;
+      return vis.cam_bit_order.map((cam, c) => ({ cam, state: vis.states[secs[s][(iy * vis.nx + ix) * nc + c]] ?? 'unknown' }));
+    },
+    // The mesh is released with the scene; the canvas texture is not part of it.
+    dispose: () => tex.dispose(),
   };
 }

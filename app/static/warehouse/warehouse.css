@@ -1,11 +1,56 @@
-/* Warehouse page (card A3). Only styles.css tokens; chroma stays on data (risk = danger, model = source colour). */
-.wh { position: absolute; inset: 0; }
+/* Warehouse page (card A3, layout W-A). Only styles.css tokens; chroma stays on data (risk = danger, model = source colour). */
+.wh { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--paper); }
+.wh [hidden] { display: none !important; }
+
+/* ---- stage header: wraps instead of truncating */
+.wh-head {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 36px; padding: 4px 12px;
+  font-size: var(--fs-2); background: var(--card); border-bottom: 1px solid var(--rule);
+}
+body[data-ws="warehouse"] .wh-head .stage-controls { display: flex; position: static; z-index: auto; background: none; }
+.wh-mode button.on { color: var(--paper); background: var(--ink); font-weight: 500; }
+.wh-mode button:disabled { opacity: 0.5; }
+.wh-scene-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; font-size: var(--fs-1);
+  background: var(--sunk); border: 1px solid var(--rule); border-radius: var(--radius);
+}
+.wh-level-kind { color: var(--ink-2); }
+.wh-fact-time, .wh-fact-cams, .wh-fact-warn { font-size: var(--fs-1); color: var(--ink-2); }
+.wh-fact-time { color: var(--ink); font-weight: 500; }
+.wh-fact-warn { color: var(--src-model); }
+.wh-focus {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 10px; font-size: var(--fs-2); color: var(--src-measure);
+  background: var(--paper); border: 1px solid var(--src-measure); border-radius: 13px;
+}
+.wh-focus-label { color: var(--ink); }
+.wh-focus .i { width: 12px; height: 12px; }
+.wh-focus .icon-btn { width: 20px; height: 20px; border-radius: 10px; }
+.wh-zone.on { color: var(--ink); border-color: var(--ink); }
+.wh-zone-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 2px 0 10px; border: 1px dashed var(--ink-2); border-radius: var(--radius); font-size: var(--fs-2); }
+
+/* Layers popover, opening below its header button */
+.wh-layers { position: relative; display: flex; }
+.wh-layers-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--thread); }
+.wh-layers-pop {
+  position: absolute; top: 100%; right: 0; z-index: 8; margin-top: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 220px; padding: 8px;
+  font-size: var(--fs-2); background: var(--card); border: 1px solid var(--thread); border-radius: var(--radius-2); box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
+}
+.wh-layer { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px; color: var(--ink-3); border-radius: var(--radius); cursor: pointer; }
+.wh-layer:hover { background: var(--sunk); }
+.wh-layer input { margin: 0; accent-color: var(--ink); }
+.wh-layer:has(input:disabled) { color: var(--ink-2); cursor: default; }
+.wh-layer-sw { display: inline-flex; gap: 4px; margin-left: auto; }
+.wh-src-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid var(--rule); }
+
+/* ---- top slot: the 3D stage (camera rail + canvas), or the source video after a swap */
+.wh-top-slot { position: relative; flex: 2 1 0; min-height: 0; border-bottom: 1px solid var(--rule); }
+.wh-stage-3d { position: absolute; inset: 0; overflow: hidden; }
+.wh-view { position: absolute; top: 0; right: 0; bottom: 0; left: 24px; overflow: hidden; }
 .wh-canvas, .wh-labels { position: absolute; }
 .wh-canvas { display: block; outline: 0; }
-/* z-index 0 keeps the labels' own z-indices (depth order) below the HUD. */
+/* z-index 0 keeps the labels' own z-indices (depth order) below the rail */
 .wh-labels { pointer-events: none; z-index: 0; }
 .wh-loading { z-index: 1; font: 12px var(--font-mono); pointer-events: none; }
-.wh-loading[hidden] { display: none; }
 
 /* ---- labels in the 3D scene */
 .wh-lbl { font: var(--fs-1)/1.3 var(--font-mono); color: var(--ink-2); white-space: nowrap; pointer-events: none; }
@@ -52,31 +97,15 @@ body[data-stage="evidence"] :is(.wh-msub, .wh-mband) { display: block; }
 .wh-pin b { font: 500 var(--fs-1)/16px var(--font-sans); color: var(--danger); }
 .wh-pin:hover { border-color: var(--thread); border-left-color: var(--danger); }
 .wh-pin.on { background: color-mix(in srgb, var(--danger) 22%, var(--paper)); }
+/* while a zone is drawn every click goes to the floor */
+.wh-drawing .wh-labels * { pointer-events: none; }
 
-/* ---- HUD over the stage */
-.wh-hud { position: absolute; inset: 0; pointer-events: none; }
-.wh-hud > * { pointer-events: auto; }
-.wh-hud [hidden] { display: none !important; }
-/* top left, clear of the collapsed camera rail */
-.wh-bar { position: absolute; top: 14px; left: 38px; display: flex; align-items: center; gap: 10px; }
-.wh-bar .seg, .wh-bar .ghost, .wh-zone-chip, .wh-layers-btn { background: var(--paper); }
-.wh-mode button.on { color: var(--paper); background: var(--ink); font-weight: 500; }
-.wh-mode button:disabled { opacity: 0.5; }
-.wh-focus {
-  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 10px; font-size: var(--fs-2); color: var(--src-measure);
-  background: var(--paper); border: 1px solid var(--src-measure); border-radius: 13px;
-}
-.wh-focus .i { width: 12px; height: 12px; }
-.wh-focus .icon-btn { width: 20px; height: 20px; border-radius: 10px; }
-.wh-zone.on { color: var(--ink); border-color: var(--ink); }
-.wh-zone-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 2px 0 10px; border: 1px dashed var(--ink-2); border-radius: var(--radius); font-size: var(--fs-2); }
-
-/* camera rail: a 24 px strip of dots, 80 px of thumbnails on hover or keyboard focus */
+/* camera rail: a 24 px strip of dots beside the canvas, 80 px of thumbnails over it on hover or keyboard focus */
 .wh-rail {
   position: absolute; top: 0; left: 0; bottom: 0; z-index: 2; width: 24px; display: flex; flex-direction: column; gap: 8px;
-  padding: 14px 0; overflow: hidden; background: rgb(14 18 24 / 0.88); border-right: 1px solid var(--rule); transition: width 120ms var(--ease), padding 120ms var(--ease);
+  padding: 14px 0; overflow: hidden; background: var(--paper); border-right: 1px solid var(--rule); transition: width 120ms var(--ease), padding 120ms var(--ease);
 }
-.wh-rail:is(:hover, :has(:focus-visible)) { width: 80px; padding: 14px 8px; }
+.wh-rail:is(:hover, :has(:focus-visible)) { width: 80px; padding: 14px 8px; background: rgb(14 18 24 / 0.94); }
 .wh-rail-head { font-size: 10px; font-weight: 500; letter-spacing: 0.06em; color: var(--ink-2); }
 .wh-rail-foot { margin-top: auto; font-size: 10px; line-height: 1.4; color: var(--ink-2); }
 .wh-rcam { display: flex; justify-content: center; padding: 3px 0; color: var(--ink-3); }
@@ -98,46 +127,79 @@ body[data-stage="evidence"] :is(.wh-msub, .wh-mband) { display: block; }
 .wh-rcam:hover .wh-rthumb { border-color: var(--ink); }
 .wh-rid { grid-area: id; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Layers popover */
-.wh-layers { position: absolute; top: 14px; right: 14px; z-index: 2; display: flex; flex-direction: column; align-items: flex-end; }
-.wh-layers-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--thread); }
-.wh-layers-pop {
-  margin-top: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 220px; padding: 8px;
-  font-size: var(--fs-2); background: var(--card); border: 1px solid var(--thread); border-radius: var(--radius-2); box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
+/* ---- synced videos: Videos tab (primary 214 px, others two columns of 105 px), source video, Cameras grid */
+.wh-videos { display: flex; flex-direction: column; gap: 10px; }
+.wh-vgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wh-vcell { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; }
+.wh-vframe { position: relative; height: 105px; overflow: hidden; background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; box-sizing: border-box; }
+.wh-vcell.primary .wh-vframe { height: 214px; border: 1.5px solid var(--ink); }
+.wh-vframe video, .wh-vframe canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wh-vcell figcaption { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-1); white-space: nowrap; }
+.wh-pip-btn { margin-left: auto; font-size: var(--fs-1); color: var(--ink-2); }
+.wh-pip-btn:hover { color: var(--ink); }
+.wh-nov {
+  position: absolute; inset: 0; display: none; place-items: center; font-size: var(--fs-1); color: var(--ink-3);
+  background: var(--paper) repeating-linear-gradient(135deg, var(--thread) 0 1.5px, transparent 1.5px 5px);
 }
-.wh-layer { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px; color: var(--ink-3); border-radius: var(--radius); cursor: pointer; }
-.wh-layer:hover { background: var(--sunk); }
-.wh-layer input { margin: 0; accent-color: var(--ink); }
-.wh-layer-sw { display: inline-flex; gap: 4px; margin-left: auto; }
-.wh-src-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid var(--rule); }
+.wh-vcell.nov .wh-nov { display: grid; }
+.wh-vnote { margin: 0; font-size: var(--fs-2); line-height: 1.5; color: var(--ink-2); }
 
-/* stage video dock (bottom right): one camera on the master clock; in Evidence mode the source frame of the evidence */
-.wh-stage-video {
-  position: absolute; right: 14px; bottom: 14px; z-index: 1; width: 360px; overflow: hidden;
-  background: var(--paper); border: 1px solid var(--thread); border-radius: var(--radius); box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
-}
-body[data-stage="evidence"] .wh-stage-video:has(.wh-sv-src) { border-color: var(--src-measure); }
-.wh-sv-head { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 2px 0 8px; font-size: var(--fs-1); }
+/* ---- spatial row: source video (left) and evidence cell (right) */
+.wh-spatial { flex: 1 1 0; min-height: 180px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1px; background: var(--rule); }
+.wh-spatial-tabs, .wh-mobile-seg { display: none; }
+.wh-spatial-cell { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--paper); }
+.wh-spatial-left { grid-column: 1; }
+.wh-spatial-right { grid-column: 2; display: flex; flex-direction: column; background: var(--card); }
+
+/* source video: one camera on the master clock; in Answer mode the cited evidence's camera, boxing only its actors */
+.wh-stage-video { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--paper); }
+body[data-stage="evidence"] .wh-stage-video:has(.wh-sv-src) { box-shadow: inset 0 0 0 1px var(--src-measure); }
+.wh-sv-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 30px; padding: 2px 6px 2px 8px; font-size: var(--fs-1); border-bottom: 1px solid var(--rule); }
 .wh-sv-tabs { display: flex; gap: 2px; min-width: 0; margin-right: auto; overflow: hidden; }
-.wh-sv-tabs button { height: 20px; padding: 0 6px; font: inherit; color: var(--ink-2); border-radius: 3px; }
+.wh-sv-tabs button { height: 22px; padding: 0 6px; font: inherit; color: var(--ink-2); border-radius: 3px; }
 .wh-sv-tabs button:hover { color: var(--ink); }
 .wh-sv-tabs button.on { color: var(--ink); background: var(--sunk); }
 .wh-sv-src { color: var(--src-measure); }
-.wh-sv-fold { width: 22px; height: 22px; }
-.wh-sv-open {
-  position: absolute; right: 14px; bottom: 14px; z-index: 1; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
-  font-size: var(--fs-1); color: var(--ink-3); background: var(--paper); border: 1px solid var(--thread); border-radius: var(--radius);
-}
-.wh-sv-open:hover { color: var(--ink); }
-.wh-sv-open .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
-.wh-stage-video .wh-vcell figcaption { display: none; }
+.wh-sv-tag { color: var(--src-measure); }
 .wh-clip { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font: inherit; color: var(--ink-2); }
 .wh-clip:hover { color: var(--ink); }
 .wh-clip .i { width: 10px; height: 10px; fill: currentColor; stroke: none; }
+.wh-swap-btn { height: 22px; padding: 0 8px; font-size: var(--fs-1); }
+.wh-sv-tabs + .wh-swap-btn { margin-left: auto; }
+.wh-sv-body { position: relative; flex: 1; min-height: 0; }
+.wh-sv-body .wh-videos, .wh-sv-body .wh-vcell { position: absolute; inset: 0; }
+.wh-sv-body .wh-vcell .wh-vframe { height: 100%; border: 0; border-radius: 0; }
+.wh-sv-body .wh-vcell figcaption { display: none; }
+.wh-top-slot .wh-stage-video { border-bottom: 0; }
+
+/* evidence cell: Measure | Cameras | Visibility in Explore; the cited evidence's detail in Answer mode */
+.wh-evidence-tabs { flex: none; align-self: flex-start; margin: 6px 10px; }
+.wh-evidence-tabs button { height: 22px; padding: 0 10px; font-size: var(--fs-1); }
+.wh-answer .wh-evidence-tabs { display: none; }
+.wh-evidence-panes { position: relative; flex: 1; min-height: 0; overflow: auto; }
+.wh-pane { padding: 8px 12px; font-size: var(--fs-2); }
+.wh-answer .wh-pane { padding-top: 10px; }
+.wh-pane-cameras { position: absolute; inset: 0; padding: 4px; }
+.wh-pane-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px; }
+.wh-pane-head .mono { color: var(--src-measure); }
+.wh-pane-note { margin: 0 0 8px; color: var(--ink-2); line-height: 1.5; }
+.wh-measure-detail { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: var(--fs-1); }
+.wh-measure-detail dt { color: var(--ink-2); font-family: var(--font-sans); }
+.wh-measure-detail dd { margin: 0; overflow-wrap: anywhere; }
+.wh-cam-states { display: flex; flex-direction: column; gap: 3px; margin: 0 0 8px; padding: 0; list-style: none; font-size: var(--fs-1); }
+.wh-cam-states li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 8px; color: var(--ink-2); border-left: 2px dashed var(--thread); }
+.wh-cam-states li.seen { color: var(--ink); border-left: 2px solid var(--src-measure); }
+/* Cameras: every camera on the master clock, two by two */
+.wh-pane-cameras .wh-videos { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: 4px; height: 100%; }
+.wh-pane-cameras .wh-vgrid { display: contents; }
+.wh-pane-cameras .wh-vcell { position: relative; min-height: 0; }
+.wh-pane-cameras .wh-vcell .wh-vframe { height: 100%; border: 1px solid var(--rule); }
+.wh-pane-cameras figcaption { position: absolute; left: 4px; bottom: 3px; z-index: 8; padding: 0 4px; font-size: 10px; background: rgb(14 18 24 / 0.8); border-radius: 2px; }
+.wh-pane-cameras .wh-pip-btn { display: none; }
 
 /* auto-action toast (watch mode) */
 .wh-toast {
-  position: absolute; left: 50%; bottom: 14px; z-index: 2; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
+  position: absolute; left: 50%; bottom: 14px; z-index: 9; transform: translateX(-50%); display: flex; align-items: center; gap: 12px;
   height: 44px; padding: 0 8px 0 14px; font-size: var(--fs-3); white-space: nowrap;
   background: var(--card); border: 1px solid var(--thread); border-radius: var(--radius-2); box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
 }
@@ -157,29 +219,37 @@ body[data-stage="evidence"] .wh-stage-video:has(.wh-sv-src) { border-color: var(
 .sw-single { background: color-mix(in srgb, var(--ink-2) 28%, transparent); }
 .sw-lift { background: var(--thread); border-left: 4px solid var(--ink-2); }
 
-/* ---- synced videos: Videos tab (primary 214 px, others two columns of 105 px), stage dock */
-.wh-videos { display: flex; flex-direction: column; gap: 10px; }
-.wh-vgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.wh-vcell { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 0; }
-.wh-vframe { position: relative; height: 105px; overflow: hidden; background: var(--sunk); border: 1px solid var(--rule); border-radius: 3px; box-sizing: border-box; }
-.wh-vcell.primary .wh-vframe { height: 214px; border: 1.5px solid var(--ink); }
-.wh-stage-video .wh-vcell .wh-vframe { height: 174px; border: 0; border-radius: 0; }
-.wh-vframe video, .wh-vframe canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.wh-vcell figcaption { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-1); white-space: nowrap; }
-.wh-pip-btn { margin-left: auto; font-size: var(--fs-1); color: var(--ink-2); }
-.wh-pip-btn:hover { color: var(--ink); }
-.wh-nov {
-  position: absolute; inset: 0; display: none; place-items: center; font-size: var(--fs-1); color: var(--ink-3);
-  background: var(--paper) repeating-linear-gradient(135deg, var(--thread) 0 1.5px, transparent 1.5px 5px);
-}
-.wh-vcell.nov .wh-nov { display: grid; }
-.wh-vnote { margin: 0; font-size: var(--fs-2); line-height: 1.5; color: var(--ink-2); }
-
 /* ---- model lanes the page adds to the shell timeline */
 .lane-model .tl-seg { top: 4px; height: 10px; border: 1px dashed var(--src-model); background: color-mix(in srgb, var(--src-model) 18%, transparent); }
+
+/* 851–1200 px: the spatial row is one cell, Source video | Evidence | Cameras | Visibility */
+@media (max-width: 1200px) {
+  .wh-spatial { display: flex; flex-direction: column; gap: 0; }
+  .wh-spatial-tabs { display: flex; flex: none; align-self: flex-start; margin: 4px 8px; }
+  .wh-spatial-tabs button { height: 22px; padding: 0 10px; font-size: var(--fs-1); }
+  .wh-spatial-cell { flex: 1; }
+  .wh-spatial[data-show="video"] .wh-spatial-right, .wh-spatial[data-show="evidence"] .wh-spatial-left { display: none; }
+  .wh-evidence-tabs { display: none; }
+  .wh-zone { padding: 0 8px; }
+  .wh-zone-label { display: none; }
+}
+
+/* ≤ 850 px: one slot under the header shows 3D, the source video or the evidence cell; the segmented control sits below it */
 @media (max-width: 850px) {
-  .wh-bar { right: 100px; gap: 6px; flex-wrap: wrap; align-items: flex-start; }
-  .wh-bar .seg, .wh-bar .ghost { flex: none; }
-  .wh-focus { max-width: 100%; white-space: nowrap; }
-  .wh-focus > span { overflow: hidden; text-overflow: ellipsis; }
+  .wh-head { gap: 4px 8px; padding: 4px 8px; }
+  /* compact header: the topbar names the scene; the chip keeps the measured value */
+  .wh-scene-key, .wh-level-kind, .wh-fact-cams, .wh-focus-label { display: none; }
+  .wh-scene-chip { padding: 0 4px; border: 0; background: none; }
+  .wh-focus { order: 1; }
+  .wh-head .seg button { padding: 0 8px; }
+  .wh-top-slot, .wh-spatial { order: 1; flex: 1 1 0; min-height: 0; border-bottom: 0; }
+  .wh-mobile-seg { order: 2; display: flex; flex: none; margin: 4px 8px; }
+  .wh-mobile-seg button { flex: 1; justify-content: center; }
+  .wh-spatial-tabs, .wh-swap-btn { display: none; }
+  .wh[data-show="3d"] .wh-spatial, .wh:not([data-show="3d"]) .wh-top-slot { display: none; }
+  .wh[data-show="video"] .wh-spatial-right, .wh[data-show="evidence"] .wh-spatial-left { display: none; }
+  .wh[data-show="evidence"] .wh-spatial-right { display: flex; }
+  .wh[data-show="video"] .wh-spatial-left { display: block; }
+  .wh-evidence-tabs { display: flex; }
+  .wh-answer .wh-evidence-tabs { display: none; }
 }

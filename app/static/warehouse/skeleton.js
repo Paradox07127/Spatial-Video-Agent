@@ -23,6 +23,7 @@ export function createSkeletons(kit) {
       kit.clear(group);
       people.clear();
       this.pickables = [];
+      if (!json?.persons) return;
       for (const [id, s] of Object.entries(json.persons)) {
         const pos = new Float32Array(EDGES.length * 6), jpos = new Float32Array(17 * 3);
         const bones = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), new THREE.LineBasicMaterial({ color: kit.color('--ink') }));
@@ -84,16 +85,18 @@ export function createSkeletons(kit) {
       }
     },
     // Labels in order selected first, then nearest the eye; one overlapping an earlier shown label is hidden.
+    // Reads only: returns label element → hidden, for the caller to apply with its other writes.
     declutter(eye) {
-      const shown = [];
+      const shown = [], hidden = new Map();
       const list = [...people.values()].filter((p) => p.node.visible)
         .sort((a, b) => selected.has(b.id) - selected.has(a.id) || a.node.position.distanceTo(eye) - b.node.position.distanceTo(eye));
       for (const p of list) {
         const el = p.tag.element, r = el.getBoundingClientRect();
         const hide = !selected.has(p.id) && shown.some((s) => r.left < s.right && s.left < r.right && r.top < s.bottom && s.top < r.bottom);
-        el.classList.toggle('wh-hid', hide);
+        hidden.set(el, hide);
         if (!hide) shown.push(r);
       }
+      return hidden;
     },
     dimmed: () => [...people.values()].filter((p) => p.dim).map((p) => p.id),
     single: () => [...people.values()].filter((p) => p.node.visible && p.single).map((p) => p.id),

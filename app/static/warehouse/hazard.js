@@ -43,7 +43,11 @@ export function createHazards(kit) {
         a.node.scale.setScalar(Math.max(e, 0.01));
         a.ring.scale.setScalar(Math.max(a.r * (0.2 + 1.2 * k), 0.01));
         a.ring.material.opacity = 1 - k;
-        if (k >= 1) group.remove(a.ring);
+        if (k >= 1) {
+          a.ring.geometry.dispose();
+          a.ring.material.dispose();
+          group.remove(a.ring);
+        }
         return k < 1;
       });
     },
