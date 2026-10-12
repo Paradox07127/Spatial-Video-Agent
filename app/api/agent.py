@@ -1786,12 +1786,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             hit = next((m for f in frames if f['event']=='hits' for m in f['data']['moments']),None)
             if context.get('t_ms') is not None and context.get('selection'):
                 t, ids, resolved = context['t_ms'], context['selection'], True
-            elif hit:
+            # an unparsed time condition leaves the hit's time outside what the question allows
+            elif hit and 'temporal_relation' not in parsed.constraints and not any(re.fullmatch(r'unconsumed:\d+',c) for c in parsed.constraints):
                 key, t, ids, resolved = key or hit['scene_key'], hit['t0_ms'], [r['entity_id'] for r in hit['actor_refs']], False
             else:
                 return None
             manifest = store.manifest(key) if key else None
-            if manifest is None or not manifest['t0_ms']<=t<manifest['t1_ms']:
+            if manifest is None or not manifest['t0_ms']<=t<manifest['t1_ms'] or parsed.t_range and not parsed.t_range[0]<=t<parsed.t_range[1]:
                 return None
             person = next((i for i in ids if re.fullmatch(r'P\d+',i)),None)
             forklift = next((i for i in ids if re.fullmatch(r'F\d+',i)),None)
@@ -1834,8 +1835,12 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                               lambda:tools.measure(store,key,t,refs[forklift],None,'speed',cam=cam)))
             if person:
                 reads.append(('visibility','visibility',{'scene_key':key,'t_ms':t,'target':person,'cam':cam},lambda:tools.visibility(store,key,t,person,cam=cam)))
-                reads.append(('events','events',{'scene_key':key,'t0_ms':max(0,t-2000),'t1_ms':t+2000,'selection':[person]},
-                              lambda:tools.events(store,key,max(0,t-2000),t+2000,selection=[person])))
+                # the event window never leaves the question's own time scope
+                lo, hi = max(0,t-2000), t+2000
+                if parsed.t_range:
+                    lo, hi = max(lo,parsed.t_range[0]), min(hi,parsed.t_range[1])
+                reads.append(('events','events',{'scene_key':key,'t0_ms':lo,'t1_ms':hi,'selection':[person]},
+                              lambda:tools.events(store,key,lo,hi,selection=[person])))
             if ids and {followup.ACTIVITY_TEXT,followup.GAZE_TEXT}&set(parts):
                 reads.append(('model','situation',{'scene_key':key,'t_ms':t,'actor_refs':[r.model_dump() for r in refs.values()],'cam':cam,'t_range':None},
                               lambda:tools.situation(store,key,t,list(refs.values()),cam=cam,run=run,circuit=circuit)))
@@ -1910,6 +1915,9 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         # an unmapped or unmeasured question answers with what is measured at its focus instead of a generic sentence
         if (not corpus and parsed is not None and parsed.workspace=='warehouse' and stop_reason!='error'
                 and (final=='UNRESOLVED' or final=='UNSUPPORTED' and not re.search(llm.FORBIDDEN,body.q,re.I))
+                # a template question keeps its own abstention; only words no tool measures, or a non-English question, add the analysis
+                and (final=='UNSUPPORTED' or any(c.startswith('unconsumed:') for c in parsed.constraints)
+                     or any(not ch.isascii() and ch.isalpha() for ch in body.q))
                 and all(re.fullmatch(r'(?:Not measured: [^.]*\. The full question remains unresolved\.(?: |$))+',a['text'])
                         or a['text']==UNMAPPED for a in answers)):
             answers, suggested = yield from analyse()
