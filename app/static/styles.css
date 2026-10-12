@@ -189,6 +189,17 @@ body[data-run="running"] .answer { margin: 18px 20px 0; padding: 0 0 16px; borde
 .ans-src { display: flex; align-items: center; gap: 12px; }
 .ans-not-measured { margin: 0; font-size: var(--fs-2); color: var(--ink-2); line-height: 1.5; }
 .ans-instead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; font-size: var(--fs-2); color: var(--ink-2); }
+.ans-text:empty { display: none; }
+.ans-unmet { margin: 0; font-size: var(--fs-3); color: var(--ink-3); line-height: 1.5; text-wrap: pretty; }
+.ans-facts { display: flex; flex-direction: column; gap: 4px; margin: -4px 0 0; padding: 0; list-style: none; font-size: var(--fs-3); line-height: 1.5; }
+.ans-facts .ans-num, .ans-facts .ans-time { font-size: var(--fs-3); }
+.ans-model { margin: 0; padding-left: 8px; border-left: 1.5px dashed var(--src-model); font-size: var(--fs-2); color: var(--ink-2); line-height: 1.5; }
+.ans-suggest { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.suggest {
+  display: inline-flex; align-items: center; min-height: 24px; max-width: 100%; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--radius-2);
+  color: var(--ink-2); font-size: var(--fs-2); text-align: left; transition: color 100ms, border-color 100ms;
+}
+.suggest:hover { color: var(--ink); border-color: var(--thread); }
 .tabs { display: flex; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--rule); font-size: var(--fs-3); }
 .tabs:empty, body:not([data-run="done"]) .tabs { display: none; }
 .tabs button { padding: 10px 0; margin-bottom: -1px; color: var(--ink-2); border-bottom: 2px solid transparent; }

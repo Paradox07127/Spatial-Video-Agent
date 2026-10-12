@@ -514,7 +514,7 @@ async function ask(q, { home = null, t_ms = null, corpus = false, follow = false
   run = {
     id: null, q, home, source: route.scene_key, held: ctx.route.page === 'home' ? hold() : null, steps: [], lastStep: null, reached: -1, items: [], changes: [], summaries: new Map(),
     evidence: new Map(), evCall: new Map(), claims: new Map(), cites: [], models: new Map(), queue: [], lane: [], answers: [], rawAnswers: [], calls: new Map(), moments: [], native: null, final: null,
-    skippedUi: 0, corpus, measureRefs: [], observations: new Map(), protocolVersion: replay ? 2 : 1,
+    skippedUi: 0, corpus, measureRefs: [], observations: new Map(), protocolVersion: replay ? 2 : 1, suggestions: [],
   };
   document.body.dataset.run = 'running';
   setAgentCamera(true);
@@ -684,9 +684,12 @@ const handlers = {
       run.answerActivated = true;
       run.opening = activateEvidence(cited);
     }
-    run.answers.push(numbered(d));
+    run.answers.push({ part: d.part ?? 'answer', html: numbered(d) });
     renderSlot();
     timeline.setEvidence(evMarks());
+  },
+  suggest(d) {
+    run.suggestions = d.questions;
   },
   vss_native(d) {
     run.native = d;
@@ -842,11 +845,20 @@ function slotPlaceholder(r) {
   return 'Appears here once evidence is verified.';
 }
 
+const partHtml = (part) => run.answers.filter((a) => a.part === part).map((a) => a.html);
+// A follow-up the agent could not resolve: what is not measured, the facts measured at the focused moment, an unverified model description.
+const unmetHtml = () => partHtml('unmet').map((h) => `<p class="ans-unmet">${h}</p>`).join('');
+function factsHtml() {
+  const facts = partHtml('fact');
+  return `${facts.length ? `<span class="p-label">MEASURED AT THAT MOMENT</span><ul class="ans-facts">${facts.map((h) => `<li>${h}</li>`).join('')}</ul>` : ''}${partHtml('model').map((h) => `<p class="ans-model">${source('model')} ${h}</p>`).join('')}`;
+}
+
 function renderSlot() {
+  const text = partHtml('answer').join('');
   $('#answer').innerHTML = `
     <div class="ans-slot">
       <span class="p-label">ANSWER</span>
-      ${run.answers.length ? `<p class="ans-text">${run.answers.join('')}</p>` : `<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">${esc(slotPlaceholder(run))}</span>`}
+      ${run.answers.length ? `${unmetHtml()}${text ? `<p class="ans-text">${text}</p>` : ''}${factsHtml()}` : `<i class="skel" style="width:92%"></i><i class="skel" style="width:70%"></i><span class="muted">${esc(slotPlaceholder(run))}</span>`}
     </div>`;
 }
 
@@ -902,16 +914,19 @@ const ABSTAIN_QTY = {
   no_track_ids: 'same person',
 };
 
+// A question word no template consumed is quoted as the asker wrote it.
+const opWord = (op) => op.startsWith('unconsumed:') ? `“${op.slice('unconsumed:'.length)}”` : op.replace(/_/g, ' ');
+
 function notMeasuredLine() {
   const items = new Map();
   const add = (quantity, reason) => { if (!items.has(quantity)) items.set(quantity, reason); };
   for (const c of run.claims.values()) {
     if (c.explain?.abstain) add(ABSTAIN_QTY[c.explain.abstain.reason] ?? 'measurement', c.explain.abstain.text ?? c.explain.abstain.reason.replace(/_/g, ' '));
     for (const p of c.predicates ?? []) if (!['supported', 'contradicted'].includes(p.status)) {
-      const q = p.operator === 'located' ? 'position' : p.unit === 'm' ? 'distance' : ['m/s', 'km/h', 'mps'].includes(p.unit) ? 'speed' : OP_WORDS[p.operator] ?? p.operator.replace(/_/g, ' ');
+      const q = p.operator === 'located' ? 'position' : p.unit === 'm' ? 'distance' : ['m/s', 'km/h', 'mps'].includes(p.unit) ? 'speed' : OP_WORDS[p.operator] ?? opWord(p.operator);
       add(q, p.eids?.length ? 'checked but unresolved' : 'not checked');
     }
-    for (const name of c.explain?.not_measured ?? []) if (!c.predicates.some((p) => p.operator === name)) add(String(name).replace(/_/g, ' '), 'not checked');
+    for (const name of c.explain?.not_measured ?? []) if (!c.predicates.some((p) => p.operator === name)) add(opWord(String(name)), 'not checked');
   }
   const text = items.size ? [...items].map(([q, reason]) => `${esc(q)} — ${esc(reason)}`).join('; ') : run.claims.size ? 'No unmeasured conditions in this question.' : 'No metric quantities were checked for this question.';
   return `<p class="ans-not-measured not-measured"><b>Not measured:</b> ${text}</p>`;
@@ -929,23 +944,27 @@ function renderAnswer() {
   const abstain = ABSTAIN[run.final];
   const kinds = [...new Set(run.cites.filter((e) => run.evidence.has(e)).map((e) => run.evidence.get(e).kind))].filter((kind) => kind !== 'measure' || measuredEids().size);
   const levels = [...new Set([...run.moments.map((m) => m.evidence_level ?? sceneDetails.get(m.scene_key)?.evidence_level), ...[...run.claims.values()].map((c) => c.evidence_level), !run.moments.length && sceneDetails.get(run.source)?.evidence_level].filter(Boolean))].sort().reverse();
-  const text = run.answers.join('') || (abstain ? `${abstain[0]}<span class="muted"> (${esc(run.lastStep?.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
+  // the unmet sentence already says why; the generic refusal would misname a question no template covers as identity or intent
+  const text = partHtml('answer').join('') || (partHtml('unmet').length ? '' : abstain ?`${abstain[0]}<span class="muted"> (${esc(run.lastStep?.summary)})</span>` : run.final ? '' : 'Stopped before an answer.');
   // The first two presets of each workspace are answerable ones.
   const instead = (PRESETS[ctx.route.workspace] ?? PRESETS.warehouse).slice(0, 2).filter((q) => q !== run.q);
   const knownLevel = run.rawAnswers.find((a) => a.evidence_level)?.evidence_level
     ?? [...run.claims.values()].find((c) => c.evidence_level)?.evidence_level
     ?? run.moments.find((m) => m.evidence_level)?.evidence_level
     ?? levels[0] ?? null;
+  const suggest = run.suggestions.map((q) => `<button type="button" class="suggest">${esc(q)}</button>`).join('');
   const reasoningLine = `<a class="ans-run" href="${run.id ? `#/run/${esc(run.id)}` : '#/runs'}"><span class="ans-meta mono muted">${count(run.steps.length, 'step')} · ${sec(took())}</span> · Reasoning <span class="mono">›</span></a>`;
   $('#answer').innerHTML = `
     <div class="ans-head">${run.final ? say(run.final) : '<span class="verdict say v-stopped">Stopped</span>'}
       ${knownLevel ? level(knownLevel) : ''}
       ${reasoningLine}</div>
+    ${unmetHtml()}
     <p class="ans-text">${text}</p>
-    ${notMeasuredLine()}
+    ${factsHtml()}
+    ${partHtml('unmet').length ? '' : notMeasuredLine()}
     ${run.stopReason === 'error' || run.stopReason === 'budget_exhausted' ? `<p class="ans-instead">${esc(completion({ stop_reason: run.stopReason, error: run.failure }))}</p>` : ''}
     ${kinds.length ? `<div class="ans-src">${kinds.map(source).join('')}</div>` : ''}
-    ${abstain ? `<p class="ans-instead">${abstain[1]}${instead.map((q) => `<button class="preset">${esc(q)}</button>`).join('')}</p>` : ''}`;
+    ${abstain ? `<p class="ans-instead">${abstain[1]}${suggest || instead.map((q) => `<button class="preset">${esc(q)}</button>`).join('')}</p>` : suggest ? `<div class="ans-suggest"><span class="p-label">TRY ASKING</span>${suggest}</div>` : ''}`;
 }
 
 function evIds() {
@@ -993,7 +1012,7 @@ function renderKeyframe() {
   if (keyframeStrip) $('#keyframe .kf-back').onclick = () => activateEvidence(m, () => clock.seek(clock.toWall(m.scene_key, m.t0_ms)));
 }
 
-const predText = (p) => p.operator === 'measured' ? `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${p.unit === 'm' ? 'distance' : 'measurement'}` : `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator.replace(/_/g, ' '))} ${esc(p.value)} ${esc(p.unit ?? '')}`;
+const predText = (p) => p.operator === 'measured' ? `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${p.unit === 'm' ? 'distance' : 'measurement'}` : `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? opWord(p.operator))} ${esc(p.value)} ${esc(p.unit ?? '')}`;
 // The value a predicate was decided on: its first evidence with a number.
 function predValue(p) {
   const e = p.eids.map((id) => run.evidence.get(id)).find((x) => typeof x?.value === 'number');
@@ -1283,7 +1302,10 @@ function askPreset(q) {
   ask(q);
 }
 $('#presets').addEventListener('click', (e) => e.target.closest('.preset') && askPreset(e.target.closest('.preset').textContent));
-$('#answer').addEventListener('click', (e) => e.target.closest('.preset') && askPreset(e.target.closest('.preset').textContent));
+$('#answer').addEventListener('click', (e) => {
+  if (e.target.closest('.preset')) askPreset(e.target.closest('.preset').textContent);
+  else if (e.target.closest('.suggest')) followUp(e.target.closest('.suggest').textContent);
+});
 $('#tabs').addEventListener('click', (e) => e.target.closest('[data-tab]') && setTab(e.target.closest('[data-tab]').dataset.tab));
 $('.p-moments').addEventListener('click', (e) => e.target.closest('.p-more') && $('.p-moments').classList.toggle('open'));
 $('#tab-evidence').addEventListener('click', (e) => {
