@@ -97,11 +97,14 @@ def build_task_spec(q):
     return TaskSpec(q,tuple(requirements),tuple(ranges),tuple(time_spans))
 
 
-def consume_comparison_time(q, constraints, *, distance=False, speed=False):
-    """Consume time quantifiers only after the caller decides an extremal comparison."""
-    if not (distance or speed):
+def consume_comparison_time(q, constraints, *, existential=False, universal=False):
+    """Consume time quantifiers only when a sample witnesses them: ever/at some point by a sample that satisfies the
+    comparison, always/throughout by one that violates it."""
+    patterns=[r'\bever\b|\bat some point\b'] if existential else []
+    patterns+=[UNIVERSAL_TIME] if universal else []
+    if not patterns:
         return constraints
-    pattern=r'\bever\b'+('|'+UNIVERSAL_TIME+r'|\bat some point\b' if distance else '')
+    pattern='|'.join(patterns)
     spans=[m.span() for m in re.finditer(pattern,q,re.I)]
     requirements=[r for r in build_task_spec(q).requirements if r.kind=='unconsumed']
     consumed={r.span.casefold() for r in requirements if any(a<=r.start and r.end<=b for a,b in spans)}

@@ -402,14 +402,17 @@ def bound_ego_distance(store, scene_key, t_range, target, *, zone=None):
     if not candidates:
         return result(scene_key,lo,hi,{'status':'UNRESOLVED','reason':'missing_bound_ego_sample'},coverage=0,
                       gaps=[(lo,hi,'missing_bound_ego_sample')])
-    extremes=[min(candidates,key=lambda row:(row[0],row[1])),min(candidates,key=lambda row:(-row[0],row[1]))]
+    # low_max / high_min: the sample with the largest lower bound / smallest upper bound, the strongest witness for a
+    # greater-than / less-than comparison when sigmas differ
+    extremes=[min(candidates,key=lambda row:(row[0],row[1])),min(candidates,key=lambda row:(-row[0],row[1])),
+              min(candidates,key=lambda row:(row[2]['sigma_m']-row[0],row[1])),min(candidates,key=lambda row:(row[0]+row[2]['sigma_m'],row[1]))]
     evs=[]
-    for extreme,(distance,tm,p) in zip(('min','max'),extremes):
+    for extreme,(distance,tm,p) in zip(('min','max','low_max','high_min'),extremes):
         evs.append(evidence(store,scene_key,None,tm,tm+1,'measure','bound_ego_distance',{'distance_m':distance,'target_entity_id':target.entity_id,
                     'reference_entity':'ego','coordinate_frame':'ego_ground','t_s':tm/1000},unit='m',sigma=p['sigma_m'],
                     params={'a':target.entity_id,'b':'ego','source':'published_ego_frames','zone':zone,'extreme':extreme,
                             'distance_from':'ego_ground_origin','distance_to':'pedestrian_ground_point'}))
-    low,high=evs
+    low,high=evs[:2]
     return result(scene_key,lo,hi,{'value':low.value['distance_m'],'sigma':low.sigma,'t_ms':low.t0_ms,'entity_id':target.entity_id,
                   'maximum_value':high.value['distance_m'],'maximum_sigma':high.sigma,'maximum_t_ms':high.t0_ms,
                   'minimum_basis':'valid observed samples','maximum_basis':'valid observed samples',

@@ -69,9 +69,9 @@ def test_bound_ego_distance_returns_valid_extremes_with_separate_evidence(tmp_pa
         return create(*a,**kw)
     monkeypatch.setattr(tools,'evidence',evidence)
     r=tools.bound_ego_distance(s,FL,(3000,8000),EntityRef(scene_key=FL,entity_id='P1',kind='person'))
-    assert len(r.evidence)==2, 'Both minimum and maximum need their own evidence'
-    low,high=r.evidence
-    assert low.eid!=high.eid and [p['extreme'] for p in params]==['min','max']
+    assert len(r.evidence)==4, 'Minimum, maximum and both bound witnesses need their own evidence'
+    low,high=r.evidence[:2]
+    assert low.eid!=high.eid and [p['extreme'] for p in params]==['min','max','low_max','high_min']
     assert all(e.method=='bound_ego_distance' for e in r.evidence)
     assert (low.value['distance_m'],low.sigma,low.t0_ms)==(5.,.1,3500)
     assert (high.value['distance_m'],high.sigma,high.t0_ms)==(14.,.2,3000)
@@ -79,6 +79,22 @@ def test_bound_ego_distance_returns_valid_extremes_with_separate_evidence(tmp_pa
     assert (out['value'],out['sigma'],out['t_ms'])==(5.,.1,3500)
     assert (out['maximum_value'],out['maximum_sigma'],out['maximum_t_ms'])==(14.,.2,3000)
     assert out['coverage_basis']=='full-window coverage not measured' and r.envelope.coverage is None
+
+
+def test_bound_ego_distance_names_the_strongest_witness_on_each_side(tmp_path, monkeypatch):
+    s=fixture_store(tmp_path)
+    original=s.asset_json
+    samples=[(3000,11.,2.),(3500,10.5,.1),(4000,4.,.1),(4500,3.9,1.)]
+    monkeypatch.setattr(s,'asset_json',lambda key,path: {'frames':[{'t_ms':t,'peds':[{'entity_id':'P1','x':x,'y':0.,'sigma_m':sg}]}
+                                                                       for t,x,sg in samples]} if path.startswith('ego/') else original(key,path))
+    create,extremes=tools.evidence,[]
+    monkeypatch.setattr(tools,'evidence',lambda *a,**kw: extremes.append(kw['params']['extreme']) or create(*a,**kw))
+    r=tools.bound_ego_distance(s,FL,(3000,8000),EntityRef(scene_key=FL,entity_id='P1',kind='person'))
+    by=dict(zip(extremes,r.evidence))
+    assert sorted(by)==['high_min','low_max','max','min']
+    assert (by['min'].t0_ms,by['max'].t0_ms)==(4500,3000)
+    # largest lower bound 10.5-0.1 beats 11-2; smallest upper bound 4+0.1 beats 3.9+1
+    assert (by['low_max'].t0_ms,by['high_min'].t0_ms)==(3500,4000)
 
 
 def test_visibility_eids_bind_sample_time_and_point(tmp_path):

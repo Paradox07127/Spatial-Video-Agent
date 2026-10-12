@@ -411,11 +411,11 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                     predicates.append(bound)
                 supported = distance_status(sample,operator,value)=='supported'
                 bound.status, bound.eids = ('supported',[sample.eid]) if supported else ('unknown',[])
-        distance_decided=bool(distance_extreme and any(p.operator in {'lt','le','gt','ge'} and p.unit=='m'
-                              and p.status!='unknown' and p.eids for p in predicates))
-        speed_decided=any(p.operator in {'lt','le','gt','ge'} and p.unit in {'m/s','km/h'} and p.status!='unknown'
-                          and any(e in read and read[e].method in {'obd_speed','track_speed'} for e in p.eids) for p in predicates)
-        conditions = consume_comparison_time(body.q,parsed.constraints,distance=distance_decided,speed=speed_decided) if parsed else []
+        distance_status_of={p.status for p in predicates if distance_extreme and p.operator in {'lt','le','gt','ge'} and p.unit=='m' and p.eids}
+        speed_supported=any(p.operator in {'lt','le','gt','ge'} and p.unit in {'m/s','km/h'} and p.status=='supported'
+                            and any(e in read and read[e].method in {'obd_speed','track_speed'} for e in p.eids) for p in predicates)
+        conditions = consume_comparison_time(body.q,parsed.constraints,existential='supported' in distance_status_of or speed_supported,
+                                             universal='contradicted' in distance_status_of) if parsed else []
         for condition in conditions:
             if condition.startswith('requested_action:'):
                 action = condition.split(':',1)[1]
@@ -723,8 +723,10 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                             res=yield from call(t,'bound_ego_distance','measure',{'scene_key':key,'t_range':parsed.t_range,
                                 'target':target.model_dump(),'zone':parsed.zone},
                                 lambda:tools.bound_ego_distance(store,key,parsed.t_range,target,zone=parsed.zone))
-                        ev=res.evidence[1 if not ego_scalar_q and maximum_q else 0] if res.evidence else None
-                        distance_extreme=('max' if maximum_q else 'min') if not ego_scalar_q else None
+                        # the strongest witness: largest lower bound for existential greater / universal less, else smallest upper bound
+                        distance_extreme=(None if ego_scalar_q else ('low_max' if maximum_q else 'high_min') if spatial[1] in {'lt','le','gt','ge'}
+                                          and not minimum_q else 'min')
+                        ev=(res.evidence[('min','max','low_max','high_min').index(distance_extreme)] if distance_extreme else res.evidence[0]) if res.evidence else None
                         _,operator,value,unit=spatial
                         status='supported' if ev and ego_scalar_q else distance_status(ev,operator,value)
                         if not ego_scalar_q and not minimum_q and status==('supported' if always_q else 'contradicted') and (always_q or operator in {'gt','ge'}):
@@ -1682,7 +1684,7 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                 ev=evidence[ego_measurement['eid']]
                 measurement=('Recording vehicle OBD speed: '+ref(ev,'value',ev.value)+' km/h at sample '+ref(ev,'t0_ms',ev.t0_ms/1000)+
                              ' s. Speed uncertainty is unavailable.' if ego_measurement['speed'] else
-                             ('Maximum' if ego_measurement['extreme']=='max' else 'Minimum')+' observed ground distance from '+name(ego_measurement['target'])+' to the recording vehicle origin: '+
+                             ('Minimum observed' if ego_measurement['extreme']=='min' else 'Sampled')+' ground distance from '+name(ego_measurement['target'])+' to the recording vehicle origin: '+
                              ref(ev,'value.distance_m',ev.value['distance_m'])+' m (±'+ref(ev,'sigma',ev.sigma)+' m) at '+ref(ev,'t0_ms',ev.t0_ms/1000)+' s. Times between samples were not verified.')
                 text=measurement if final in {'SUPPORTED','CONTRADICTED'} else text+' Independently measured: '+measurement
             cites=list(dict.fromkeys(cites))

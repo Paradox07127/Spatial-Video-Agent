@@ -163,6 +163,12 @@ def test_comparison_time_quantifiers_choose_the_required_extreme(store, q, works
     assert measured['t0_ms']==expected_time
 
 
+def test_always_stays_open_when_no_sample_violates_it(store):
+    # samples cannot show what the unsampled times held: only a violating sample settles always/throughout
+    frames=ask(store,'Was P1 always less than 100 m from F1?','warehouse',scene_key='wh-sdg-fixture-01')
+    assert final(frames)=='UNRESOLVED'
+
+
 def test_ever_speed_comparison_is_consumed_after_decision(store, monkeypatch):
     from app.tests.unit.test_agent import set_limits
     set_limits(store,monkeypatch,lambda key,t:5.)

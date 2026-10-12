@@ -1390,18 +1390,16 @@ def test_ever_greater_is_judged_at_the_largest_sampled_distance(setup):
     assert '9.055' in of(frames,'answer')[0]['text']
 
 
-def test_bound_ego_greater_comparison_uses_maximum(setup):
+def test_bound_ego_greater_comparison_uses_the_largest_lower_bound(setup):
     _, store = setup
     frames = ask(store, 'Was P1 more than 10 meters from the recording car between 3 and 8 s?', FL_FIXTURE)
     assert check_sse_sequence(frames)==[] and frames[-2]['data']['final']=='SUPPORTED'
     p=of(frames,'claim')[-1]['predicates'][0]
     evidence={e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}
     ev=evidence[p['eids'][0]]
-    out=of(frames,'tool_result')[0]['envelope']['output']
-    assert (ev['value']['distance_m'],ev['sigma'],ev['t0_ms'])==(out['maximum_value'],out['maximum_sigma'],out['maximum_t_ms'])
-    assert ev['value']['distance_m']>10
+    assert ev['value']['distance_m']-ev['sigma']>10
     answer=of(frames,'answer')[0]
-    assert answer['cites']==p['eids'] and 'Maximum observed' in answer['text']
+    assert answer['cites']==p['eids'] and 'Sampled ground distance' in answer['text']
     assert 'Times between samples were not verified' in answer['text']
 
 
@@ -1427,6 +1425,19 @@ def test_bound_ego_samples_do_not_decide_what_unobserved_times_held(setup, q):
     frames=ask(store,q,FL_FIXTURE)
     assert check_sse_sequence(frames)==[] and of(frames,'status')[-1]['final']=='UNRESOLVED'
     assert of(frames,'claim')[-1]['predicates'][0]['status']=='unknown'
+
+
+def test_bound_ego_greater_comparison_is_decided_by_the_sample_whose_lower_bound_clears_it(setup, monkeypatch):
+    _,store=setup
+    original=store.asset_json
+    samples=[(3000,11.,2.),(3500,10.5,.1)]
+    monkeypatch.setattr(store,'asset_json',lambda key,path: {'frames':[{'t_ms':t,'peds':[{'entity_id':'P1','x':x,'y':0.,'sigma_m':sg}]}
+                                                                           for t,x,sg in samples]} if path.startswith('ego/') else original(key,path))
+    frames=ask(store,'Was P1 more than 10 meters from the recording car between 3 and 8 s?',FL_FIXTURE)
+    assert check_sse_sequence(frames)==[] and of(frames,'status')[-1]['final']=='SUPPORTED'
+    p=of(frames,'claim')[-1]['predicates'][0]
+    evidence={e['eid']:e for r in of(frames,'tool_result') for e in r['evidence']}
+    assert evidence[p['eids'][0]]['t0_ms']==3500
 
 
 @pytest.mark.parametrize('seconds',[.5,5,45])
