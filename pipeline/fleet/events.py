@@ -31,6 +31,7 @@ CROSS_WINDOW_MS = 4000
 CROSS_FAST_KMH = 10.0
 CROSS_NEAR_M = 10.0
 CROSS_MIN_TRAVEL_M = 1.0  # well above the single-view lateral sigma (often > 0.3 m), so y jitter around 0 is no crossing
+HEADING_HOLD_KMH = 5.0  # the OBD heading jumps 6-9 deg per frame (p99) at a standstill, which would swing a pedestrian 10 m ahead > 1 m sideways
 CROSS_RULE = (f"pedestrian 0 < x <= {CROSS_AHEAD_M:g} m ahead whose y goes from |y| > {LANE_HALF_M} m to the other side, or "
               f"across y = 0 inside the lane moving >= {CROSS_MIN_TRAVEL_M:g} m in y, within {CROSS_WINDOW_MS / 1000:g} s; "
               f"severity 2 when the OBD speed is >= "
@@ -55,8 +56,14 @@ def _crosses(a: float, b: float) -> bool:
 
 def ego_pose(o: dict[str, np.ndarray]):
     """pose(t_ms) -> (x, y, yaw): OBD speed and heading dead-reckoned per frame in a local metric frame (x east, y north,
-    yaw rad CCW from east)."""
-    yaw = np.radians(90.0 - o["heading"])
+    yaw rad CCW from east). The heading holds below HEADING_HOLD_KMH and is then a centered 1 s moving mean."""
+    h = np.unwrap(np.radians(o["heading"]))
+    for i in range(1, len(h)):
+        if o["speed_kmh"][i] < HEADING_HOLD_KMH:
+            h[i] = h[i - 1]
+    w = pie.FPS
+    h = np.convolve(np.pad(h, (w // 2, w - 1 - w // 2), mode="edge"), np.ones(w) / w, mode="valid")
+    yaw = np.pi / 2 - h
     d = o["speed_kmh"][:-1] / 3.6 / pie.FPS
     x, y = np.r_[0.0, np.cumsum(d * np.cos(yaw[:-1]))], np.r_[0.0, np.cumsum(d * np.sin(yaw[:-1]))]
     at = lambda t: min(round(t * pie.FPS / 1000), len(yaw) - 1)  # noqa: E731

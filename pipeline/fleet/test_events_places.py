@@ -1,4 +1,6 @@
 """Fleet ped_crossing rule and landmark places.  .venv/bin/python -m pytest pipeline/fleet/test_events_places.py -q"""
+import contextlib
+import json
 import math
 
 import numpy as np
@@ -84,6 +86,23 @@ def test_ego_pose_dead_reckons_obd_heading_clockwise_from_north():
     assert east == pytest.approx((10.0, 0.0, 0.0), abs=1e-6) and north == pytest.approx((0.0, 10.0, math.pi / 2), abs=1e-6)
     right = events.ego_pose({"heading": np.linspace(0.0, 15.0, n), "speed_kmh": np.full(n, 15.0)})(1000)
     assert right[2] < math.pi / 2 and right[0] > 0  # a right turn lowers the CCW yaw and drifts east
+
+
+def test_run_ignores_obd_heading_jitter_of_a_stopped_car(tmp_path, monkeypatch):
+    """A stopped car whose OBD heading flips 8 deg per frame and a pedestrian standing 10 m ahead: no ped_crossing."""
+    out, work, n = tmp_path / "out", tmp_path / "work", 10 * pie.FPS
+    (out / "ego").mkdir(parents=True)
+    work.mkdir()
+    (out / "trip.geojson").write_text(json.dumps({"features": [{}, {"properties": {"t_ms": 0, "place_id": "p1"}}]}))
+    (out / "ego" / "000.json").write_text(json.dumps({"frames": _frames({"S": lambda t: (10.0, 0.4)})}))
+    (work / "map_match.json").write_text(json.dumps({"points": []}))
+    o = {"heading": 8.0 * (np.arange(n) % 2), "speed_kmh": np.zeros(n)}
+    for name, f in {"vid_of": lambda k: k, "tmp_dir": lambda k: out, "work_dir": lambda k: work, "obd": lambda v: o,
+                    "t1_ms": lambda v: 10000, "obd_path": lambda v: tmp_path, "header": lambda inputs: {}}.items():
+        monkeypatch.setattr(pie, name, f)
+    monkeypatch.setattr(events.lease, "acquire", lambda **kw: contextlib.nullcontext())
+    evs = json.loads(events.run("fl-pie-test").read_text())["events"]
+    assert [e["type"] for e in evs if e["type"] == "ped_crossing"] == []
 
 
 def test_landmark_rows_near_the_trip_with_osm_aliases():
