@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.search import event_types
-from app.core import cache, geo, llm, policy, street, tools, trace
+from app.core import cache, followup, geo, llm, policy, street, tools, trace
 from app.core.investigation_context import apply_constraints
 from app.core.task_spec import UNIVERSAL_TIME, build_task_spec, consume_comparison_time
 from app.core.tools import farthest_sample
@@ -36,6 +36,7 @@ DISTANCE_WORDS = ['how far','how close','how many meters','distance','gap','near
 TEXT = {'UNSUPPORTED':'Identity, intent or responsibility questions are out of scope.','NO_MATCH':'No matching evidence was retrieved.',
         'OUT_OF_RANGE':'The requested time or place is out of range of the footage.','UNRESOLVED':'There is insufficient evidence to confirm this.',
         'CONTRADICTED':'The measured evidence contradicts the predicate.','SUPPORTED':'The evidence supports the predicate.'}
+UNMAPPED = 'This question could not be mapped to a supported investigation template.'
 SCENES = {'warehouse':'Warehouse scenes','fleet':'Fleet trips','street':'Street cameras'}
 COCO = ('person','bicycle','car','motorcycle','airplane','bus','train','truck','boat','traffic light','fire hydrant','stop sign',
         'parking meter','bench','bird','cat','dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack','umbrella',
@@ -359,10 +360,13 @@ def ask_frames(store, body: AskRequest, *, vss=None):
         if count>=body.budget.tools-reserve:
             raise LevelBudget
 
-    def call(parent, name, state, args, fn):
+    def call(parent, name, state, args, fn, *, budgeted=True):
         nonlocal count, late
-        check_budget()
-        count += 1
+        if budgeted:
+            check_budget()
+            count += 1
+        elif time.monotonic()-start>=body.budget.seconds:
+            raise BudgetExhausted
         with trace.traced(run,'tool.'+name,args,state=state,parent_step_id=parent.step_id) as t:
             yield frame('tool_call',step_id=parent.step_id,call_id=t.step_id,name=name,args=args,why=name)
             try:
@@ -1511,12 +1515,18 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             if final in {'SUPPORTED','CONTRADICTED'}:
                 group = [c for c in group if not abstained(c) and c.aggregate==final]
             if len(group)>1:
-                parts = [compose(final,[c],evidence) for c in group]
-                return join_answer_parts(parts)
+                parts = {}
+                for c in group:
+                    part = compose(final,[c],evidence)
+                    if part['text'] in parts:
+                        parts[part['text']]['claim_ids'] += part['claim_ids']
+                    else:
+                        parts[part['text']] = part
+                return join_answer_parts(list(parts.values()))
             evidence = {eid:evidence[eid] for c in group for p in c.predicates for eid in p.eids if eid in evidence}
             text = TEXT[final]
             if final=='UNSUPPORTED' and not re.search(llm.FORBIDDEN,body.q,re.I):
-                text='This question could not be mapped to a supported investigation template.'
+                text=UNMAPPED
             abstain = next((c.explain['abstain']['text'] for c in group if abstained(c)),None)
             if final=='UNRESOLVED' and abstain:
                 text=abstain
@@ -1753,36 +1763,158 @@ def ask_frames(store, body: AskRequest, *, vss=None):
                       for c in group if not c.scene_key]
             return join_answer_parts(parts,evidence_level=lv)
 
+        def cited(part, sentence, cites=()):
+            """A fact frame; `sentence(ref, name)` places numbers only through measure refs, as in compose."""
+            refs, values, names, formats = [], [], [], []
+            def ref(e, field, value):
+                if e.kind=='model':
+                    raise ValueError('Model output cannot create measurement references')
+                refs.append({'eid':e.eid,'field':field}); values.append(value); formats.append('.4g')
+                return '{{m'+str(len(values)-1)+'}}'
+            def name(value):
+                names.append(value)
+                return '{{n'+str(len(names)-1)+'}}'
+            parts = re.split(r'(\{\{[mn]\d+\}\})',sentence(ref,name))
+            text,spans = render_cited_text(''.join(p if re.fullmatch(r'\{\{[mn]\d+\}\}',p) else llm.sanitize_numbers(p,[]) for p in parts),
+                                           refs,values,names,formats)
+            return dict(part=part,text=text,claim_ids=[],cites=list(dict.fromkeys([*cites,*(r['eid'] for r in refs)])),
+                        measure_refs=refs,text_spans=spans)
+
+        def focus_of():
+            """The moment a follow-up refers to: the context's time and selection, else the first moment sent in hits."""
+            key = parsed.scene_key or context.get('scene_key')
+            hit = next((m for f in frames if f['event']=='hits' for m in f['data']['moments']),None)
+            if context.get('t_ms') is not None and context.get('selection'):
+                t, ids, resolved = context['t_ms'], context['selection'], True
+            elif hit:
+                key, t, ids, resolved = key or hit['scene_key'], hit['t0_ms'], [r['entity_id'] for r in hit['actor_refs']], False
+            else:
+                return None
+            manifest = store.manifest(key) if key else None
+            if manifest is None or not manifest['t0_ms']<=t<manifest['t1_ms']:
+                return None
+            person = next((i for i in ids if re.fullmatch(r'P\d+',i)),None)
+            forklift = next((i for i in ids if re.fullmatch(r'F\d+',i)),None)
+            moment = store.moment(key,t) if manifest['workspace']=='warehouse' else None
+            if moment and moment.forklift and not (person and forklift):
+                f = next((f for f in moment.forklift if f.entity_id==forklift),moment.forklift[0])
+                near = min(moment.persons,key=lambda p:math.dist(p.root_world,(f.x,f.y)),default=None)
+                forklift, person = f.entity_id, person or (near.entity_id if near else None)
+            return dict(scene_key=key,t_ms=t,person=person,forklift=forklift,resolved=resolved,manifest=manifest,moment=moment)
+
+        def analyse():
+            """Answers for a question no template measured: what is unmet and why, the facts measured at the focus,
+            and suggested follow-ups. Its reads do not count against the tool budget."""
+            focus = focus_of()
+            parts = followup.unmet_parts(body.q,parsed,bool(focus and focus['resolved']))
+            unmet = dict(part='unmet',text=' '.join(parts) or 'The question asks for something the tools do not measure directly; below is what was measured.',
+                         claim_ids=[c.claim_id for c in claims],cites=[],measure_refs=[],text_spans=[])
+            if focus is None:
+                return [unmet], []
+            key, t, person, forklift = focus['scene_key'], focus['t_ms'], focus['person'], focus['forklift']
+            ids = [i for i in (person,forklift) if i]
+            yield from ui('seek',{'t_ms':t,'scene_key':key},key)
+            if ids:
+                yield from ui('highlight',{'ids':ids,'mode':'outline'},key)
+            point = next((p for p in focus['moment'].persons if p.entity_id==person),None) if focus['moment'] else None
+            if point:
+                yield from ui('annotate',{'kind':'label','t_ms':t,'xy':list(point.root_world),
+                                          'text':person+' · '+('seen by '+', '.join(point.observed_in) if point.observed_in else 'no camera detected')},key)
+            if focus['manifest']['workspace']!='warehouse' or not focus['manifest']['metric']:
+                return [unmet], []
+            refs = {i:EntityRef(scene_key=key,entity_id=i,kind='person' if i.startswith('P') else 'forklift') for i in ids}
+            # a camera the question names still constrains these reads
+            cam = hard_cam if hard_cam and re.search(r'(?<![A-Za-z0-9_])'+re.escape(hard_cam)+r'(?![A-Za-z0-9_])',body.q,re.I) else None
+            reads = []
+            if person and forklift:
+                reads.append(('distance','measure',{'scene_key':key,'t_ms':t,'a':refs[person].model_dump(),'b':refs[forklift].model_dump(),'kind':'distance','cam':cam},
+                              lambda:tools.measure(store,key,t,refs[person],refs[forklift],'distance',cam=cam)))
+            if forklift:
+                reads.append(('speed','measure',{'scene_key':key,'t_ms':t,'a':refs[forklift].model_dump(),'b':None,'kind':'speed','cam':cam},
+                              lambda:tools.measure(store,key,t,refs[forklift],None,'speed',cam=cam)))
+            if person:
+                reads.append(('visibility','visibility',{'scene_key':key,'t_ms':t,'target':person,'cam':cam},lambda:tools.visibility(store,key,t,person,cam=cam)))
+                reads.append(('events','events',{'scene_key':key,'t0_ms':max(0,t-2000),'t1_ms':t+2000,'selection':[person]},
+                              lambda:tools.events(store,key,max(0,t-2000),t+2000,selection=[person])))
+            if ids and {followup.ACTIVITY_TEXT,followup.GAZE_TEXT}&set(parts):
+                reads.append(('model','situation',{'scene_key':key,'t_ms':t,'actor_refs':[r.model_dump() for r in refs.values()],'cam':cam,'t_range':None},
+                              lambda:tools.situation(store,key,t,list(refs.values()),cam=cam,run=run,circuit=circuit)))
+            results = {}
+            with trace.traced(run,'assess',{'scene_key':key,'t_ms':t,'ids':ids},state='inspect') as step:
+                yield step_frame(step,'inspect','Measure what is known at the focused moment')
+                for kind, tool, args, fn in reads[:5]:
+                    try:
+                        results[kind] = yield from call(step,tool,'inspect',args,fn,budgeted=False)
+                    except (BudgetExhausted, DeadlineExceeded):
+                        break
+                step.output({kind:[e.eid for e in res.evidence] for kind, res in results.items()})
+            facts = []
+            if results.get('distance') and results['distance'].evidence:
+                ev = results['distance'].evidence[0]
+                facts.append(cited('fact',lambda ref,name:'At '+ref(ev,'t0_ms',ev.t0_ms/1000)+' s, the worker '+name(person)+' was '+ref(ev,'value',ev.value)
+                                   +' m (±'+ref(ev,'sigma',ev.sigma)+' m) from forklift '+name(forklift)+' (worker ground point to forklift center).'))
+            if results.get('speed') and results['speed'].evidence:
+                sp = results['speed'].evidence[0]
+                facts.append(cited('fact',lambda ref,name:'Forklift '+name(forklift)+' was moving at '+ref(sp,'value',sp.value)+' m/s'
+                                   +(' (±'+ref(sp,'sigma',sp.sigma)+' m/s)' if finite_sigma(sp) else '')+'.'))
+            if results.get('visibility') and results['visibility'].evidence:
+                vis = results['visibility'].evidence[0]
+                observed, hidden = vis.value['person']['observed_in'], vis.value['floor_cell']['hidden_from']
+                facts.append(cited('fact',lambda ref,name:('Cameras that detected '+name(person)+' at that time: '+name(', '.join(observed))+'.' if observed
+                                                           else 'No camera detected '+name(person)+' at that time.')
+                                   +(' The floor under '+name(person)+' is hidden from '+name(', '.join(hidden))+'.' if hidden else ''),[vis.eid]))
+            if results.get('events') and results['events'].envelope.exec_state!='failed':
+                recorded = [e for e in results['events'].evidence if e.kind=='measure']
+                if recorded:
+                    facts.append(cited('fact',lambda ref,name:' '.join(
+                        'Recorded event: the worker '+VERBS.get(e.value['type'],'was involved in a recorded event').replace('{other}','the forklift')+' at '
+                        +(ref(e,'value.t_s',e.value['t_s']) if 't_s' in e.value else ref(e,'value.t0_ms',e.value['t0_ms']/1000))+' s.' for e in recorded),
+                        [e.eid for e in recorded]))
+                elif not results['events'].evidence:
+                    facts.append(cited('fact',lambda ref,name:'No recorded event involves '+name(person)+' within two seconds of that time.'))
+            record = results['model'].envelope.output.get('record') if results.get('model') and results['model'].evidence else None
+            if record:
+                facts.append(cited('model',lambda ref,name:'Model description (Cosmos, unverified): '+record['payload']['label'].replace('_',' ')+'.',
+                                   [results['model'].evidence[0].eid]))
+            return [unmet,*facts], followup.suggestions('warehouse',{'scene_key':key,'t_ms':t,'person':person,'forklift':forklift})
+
+        if corpus and claims:
+            # an overall sentence, then one per level group
+            overall=('At least one checked source supports the question; other sources may remain unresolved.' if final=='SUPPORTED'
+                     else 'The checked sources leave the full question unresolved.' if final=='UNRESOLVED' else TEXT[final])
+            answers = [dict(text=overall,claim_ids=[c.claim_id for c in claims],cites=[],measure_refs=[],evidence_level=None),
+                       *(level_sentence(lv,[c for c in claims if c.evidence_level==lv]) for lv in LEVELS
+                         if any(c.evidence_level==lv for c in claims))]
+        elif corpus:
+            answers = [{**compose(final,claims,read),'evidence_level':None}]
+        elif claims and all(c.evidence_level=='L1' for c in claims) and not any(
+                c.predicates and c.predicates[0].operator=='visual_observation' for c in claims):
+            answers = [street_sentence(claims)]
+        else:
+            answers = [compose(final,claims,read)]
+        if body.protocol_version==2 and observations:
+            facts=[(record,i,fact) for record in observations for i,fact in enumerate(record['facts'])]
+            if facts:
+                unmet=list(dict.fromkeys(quantity_name(p) for c in claims for p in c.predicates
+                                          if p.status=='unknown' and p.operator!='visual_observation'))
+                zone_note=(' These observations cover full camera frames; the selected zone was not visually localized or verified.' if parsed.zone else '')
+                if parsed.place and not place_verified:
+                    zone_note+=' The requested place was not verified for these frames.'
+                answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+'.'+zone_note+
+                              ' These sampled visual observations do not independently verify the full question or a geometric measurement.'+
+                              (' Unverified conditions: '+', '.join(unmet)+'.' if unmet else ''),
+                              claim_ids=[c.claim_id for c in claims],cites=list(dict.fromkeys(record['eid'] for record,_,_ in facts)),
+                              measure_refs=[],text_spans=[],model_refs=[{'observation_id':record['observation_id'],
+                                  'eid':record['eid'],'field':'facts.'+str(i)+'.text'} for record,i,_ in facts])]
+        suggested = []
+        # an unmapped or unmeasured question answers with what is measured at its focus instead of a generic sentence
+        if (not corpus and parsed is not None and parsed.workspace=='warehouse' and stop_reason!='error'
+                and (final=='UNRESOLVED' or final=='UNSUPPORTED' and not re.search(llm.FORBIDDEN,body.q,re.I))
+                and all(re.fullmatch(r'(?:Not measured: [^.]*\. The full question remains unresolved\.(?: |$))+',a['text'])
+                        or a['text']==UNMAPPED for a in answers)):
+            answers, suggested = yield from analyse()
         with trace.traced(run,'answer',{'final':final,'read_eids':sorted(run.read_eids)},state='answer') as t:
             yield step_frame(t,'answer','Generate an answer from the evidence read')
-            if corpus and claims:
-                # an overall sentence, then one per level group
-                overall=('At least one checked source supports the question; other sources may remain unresolved.' if final=='SUPPORTED'
-                         else 'The checked sources leave the full question unresolved.' if final=='UNRESOLVED' else TEXT[final])
-                answers = [dict(text=overall,claim_ids=[c.claim_id for c in claims],cites=[],measure_refs=[],evidence_level=None),
-                           *(level_sentence(lv,[c for c in claims if c.evidence_level==lv]) for lv in LEVELS
-                             if any(c.evidence_level==lv for c in claims))]
-            elif corpus:
-                answers = [{**compose(final,claims,read),'evidence_level':None}]
-            elif claims and all(c.evidence_level=='L1' for c in claims) and not any(
-                    c.predicates and c.predicates[0].operator=='visual_observation' for c in claims):
-                answers = [street_sentence(claims)]
-            else:
-                answers = [compose(final,claims,read)]
-            if body.protocol_version==2 and observations:
-                facts=[(record,i,fact) for record in observations for i,fact in enumerate(record['facts'])]
-                if facts:
-                    unmet=list(dict.fromkeys(quantity_name(p) for c in claims for p in c.predicates
-                                              if p.status=='unknown' and p.operator!='visual_observation'))
-                    zone_note=(' These observations cover full camera frames; the selected zone was not visually localized or verified.' if parsed.zone else '')
-                    if parsed.place and not place_verified:
-                        zone_note+=' The requested place was not verified for these frames.'
-                    answers=[dict(text='Model observation (unverified): '+' '.join(fact['text'] for _,_,fact in facts)+'.'+zone_note+
-                                  ' These sampled visual observations do not independently verify the full question or a geometric measurement.'+
-                                  (' Unverified conditions: '+', '.join(unmet)+'.' if unmet else ''),
-                                  claim_ids=[c.claim_id for c in claims],cites=list(dict.fromkeys(record['eid'] for record,_,_ in facts)),
-                                  measure_refs=[],text_spans=[],model_refs=[{'observation_id':record['observation_id'],
-                                      'eid':record['eid'],'field':'facts.'+str(i)+'.text'} for record,i,_ in facts])]
             if body.protocol_version==2:
                 answers=[{'text_spans':[],'model_refs':[],**a} for a in answers]
             else:
@@ -1791,6 +1923,8 @@ def ask_frames(store, body: AskRequest, *, vss=None):
             t.output(answers[0] if len(answers)==1 else answers)
             for answer in answers:
                 yield frame('answer',**answer)
+        if suggested:
+            yield frame('suggest',questions=suggested)
         weave_url=trace.finish_run(run,'error' if stop_reason=='error' else 'done',final=final,claims=claims)
         finished=True
         yield frame('status',final=final,cached=False,source_run_id=None,weave_url=weave_url,stop_reason=stop_reason)

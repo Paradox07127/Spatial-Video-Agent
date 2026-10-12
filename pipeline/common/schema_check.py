@@ -376,6 +376,11 @@ def check_sse_sequence(frames: list[dict], *, protocol_version: int = 1) -> list
     tail = events[events.index("status") + 1:] if "status" in events else []
     if tail not in (["done"], ["vss_native", "done"]) or events.count("vss_native") != tail.count("vss_native"):
         errs.append("status must be followed by done, or by one vss_native then done")
+    if events.count("suggest") > 1:
+        errs.append("at most one suggest frame")
+    if "suggest" in events and ("answer" in events[events.index("suggest"):]
+                                or "status" not in events[events.index("suggest"):]):
+        errs.append("suggest must follow every answer frame and precede status")
     steps = [f["data"]["i"] for f in frames if f["event"] == "step"]
     if steps != sorted(set(steps)):
         errs.append("step i must strictly increase")

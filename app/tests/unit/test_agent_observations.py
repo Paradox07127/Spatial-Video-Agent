@@ -52,7 +52,8 @@ def test_v2_empty_observation_does_not_invent_a_description(store,monkeypatch):
     assert check_sse_sequence(frames,protocol_version=2)==[]
     answer=next(f['data'] for f in frames if f['event']=='answer')
     assert not answer['model_refs'] and not answer['measure_refs']
-    assert 'unresolved' in answer['text'].lower()
+    assert next(f['data']['final'] for f in frames if f['event']=='status')=='UNRESOLVED'
+    assert not any(f['data']['model_refs'] for f in frames if f['event']=='answer')
 
 
 def test_numeric_spans_are_exact_unicode_positions_and_ignore_equal_camera_id():

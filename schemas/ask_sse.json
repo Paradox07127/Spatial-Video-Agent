@@ -19,6 +19,7 @@
         "ui",
         "claim",
         "answer",
+        "suggest",
         "vss_native",
         "status",
         "done"
@@ -348,6 +349,15 @@
               "sentence_id": {
                 "type": "string"
               },
+              "part": {
+                "enum": [
+                  "answer",
+                  "unmet",
+                  "fact",
+                  "model"
+                ],
+                "description": "unmet: what the question asks that no tool measures; fact: a measurement at the focus moment; model: an unverified Cosmos description"
+              },
               "text": {
                 "type": "string"
               },
@@ -407,6 +417,43 @@
               "claim_ids",
               "cites",
               "measure_refs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "suggest"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Follow-up questions a template answers about the focus moment; after every answer frame, before status.",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "pattern": "^r_[0-9a-z]{12,}$"
+              },
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "run_id",
+              "questions"
             ],
             "additionalProperties": false
           }

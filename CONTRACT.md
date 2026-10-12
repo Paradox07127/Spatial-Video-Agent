@@ -159,7 +159,7 @@ L1 routes (T3 implements them on the existing `app/api/scenes.py` router, no `ma
 
 ## 7. SSE (spec §7.3, `schemas/ask_sse.json`)
 
-Each frame is `{event, data}`, and `data.run_id` is required. Events: `step tool_call tool_result hits model_result ui claim answer status done`.
+Each frame is `{event, data}`, and `data.run_id` is required. Events: `step tool_call tool_result hits model_result ui claim answer suggest status done`.
 
 Order rules (implemented by `schema_check.check_sse_sequence`; all of `asks.json` passes):
 1. One run_id; the first frame is `step(state=parse)`; the last two frames are `status` and `done`; there is exactly one `status` frame; `step.i` strictly increases.
@@ -167,6 +167,7 @@ Order rules (implemented by `schema_check.check_sse_sequence`; all of `asks.json
 3. `read_eids` = the eids in the `tool_result.evidence` frames seen so far. `hits.moments[].evidence_ids`, `claim.predicates[].eids`, `answer.cites` and `answer.measure_refs[].eid` must be ⊆ `read_eids`; `answer.claim_ids` must already have appeared.
 4. When `status.final ∈ {UNSUPPORTED, NO_MATCH, OUT_OF_RANGE}`, `hits` must not contain moments.
 5. `status.stop_reason ∈ enough_evidence|no_new_info|budget_exhausted|abstained|error`.
+6. At most one `suggest` frame; it comes after every `answer` frame and before `status`.
 
 `Evidence.eid = "e_" + sha256(scene_key, cam_id, t0_ms, t1_ms, sorted observation_ids, analysis_rev, method, params)[:16]` (`models.make_eid`). Evidence is immutable. Numbers in answer sentences come only from the Evidence fields that `measure_refs` point to. Frontend: `ViewState = default|searching|hit|abstained`. `hits` goes to `hit`, and the three abstain states go to `abstained`. A new Ask or a workspace switch calls `abort()` on the old stream, and stale frames are dropped by run_id.
 
@@ -185,6 +186,14 @@ L1 additions (all optional in the schemas, so the frozen shell ignores them and 
 | `tool_result.evidence[]` | new method `yolo_coco_2d` (kind measure, `cam_id` set); `cosmos_C3`/`cosmos_C4` on street scenes (kind model) | the Evidence tab keeps grouping by kind |
 | every evidence object (`tool_result.evidence[]`, `agent_run.evidence[]`, `$defs/evidence`) | + `evidence_level` (L1, L2, L3, or null) next to `scene_key` = `level_of` of that scene; not part of the eid | the Evidence tab groups by level above the group by kind |
 | `status`, `vss_native`, `done` | none | after T2, `vss_native.hits[]` on street sources carry `st-` scene keys |
+| `answer` | + optional `part` ∈ `answer`, `unmet`, `fact`, `model` | set only by the follow-up analysis below; other answers omit it |
+| `suggest` (new event) | `{run_id, questions}` with 1–3 non-empty questions | at most one; after every `answer` frame and before `status` |
+
+Follow-up analysis. In scene scope on a warehouse source, a run whose final is `UNRESOLVED`, or `UNSUPPORTED` for a question that is not an identity, intent or responsibility question, and whose composed answers are all generic ("Not measured: …" or the unmapped-template sentence), answers differently; a run that ended with `stop_reason = error` does not. The run's `final` and `stop_reason` stay unchanged. The answer frames become one `unmet` frame that explains in plain words which parts of the question no tool measures, then one `fact` frame per measurement at the focus moment, then an optional `model` frame with the Cosmos C1 label marked unverified (it cites the model evidence and has no `measure_refs`). Numbers in `fact` frames come only through `measure_refs`, as in every answer. The `unmet` frame carries the run's claim ids; `fact` and `model` frames carry none. A `suggest` frame then lists up to three follow-up questions that a template answers about the focus.
+
+The focus is the context's `t_ms` with its `selection`; without both it is the first moment sent in this run's `hits`; otherwise there is none, and only the `unmet` frame is sent. When the focus lacks a person or a forklift id, the person nearest to the first forklift at that time (and that forklift) is used. With a focus the agent sends `seek`, `highlight` of the person and forklift, and an `annotate` label at the person's ground point naming the cameras that detected the person; it sends no `hits` from this path. On a metric scene it reads at most five tools in one `inspect` step: the person–forklift distance, the forklift speed, the person's camera visibility, the events involving the person within 2 s, and Cosmos C1 only when the question asks what a person is doing or looking at. These reads are not counted in `budget.tools` but obey `budget.seconds`: when the time runs out the remaining reads are skipped and the facts already read are kept.
+
+When several claims would produce the same sentence, the answer states it once.
 
 ## 8. Agent (spec §8)
 
