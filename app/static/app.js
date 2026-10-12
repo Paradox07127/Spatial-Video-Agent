@@ -47,7 +47,8 @@ const KINDS = ['measure', 'map', 'model', 'human'];
 const LAST_ROUTE = 'sva.lastRoute';
 
 const AGENT_LANE = { label: 'Agent looked', kind: 'agent' };
-const timeline = createTimeline($('#timeline'), clock.range);
+// Exported as an e2e hook (zoom window).
+export const timeline = createTimeline($('#timeline'), clock.range);
 timeline.addLane('agent', AGENT_LANE);
 const ctx = { clock, selection, bus, api, timeline, route: null, presets: PRESETS, workspaces: () => workspaces, ask: async (q, { ws, hash, preset } = {}) => {
   const corpus = !hash && !preset && !ws;
@@ -142,15 +143,23 @@ function initPanelResizer() {
   };
   const saved = Number.parseFloat(stored(PANEL_W_KEY));
   if (Number.isFinite(saved)) apply(saved);
-  let dragging = false;
+  // A drag lays out once per frame and stores the width once, at pointerup.
+  let dragging = false, pending = null, frame = 0;
   handle.addEventListener('pointerdown', (e) => {
     e.preventDefault(); dragging = true; handle.setPointerCapture(e.pointerId);
   });
   handle.addEventListener('pointermove', (e) => {
-    if (dragging) apply($('.main').getBoundingClientRect().right - e.clientX, true, true);
+    if (!dragging) return;
+    pending = $('.main').getBoundingClientRect().right - e.clientX;
+    frame ||= requestAnimationFrame(() => { frame = 0; apply(pending, false, true); });
   });
   const stop = (e) => {
+    if (!dragging) return;
     dragging = false;
+    cancelAnimationFrame(frame);
+    frame = 0;
+    if (pending != null) apply(pending, true, true);
+    pending = null;
     if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
   };
   handle.addEventListener('pointerup', stop);
@@ -206,7 +215,7 @@ async function resetTimeline(sceneKey, ws, generation) {
   // A street scene has no timeline asset: one coverage lane per camera from its video chunks, and no events.
   const lanes = street
     ? Object.fromEntries(await Promise.all(mf.cams.map(async (c) => [c.id, (await api.get(`api/street/${sceneKey}/chunks?cam=${encodeURIComponent(c.id)}`)).map((k) => [k.t0_ms, k.t1_ms, 'ok'])])))
-    : tl?.lanes;
+    : tl?.lanes ?? {};
   if (generation !== navigation) return;
   timeline.clear();
   if (sceneKey) {
@@ -559,12 +568,15 @@ async function restoreInvestigation(turn, { reset }) {
 
 }
 
+const activeKey = () => (ctx.route.workspace === 'fleet' ? state.activeFleetScene ?? ctx.route.scene_key : ctx.route.scene_key) ?? run?.activeScene ?? state.sourceTag?.scene_key;
 const sceneT = () => {
-  const key = (ctx.route.workspace === 'fleet' ? state.activeFleetScene ?? ctx.route.scene_key : ctx.route.scene_key) ?? run?.activeScene ?? state.sourceTag?.scene_key;
+  const key = activeKey();
   const replay = clock.domain.kind === 'fleet' && clock.domain.replay.find((r) => r.trip_id === key);
   return replay ? Math.round(replay.source_start_ms + (clock.t - replay.replay_start_ms) * replay.rate) : clock.map(clock.t)?.t_ms ?? clock.t;
 };
 let followContext = { time: true, selection: true, t_range: null, zone: null };
+// The last brushed range in timeline time (t_range is in scene time).
+let brushRange = null;
 const followUp = (q) => ask(q, ctx.route.page === 'home' ? { corpus: true } : { t_ms: sceneT(), follow: true });
 
 async function stop() {
@@ -608,18 +620,21 @@ const handlers = {
     run.items.push({ call: d, result: null });
   },
   tool_result(d) {
-    for (const e of d.evidence) {
+    // A reconnected stream can replay a result whose tool_call this page never saw.
+    const evidence = d.evidence ?? [], call = run.calls.get(d.call_id);
+    for (const e of evidence) {
       run.evidence.set(e.eid, e);
-      run.evCall.set(e.eid, run.calls.get(d.call_id));
+      run.evCall.set(e.eid, call);
     }
-    for (const e of d.evidence.filter((x) => x.method === 'ground_distance')) {
-      const { a, b } = run.calls.get(d.call_id);
+    for (const e of evidence.filter((x) => x.method === 'ground_distance')) {
+      if (!call?.a || !call?.b) continue;
       const moment = run.moments.find((m) => m.scene_key === e.scene_key && m.t0_ms <= e.t0_ms && e.t0_ms < m.t1_ms);
-      queueEvidence(e.scene_key, (p) => p.showMeasure?.(e, [a.entity_id, b.entity_id], moment));
+      queueEvidence(e.scene_key, (p) => p.showMeasure?.(e, [call.a.entity_id, call.b.entity_id], moment));
     }
-    run.items.find((it) => it.call?.call_id === d.call_id).result = d;
+    const item = run.items.find((it) => it.call?.call_id === d.call_id);
+    if (item) item.result = d;
     const r = d.envelope.input_range;
-    run.lane.push([clock.toWall(r.scene_key ?? d.evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t0_ms), clock.toWall(r.scene_key ?? d.evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t1_ms), d.ok ? 'done' : 'failed']);
+    run.lane.push([clock.toWall(r.scene_key ?? evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t0_ms), clock.toWall(r.scene_key ?? evidence[0]?.scene_key ?? run.activeScene ?? state.activeFleetScene, r.t1_ms), d.ok ? 'done' : 'failed']);
     timeline.setLaneData('agent', run.lane);
   },
   hits(d) {
@@ -652,7 +667,8 @@ const handlers = {
     queueEvidence(key, (p, owns) => p.applyUI(d, owns));
   },
   claim(d) {
-    run.claims.set(d.claim_id, d);
+    // Older and partial claim frames can omit the lists the panel reads.
+    run.claims.set(d.claim_id, { ...d, examined_eids: d.examined_eids ?? [], predicates: (d.predicates ?? []).map((p) => ({ ...p, eids: p.eids ?? [] })) });
     // A new claim starts unresolved; any other state change is pinned to the step it happened in.
     if (d.after !== (d.before ?? 'UNRESOLVED') && run.lastStep) run.changes.push({ claim_id: d.claim_id, step: run.lastStep, before: d.before, after: d.after });
     renderClaims();
@@ -676,7 +692,7 @@ const handlers = {
     run.native = d;
     $('#tab-steps').insertAdjacentHTML('beforeend', nativeBlock(d));
   },
-  status(d) {
+  async status(d) {
     run.final = d.final;
     run.stopReason = d.stop_reason;
     run.failure = d.error;
@@ -699,8 +715,12 @@ const handlers = {
         statusLine(completion(d));
         return;
       }
-      if (run.home && !run.corpus) go(run.home, true);
-      else {
+      if (run.home && !run.corpus) {
+        // Finish against the mounted route, not the home page.
+        const r = run;
+        await go(run.home, true);
+        if (r !== run) return;
+      } else {
         run.held?.(null);
         document.body.dataset.run = 'done';
         statusLine(completion(d));
@@ -760,6 +780,9 @@ function finish() {
     if (run !== r || !r.final || r.userExplored || document.body.dataset.run !== 'done') return;
     const primary = r.measureRefs.find((x) => !/_(ms|s)$/.test(x.field) && r.evidence.get(x.eid)?.kind === 'measure') ?? r.measureRefs.find((x) => r.evidence.has(x.eid));
     const eid = primary?.eid ?? r.cites.find((id) => r.evidence.has(id));
+    // The default view after an answer: the cited moment ±10 s on the ruler.
+    const cited = Number.isFinite(r.activeMoment?.t0_ms) ? r.activeMoment : r.evidence.get(eid);
+    if (cited) zoomAround(cited, 10000);
     if (eid) focusEvidence(eid, r.evidence.get(eid));
     else setStage('evidence', null);
   }).catch((e) => { if (run === r) statusLine(`Evidence could not load: ${e.message}. Please retry.`); });
@@ -941,20 +964,33 @@ function renderTabs() {
   const last = ctx.route.workspace === 'fleet' ? ['trip', 'Trip'] : ['videos', 'Videos'];
   const tabs = [['answer', 'Answer'], ['evidence', 'Evidence', run.evidence.size], ['steps', 'Steps', run.steps.length], last];
   $('#tabs').innerHTML = tabs.map(([id, label, n]) => `<button type="button" data-tab="${id}">${label}${n != null ? ` <span class="mono">${n}</span>` : ''}</button>`).join('');
-  setTab(state.panelTab);
+  const validTabs = new Set(tabs.map(([id]) => id));
+  setTab(validTabs.has(state.panelTab) ? state.panelTab : 'answer');
 }
 
 // ---- Answer tab
+const keyMoment = () => run.activeMoment ?? (ctx.route.workspace === 'fleet' && run.activeScene ? run.moments.find((m) => m.scene_key === run.activeScene) : run.moments[0]);
+// The stage already shows the moment: the cursor is within 1 s of it in its own scene.
+const atMoment = (m) => m.scene_key === activeKey() && Math.abs(sceneT() - m.t0_ms) <= 1000;
+let keyframeStrip = null;
+
+// The moment's key frame; a 64 px strip while the stage already shows it.
 function renderKeyframe() {
-  const m = run.activeMoment ?? (ctx.route.workspace === 'fleet' && run.activeScene ? run.moments.find(m=>m.scene_key===run.activeScene) : run.moments[0]);
-  if (!m || !Number.isFinite(m.t0_ms)) return $('#keyframe').replaceChildren();
+  const m = keyMoment();
+  if (!m || !Number.isFinite(m.t0_ms)) {
+    keyframeStrip = null;
+    return $('#keyframe').replaceChildren();
+  }
+  keyframeStrip = atMoment(m);
   $('#keyframe').innerHTML = `
-    <figure class="keyframe">
+    <figure class="keyframe${keyframeStrip ? ' kf-strip' : ''}">
       ${m.thumb ? `<img src="${esc(api.url(m.thumb))}" alt="">` : '<span class="thumb-empty">No thumbnail</span>'}
       <figcaption class="mono"><span class="kf-at">${esc(m.primary_cam)} · ${tc(m.t0_ms)}</span>
+        ${keyframeStrip ? `<button type="button" class="kf-back">${icon('corner-down-left')}Back to ${tc(m.t0_ms)}</button>` : ''}
         <button type="button" class="kf-play">${icon('play')}Play ${mmss(Math.max(0, m.t0_ms - 2500))}–${mmss(m.t0_ms + 2500)}</button></figcaption>
     </figure>`;
   $('#keyframe .kf-play').onclick = () => activateEvidence(m, () => { clock.seek(clock.toWall(m.scene_key, Math.max(0, m.t0_ms - 2500))); clock.play(); });
+  if (keyframeStrip) $('#keyframe .kf-back').onclick = () => activateEvidence(m, () => clock.seek(clock.toWall(m.scene_key, m.t0_ms)));
 }
 
 const predText = (p) => p.operator === 'measured' ? `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${p.unit === 'm' ? 'distance' : 'measurement'}` : `${p.subject_refs.map((s) => esc(s.entity_id)).join('–')} ${esc(OPS[p.operator] ?? p.operator.replace(/_/g, ' '))} ${esc(p.value)} ${esc(p.unit ?? '')}`;
@@ -1057,13 +1093,16 @@ function renderFollowup() {
 
 function renderContext() {
   if (document.body.dataset.run !== 'done') return;
-  $('#followup .fu-ctx').innerHTML = [
+  const html = [
     ctx.route.page === 'fleet' && !ctx.route.scene_key && state.activeFleetScene ? `<span class="fu-source">${esc(shortKey(state.activeFleetScene))}</span>` : '',
     followContext.time && !followContext.t_range ? `<button type="button" data-context="time" title="Remove current-time constraint">about ${tc(sceneT())} ×</button>` : '',
     followContext.t_range ? `<button type="button" data-context="range" title="Remove time-window constraint">${span(...followContext.t_range)} ×</button>` : '',
+    followContext.t_range && brushRange && timeline.zoomable ? '<button type="button" data-zoom-range title="Zoom the timeline to this range">Zoom to range</button>' : '',
     followContext.selection && selection.ids.size ? `<button type="button" data-context="selection" title="Remove selected-object constraint">${esc([...selection.ids].join('–'))} ×</button>` : '',
     followContext.zone ? '<button type="button" data-context="zone" title="Remove zone constraint">within drawn zone ×</button>' : '',
   ].join('');
+  const el = $('#followup .fu-ctx');
+  if (el && el.innerHTML !== html) el.innerHTML = html;
 }
 
 // ---- Evidence tab
@@ -1169,8 +1208,11 @@ async function flash(eid, field = null) {
   const scale = TIME_REF_MS.get(field), time = scale !== undefined && typeof value === 'number' && Number.isFinite(value) ? value * scale : null;
   // A time reference owns its instant; retain the stored evidence's original window for ordinary citations.
   const e = time === null ? evidence : { ...evidence, t0_ms: Math.round(time), t1_ms: Math.round(time) + 1 };
-  await activateEvidence(e, () => focusEvidence(eid, e));
+  await activateEvidence(e, () => { zoomAround(e, 5000); focusEvidence(eid, e); });
 }
+
+// Zooms the ruler (if the page turned zoom on) to the span of e (scene time) ± pad ms.
+const zoomAround = (e, pad) => timeline.zoomTo(clock.toWall(e.scene_key, e.t0_ms) - pad, clock.toWall(e.scene_key, e.t1_ms ?? e.t0_ms) + pad);
 
 function focusEvidence(eid, e) {
   // Tool parameters are not serialized in Evidence; retain the measured actor for camera-free focus.
@@ -1192,6 +1234,7 @@ async function closeRunpage() {
 }
 
 function stepBack() {
+  if (!$('#keysheet').hidden) return void ($('#keysheet').hidden = true);
   if (cmdk.isOpen()) return cmdk.close();
   if (runpage.isOpen()) return closeRunpage();
   if (state.stageMode === 'evidence') return setStage('explore', null);
@@ -1222,7 +1265,11 @@ bus.on('fleet:active', ({ scene_key, t_ms, cam_id = null, commit = true }) => {
 });
 bus.on('source:camera', camera=>{state.activeCamera=camera;});
 bus.on('route',()=>{state.activeCamera=null;});
-clock.onTick(renderContext);
+clock.onTick(() => {
+  renderContext();
+  const m = run && keyframeStrip !== null && keyMoment();
+  if (Number.isFinite(m?.t0_ms) && atMoment(m) !== keyframeStrip) renderKeyframe();
+});
 window.addEventListener('hashchange', onRoute);
 $('#ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1259,13 +1306,22 @@ $('#narration').addEventListener('click', (e) => {
   renderNarration();
 });
 $('#takeover button').addEventListener('click', () => setAgentCamera(false));
-$('#stage').addEventListener('pointerdown', () => {
+// Panning, zooming, orbiting or selecting on the stage (a press or wheel on a canvas, the video picture, the map or a map
+// marker) switches to Explore and stops the agent's steering. Header controls, tabs, clip and swap buttons, video controls
+// and seek surfaces do not. Building columns on the video are buttons that select.
+const STAGE_SURFACES = 'canvas, video, .fl-vbox, .maplibregl-map, .fl-col';
+const STAGE_CONTROLS = 'button:not(.fl-col), a, input, select, textarea, label, summary, [role="tab"], [role="slider"], video[controls], .fl-speed-cell';
+function takeOver(e) {
+  if (!e.target.closest(STAGE_SURFACES) || e.target.closest(STAGE_CONTROLS)) return;
   if (document.body.dataset.run === 'running') setAgentCamera(false);
   if (run && document.body.dataset.run === 'done') { run.userExplored = true; setStage('explore', null); }
-});
+}
+$('#stage').addEventListener('pointerdown', takeOver);
+$('#stage').addEventListener('wheel', takeOver, { passive: true });
 $('.stage-controls').addEventListener('click', (e) => { const mode = e.target.closest('[data-mode]')?.dataset.mode; if (!mode) return; if (run) run.userExplored = mode === 'explore'; setStage(mode, mode === 'evidence' ? run?.cites[0] ?? null : null); });
 bus.on('stage:mode', ({ mode }) => $('.stage-controls').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode)));
 $('#followup .fu-ctx').addEventListener('click', (e) => {
+  if (e.target.closest('[data-zoom-range]')) return timeline.zoomTo(...brushRange);
   const key = e.target.closest('[data-context]')?.dataset.context;
   if (key === 'time' || key === 'selection') followContext[key] = false;
   if (key === 'range') { followContext.t_range = null; timeline.clearBrush(); }
@@ -1278,6 +1334,7 @@ timeline.onBrush(({ t0, t1 }) => {
   const sourceT = (t) => replay ? Math.round(replay.source_start_ms + (t - replay.replay_start_ms) * replay.rate) : t;
   if (clock.domain.kind === 'fleet' && key) bus.emit('fleet:active', { scene_key: key, t_ms: sourceT(t0), ...(state.activeCamera?.scene_key === key ? {cam_id:state.activeCamera.cam_id} : {}) });
   followContext.t_range = [sourceT(t0), sourceT(t1)];
+  brushRange = [t0, t1];
   renderContext();
 });
 bus.on('context:zone', (zone) => { followContext.zone = zone; renderContext(); });
@@ -1307,15 +1364,52 @@ async function openCmdk() {
     ? w.scenes.map((s) => ({ icon: 'camera', label: s.title, hint: s.scene_key, run: () => (location.hash = `#/street/${s.scene_key}`) }))
     : [{ icon: 'map', label: 'All trips', hint: count(w.scenes.length, 'trip'), run: () => (location.hash = '#/fleet') },
       ...w.scenes.map((s) => ({ icon: 'truck', label: `${shortKey(s.scene_key)} · ${s.title}`, hint: s.scene_key, run: () => (location.hash = `#/fleet/${s.scene_key}@${s.t0_ms ?? 0}`) }))]);
-  cmdk.open([...items, { icon: 'workflow', label: 'Recent runs', hint: '#/runs', run: () => (location.hash = '#/runs') }], (q) => (ctx.route?.page === 'home' ? ctx.ask(q) : ask(q)));
+  cmdk.open([...items, { icon: 'workflow', label: 'Recent runs', hint: '#/runs', run: () => (location.hash = '#/runs') }], (q) => {
+    if (runpage.isOpen()) closeRunpage();
+    return ctx.route?.page === 'home' ? ctx.ask(q) : ask(q);
+  });
 }
 $('#cmdk-btn').addEventListener('click', openCmdk);
+$('#keysheet').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget || e.target.closest('.keysheet-close')) e.currentTarget.hidden = true;
+});
+// The shell's modal layers; global keys stay off while one is open.
+const MODALS = ['#cmdk', '#runpage', '#investigations', '#keysheet'];
+const FRAME_MS = Math.round(1000 / 30);
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault();
     openCmdk();
   } else if (e.key === 'Escape') stepBack();
+  else if (!e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.altKey && !e.target.closest?.('input, textarea, select, [contenteditable="true"]')) globalKey(e);
 });
+// Space, ←/→ (Shift: 5 s), ,/. (one frame), [/] (evidence marks), Shift+[/] (trip events), Z, 0 and ?.
+function globalKey(e) {
+  const sheet = $('#keysheet');
+  if (e.key === '?' && MODALS.every((s) => s === '#keysheet' || $(s).hidden)) {
+    e.preventDefault();
+    sheet.hidden = !sheet.hidden;
+    return;
+  }
+  if (MODALS.some((s) => !$(s).hidden) || !ctx.route || ctx.route.page === 'home') return;
+  // A focused control keeps its own Space and arrow keys.
+  if (e.key === ' ' && e.target.closest('button, a, summary, [role="button"], [role="slider"], [role="separator"]')) return;
+  if (e.key.startsWith('Arrow') && e.target.closest('[role="slider"], [role="separator"]')) return;
+  const bracket = e.code === 'BracketLeft' || e.key === '[' || e.key === '{' ? -1 : e.code === 'BracketRight' || e.key === ']' || e.key === '}' ? 1 : 0;
+  if (e.key === ' ') clock.playing ? clock.pause() : clock.play();
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') clock.seek(clock.t + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 5000 : 1000));
+  else if (e.key === ',' || e.key === '.') clock.seek(clock.t + (e.key === ',' ? -FRAME_MS : FRAME_MS));
+  else if (bracket && e.shiftKey) timeline.stepEvent(bracket);
+  else if (bracket) {
+    const eid = run ? timeline.stepEvidence(bracket) : null;
+    if (eid) flash(eid);
+  } else if (e.key === 'z' || e.key === 'Z') {
+    const ev = run?.evidence.get(state.focusEid ?? run.cites.find((id) => run.evidence.has(id)));
+    if (ev) zoomAround(ev, 5000);
+  } else if (e.key === '0') timeline.resetZoom();
+  else return;
+  e.preventDefault();
+}
 
 api.get('health').then(
   (h) => {

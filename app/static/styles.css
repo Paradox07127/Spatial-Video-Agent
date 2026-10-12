@@ -421,8 +421,6 @@ body[data-view="home"] .home-out #ask-status { position: static; display: block;
 .tl-now { font-size: var(--fs-1); color: var(--ink); }
 .tick { position: absolute; bottom: 2px; padding-left: 3px; font: var(--fs-1)/1 var(--font-mono); color: var(--ink-2); border-left: 1px solid var(--rule); height: 10px; display: flex; align-items: flex-end; }
 .tl-lanes { max-height: 108px; overflow-y: auto; }
-/* Fleet hit: the timeline keeps one lane. */
-body[data-ws="fleet"][data-view="hit"] .tl-lanes { max-height: 18px; }
 .tl-seg { position: absolute; top: 6px; height: 6px; }
 .lane-coverage .s-ok { background: color-mix(in srgb, var(--ink-2) 45%, transparent); }
 .lane-coverage .s-occluded, .lane-coverage .s-no_video {
@@ -513,9 +511,6 @@ body[data-stage="evidence"] :is(.lbl-model, .fl-model, .fl-pin, .fl-cluster) { d
 .media-status[hidden] { display: none; }
 .media-unavailable video, .media-unavailable canvas, .media-unavailable .fl-cols { visibility: hidden; }
 
-/* Expanding all trip lanes preserves the investigation stage. */
-body[data-ws="fleet"] .tl-lanes { max-height: min(180px, 25vh) !important; overflow-y: auto; }
-
 .investigation-status { padding: 8px 16px; margin: 0; color: var(--ink-2); border-bottom: 1px solid var(--rule); font-size: var(--fs-1); }
 .investigations { position: fixed; z-index: 12; inset: 10vh 10vw; padding: 20px; background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 12px 60px #0008; overflow: auto; }
 .investigations header { display: flex; gap: 16px; align-items: center; }
@@ -529,3 +524,20 @@ body[data-ws="fleet"] .tl-lanes { max-height: min(180px, 25vh) !important; overf
 #observations article p { margin: 6px 0; }
 .observation-frame { margin: 6px 8px 6px 0; border: 1px solid var(--rule); padding: 4px 6px; }
 @media(max-width:700px) { .investigations { inset: 5vh 12px; } .investigation-columns { grid-template-columns: 1fr; } .top-right { gap: 4px; } #investigations-btn { font-size: 10px; } }
+
+/* Key frame strip while the stage already shows the cited moment */
+.keyframe.kf-strip { flex-direction: row; align-items: center; gap: 10px; height: 64px; }
+.keyframe.kf-strip img, .keyframe.kf-strip .thumb-empty { flex: none; width: 114px; height: 64px; }
+.kf-back { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-size: var(--fs-1); }
+.kf-back:hover { color: var(--ink); }
+.kf-back .i { width: 12px; height: 12px; }
+
+/* Keyboard shortcut sheet (?) */
+.keysheet { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: rgb(14 18 24 / 0.6); }
+.keysheet[hidden] { display: none; }
+.keysheet-box { width: min(440px, 92vw); padding: 14px 18px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-2); box-shadow: 0 16px 48px rgb(0 0 0 / 0.5); }
+.keysheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.keysheet-head h2 { margin: 0; font-size: var(--fs-4); font-weight: 500; }
+.keysheet dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: var(--fs-2); }
+.keysheet dd { margin: 0; color: var(--ink-2); }
+.keysheet kbd { padding: 1px 5px; border: 1px solid var(--rule); border-radius: 3px; font: var(--fs-1) var(--font-mono); }

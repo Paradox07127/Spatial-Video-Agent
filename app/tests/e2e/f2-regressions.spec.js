@@ -366,3 +366,223 @@ test('failed fleet stylesheet settles mounting and queued commands', async ({ pa
   await mod(page, 'fleet/page.js', "m.applyUI({ cmd: 'highlight', args: { ids: ['P1'] } })");
   expect(await mod(page, 'kernel/selection.js', '[...m.selection.ids]')).toEqual(['P1']);
 });
+
+// ---- F2: one trip-time timeline, zoom, telemetry lanes, evidence focus, keyboard, key frame, takeover, SSE
+// The shell module by the URL the page loaded (the app adds a version query).
+const view = (page) => page.evaluate(async () => (await import(document.querySelector('script[src*="app.js"]').src)).timeline.view);
+// The fixture trip made 60 s long, so a moment ±10 s is less than the whole trip.
+async function longTrip(page) {
+  const gj = structuredClone(GEO);
+  gj.features[0].properties.replay.coverage_intervals = [[0, 60000]];
+  await page.route(new RegExp(`/api/scene/${FL}/manifest$`), (r) => r.fulfill({ json: { ...MF, t1_ms: 60000 } }));
+  await page.route(new RegExp(`/api/assets/${FL}/trip.geojson$`), (r) => r.fulfill({ json: gj }));
+}
+async function askFleet(page, events = frames('fl-where')) {
+  await page.goto(`#/fleet/${FL}@3000`);
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(FL);
+  await ask(page, events);
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await page.evaluate(() => document.activeElement.blur());
+}
+
+test('fleet ruler shows trip time and spans only the open trip; the overview keeps the fleet replay clock', async ({ page }) => {
+  // Trip time 0 is replay wall time 20 s, at double speed.
+  const gj = structuredClone(GEO);
+  Object.assign(gj.features[0].properties.replay, { replay_start_ms: 20000, rate: 2 });
+  await page.route(new RegExp(`/api/assets/${FL}/trip.geojson$`), (r) => r.fulfill({ json: gj }));
+  await page.goto(`#/fleet/${FL}@3000`);
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(FL);
+  expect(await clock(page, 'range')).toEqual({ t0: 0, t1: 10000 });
+  expect(await clock(page, 't')).toBe(3000);
+  await expect(page.locator('#timeline .tl-now')).toHaveText('00:03.0');
+  await expect(page.locator('.fl-fact-time')).toHaveText('00:03.0');
+  await expect(page.locator('#timeline .tl-clock')).toHaveText('Trip time');
+  const ticks = await page.locator('#timeline .tl-ruler .tick').allTextContents();
+  expect(ticks.length).toBeGreaterThan(1);
+  for (const t of ticks) expect(t < '00:10.0').toBe(true);
+  // The other trip folds into a faded toggle; Answer mode hides it.
+  await expect(page.locator(`#timeline [data-lane="trip:${FL}"] .tl-label`)).toHaveText('GPS · fl-pie-fixture-01');
+  await expect(page.locator('#timeline [data-lane="trip:fl-pie-fixture-02"]')).toBeHidden();
+  await expect(page.locator('#timeline .tl-others')).toBeVisible();
+  await page.locator('.stage-controls [data-mode="evidence"]').click();
+  await expect(page.locator('#timeline .tl-others')).toBeHidden();
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await expect(page.locator('#timeline .tl-others')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.fl-root')).not.toHaveClass(/\bix\b/);
+  expect(await clock(page, 'range')).toEqual({ t0: 0, t1: 60000 });
+  expect(await clock(page, 't')).toBe(21500);
+  await expect(page.locator('#timeline .tl-clock')).toHaveText('Fleet replay clock');
+  await expect(page.locator('.fl-sim')).toHaveText('Fleet replay clock');
+});
+
+test('after a fleet answer the ruler shows the moment ±10 s; Ctrl+wheel, −, +, Undo, Reset and Zoom to range zoom it', async ({ page }) => {
+  await longTrip(page);
+  await askFleet(page);
+  // The moment is 3.0–8.0 s; ±10 s starts at the trip start.
+  await expect.poll(() => view(page)).toEqual({ t0: 0, t1: 25000 });
+  await expect(page.locator('#timeline .tl-overview')).toBeVisible();
+  const ruler = await page.locator('#timeline .tl-ruler .tl-track').boundingBox();
+  await page.mouse.move(ruler.x + ruler.width * 0.4, ruler.y + ruler.height / 2);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  // The time under the pointer (10 s) stays in place.
+  await expect.poll(() => view(page)).toEqual({ t0: 2000, t1: 22000 });
+  // − and + keep the playhead (3 s) in place.
+  await page.locator('#timeline [data-zoom="in"]').click();
+  expect(await view(page)).toEqual({ t0: 2500, t1: 12500 });
+  await page.locator('#timeline [data-zoom="out"]').click();
+  expect(await view(page)).toEqual({ t0: 2000, t1: 22000 });
+  await page.locator('#timeline [data-zoom="undo"]').click();
+  expect(await view(page)).toEqual({ t0: 2500, t1: 12500 });
+  await page.locator('#timeline [data-zoom="reset"]').click();
+  expect(await view(page)).toEqual({ t0: 0, t1: 60000 });
+  await expect(page.locator('#timeline [data-zoom="reset"]')).toBeDisabled();
+  // A brushed range offers Zoom to range next to its follow-up chip.
+  const lane = await page.locator('#timeline [data-lane="speed"] .tl-track').boundingBox();
+  await page.mouse.move(lane.x + lane.width * 0.5, lane.y + lane.height / 2); await page.mouse.down();
+  await page.mouse.move(lane.x + lane.width * 0.75, lane.y + lane.height / 2); await page.mouse.up();
+  await page.locator('#followup [data-zoom-range]').click();
+  await expect.poll(async () => { const v = await view(page); return [Math.round(v.t0 / 1000), Math.round(v.t1 / 1000)]; }).toEqual([30, 45]);
+});
+
+test('the Speed lane draws OBD speed against the map limit and names both sources; lanes show values on hover and seek on click', async ({ page }) => {
+  await page.goto(`#/fleet/${FL}@3000`);
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(FL);
+  const lane = page.locator('#timeline .lane-speed');
+  await expect(lane).toBeVisible();
+  await expect(lane.locator('.tl-label')).toHaveText('Speed · OBD km/hLimit · Map');
+  await expect.poll(() => ink(page, '#timeline .lane-speed canvas')).toBeGreaterThan(0);
+  const box = await lane.locator('.tl-track').boundingBox();
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height / 2);
+  await expect(page.locator('#timeline .tl-tip')).toHaveText(/^00:01\.0 · \d+ km\/h · OBD · limit 40 km\/h · Map$/);
+  await expect(page.locator('#timeline .tl-ghost')).toBeVisible();
+  expect(await page.locator(`#timeline [data-lane="trip:${FL}"] .s-last_known`).count()).toBeGreaterThan(0);
+  await expect(page.locator(`#timeline .tl-events [data-ev="${FL}:E1"]`)).toHaveText('PC2');
+  await expect(page.locator(`#timeline .tl-events [data-ev="${FL}:E1"]`)).toBeVisible();
+  await page.locator(`#timeline [data-lane="trip:${FL}"] .tl-track`).click({ position: { x: box.width * 0.5, y: 5 } });
+  await expect.poll(() => clock(page, 't')).toBe(5000);
+});
+
+test('clicking a speed evidence row switches the fleet evidence cell to Speed, zooms the ruler and enters Answer mode', async ({ page }) => {
+  await longTrip(page);
+  const events = frames('fl-where');
+  const speed = { eid: 'e_speed', scene_key: FL, cam_id: null, t0_ms: 20000, t1_ms: 21000, observation_ids: [], analysis_rev: 'fx-0001', kind: 'measure', method: 'obd_speed', value: 48.1, unit: 'km/h', sigma: null, artifact_ref: null };
+  events.find((f) => f.event === 'tool_result').data.evidence.push(speed);
+  events.find((f) => f.event === 'answer').data.cites.push(speed.eid);
+  await askFleet(page, events);
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await page.locator('#tabs [data-tab="evidence"]').click();
+  await page.locator('#tab-evidence .ev[data-eid="e_speed"] .ev-label').click();
+  await expect.poll(() => clock(page, 't')).toBe(20000);
+  await expect(page.locator('.fl-evidence-tabs button[data-tab="speed"]')).toHaveClass(/\bon\b/);
+  await expect(page.locator('.fl-speed-pane')).toBeVisible();
+  await expect.poll(() => view(page)).toEqual({ t0: 15000, t1: 26000 });
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await expect(page.locator('.tl-evm[data-eid="e_speed"]')).toHaveClass(/\bon\b/);
+});
+
+test('global keys: Space plays and pauses, arrows and , . step, ? opens the key sheet; text fields keep their keys', async ({ page }) => {
+  await page.goto('#/test');
+  await seek(page, 5000);
+  await page.keyboard.press('Space');
+  expect(await clock(page, 'playing')).toBe(true);
+  await page.keyboard.press('Space');
+  expect(await clock(page, 'playing')).toBe(false);
+  await seek(page, 5000);
+  await page.keyboard.press('ArrowRight');
+  expect(await clock(page, 't')).toBe(6000);
+  await page.keyboard.press('Shift+ArrowLeft');
+  expect(await clock(page, 't')).toBe(1000);
+  await page.keyboard.press('.');
+  expect(await clock(page, 't')).toBe(1033);
+  await page.keyboard.press(',');
+  expect(await clock(page, 't')).toBe(1000);
+  await page.keyboard.press('?');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#keysheet')).toBeHidden();
+  await page.locator('#ask-input').press('Space');
+  expect(await clock(page, 'playing')).toBe(false);
+});
+
+test('] and [ step through the Evidence marks, Shift+] to the next trip event, Z zooms to the evidence and 0 resets', async ({ page }) => {
+  await longTrip(page);
+  await askFleet(page);
+  await seek(page, 1000);
+  await page.keyboard.press(']');
+  await expect.poll(() => clock(page, 't')).toBe(3000);
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  await page.keyboard.press('[');
+  await expect.poll(() => clock(page, 't')).toBe(0);
+  await page.keyboard.press('Shift+BracketRight');
+  expect(await clock(page, 't')).toBe(3000);
+  await expect(page.locator(`#timeline .ev-mark.on[data-ev="${FL}:E1"]`)).toHaveCount(1);
+  await page.keyboard.press('Shift+BracketRight');
+  expect(await clock(page, 't')).toBe(5000);
+  await page.keyboard.press('0');
+  expect(await view(page)).toEqual({ t0: 0, t1: 60000 });
+  // The focused evidence is the place name over the whole fixture window 0–10 s.
+  await page.keyboard.press('z');
+  expect(await view(page)).toEqual({ t0: 0, t1: 20000 });
+});
+
+test('the key frame is a 64 px strip while the cursor is at the cited moment, the full frame when it is more than 1 s away', async ({ page }) => {
+  await askFleet(page);
+  expect(await clock(page, 't')).toBe(3000);
+  const kf = page.locator('#keyframe .keyframe');
+  await expect(kf).toHaveClass(/\bkf-strip\b/);
+  await expect(page.locator('#keyframe .kf-back')).toHaveText('Back to 00:03.0');
+  expect(Math.round((await kf.boundingBox()).height)).toBe(64);
+  await seek(page, 3900);
+  await expect(kf).toHaveClass(/\bkf-strip\b/);
+  await seek(page, 4500);
+  await expect(kf).not.toHaveClass(/\bkf-strip\b/);
+  await expect(page.locator('#keyframe .kf-back')).toHaveCount(0);
+  expect((await kf.boundingBox()).height).toBeGreaterThan(64);
+  await page.locator('.stage-controls [data-mode="explore"]').click();
+  await seek(page, 3500);
+  await page.locator('#keyframe .kf-back').click();
+  await expect.poll(() => clock(page, 't')).toBe(3000);
+});
+
+test('stage controls keep Answer mode; a press on the map takes over', async ({ page }) => {
+  await askFleet(page);
+  for (const control of ['.fl-boxes-btn', '.fl-evidence-tabs [data-tab="speed"]', '.fl-swap-btn', '.fl-swap-btn', '.fl-facts', '.fl-trip-chip']) {
+    await page.locator(control).click();
+    await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
+  }
+  await page.locator('.fl-map canvas.maplibregl-canvas').dispatchEvent('pointerdown');
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'explore');
+});
+
+test('sse.js joins two data: lines with "\\n" and strips one leading space each', async ({ page }) => {
+  await page.goto('#/test');
+  expect(await mod(page, 'kernel/sse.js', "m.sseFrame('event: step\\ndata: {\"a\":\\ndata:  1}\\nid: 7')")).toEqual({ event: 'step', data: '{"a":\n 1}', id: 7 });
+});
+
+test('a throwing frame handler does not report a connection failure', async ({ page }) => {
+  await page.goto('#/test');
+  const seen = await page.evaluate(async () => {
+    const { askSSE } = await import(new URL('kernel/sse.js', document.baseURI).href);
+    const fetch0 = window.fetch, seen = [];
+    window.fetch = async () => new Response('event: step\ndata: {"run_id":"r"}\n\nevent: status\ndata: {"run_id":"r","final":"SUPPORTED"}\n\n', { headers: { 'content-type': 'text/event-stream' } });
+    try {
+      await new Promise((resolve) => {
+        askSSE({}, {
+          step: () => { throw new Error('handler bug'); },
+          status: (d) => seen.push(d.final),
+          error: (e) => { seen.push(`error: ${e.message}`); resolve(); },
+          comparison_error: (e) => { seen.push(`comparison_error: ${e.message}`); resolve(); },
+        });
+        setTimeout(resolve, 300);
+      });
+      return seen;
+    } finally { window.fetch = fetch0; }
+  });
+  expect(seen).toEqual(['SUPPORTED']);
+  // The handler's exception is still reported as a page error.
+  await expect.poll(() => errors).toEqual(['handler bug']);
+  errors = [];
+});

@@ -7,7 +7,7 @@ const clock = (page, expr) => page.evaluate(async expr => new Function('c', `ret
 for (const [workspace, key, cam, field, value, sourceMs, wallMs] of [
   ['street',ST,'fixture_cam-1','t_s',6.4,6400,6400],
   ['warehouse',WH,'ceiling_04','t_ms',7500,7500,7500],
-  ['fleet',FL,'dashcam','t_min_ms',6500,6500,23250],
+  ['fleet',FL,'dashcam','t_min_ms',6500,6500,6500],
 ]) test(`${workspace}: a referenced time seeks its numeric field rather than the evidence window start`, async ({page})=>{
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   await mockApi(page);
@@ -46,11 +46,11 @@ for (const [workspace, key, cam, field, value, sourceMs, wallMs] of [
     await time.click(); await expect.poll(()=>clock(page,'c.t')).toBe(wallMs);
     const ref=page.locator(`#answer .ans-num[data-ref-field="value.${ordinary}"]`);
     await expect(ref).toBeVisible(); await ref.click();
-    await expect.poll(()=>clock(page,'c.t')).toBe(workspace==='fleet'?20000:0);
+    await expect.poll(()=>clock(page,'c.t')).toBe(0);
   }
   await time.click(); await expect.poll(()=>clock(page,'c.t')).toBe(wallMs);
   await page.locator(`.tl-evm[data-eid="${eid}"]`).click();
-  await expect.poll(()=>clock(page,'c.t')).toBe(workspace==='fleet'?20000:0);
+  await expect.poll(()=>clock(page,'c.t')).toBe(0);
   expect(errors).toEqual([]);
 });
 

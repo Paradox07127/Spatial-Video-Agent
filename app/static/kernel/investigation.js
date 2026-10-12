@@ -3,6 +3,8 @@ import { api } from './api.js';
 import { esc } from './format.js';
 import { jobSSE } from './sse.js';
 const KEY = 'sva.investigation';
+// crypto.randomUUID exists only in secure contexts; the app is also reached over plain HTTP (SSH tunnel).
+const requestId = () => crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 const terminal = (status) => ['done', 'error', 'failed', 'cancelled', 'canceled', 'aborted'].includes(status);
 export function createInvestigations({ restore, attach, reset }) {
   const host = document.getElementById('investigations'), banner = document.getElementById('investigation-status');
@@ -59,7 +61,7 @@ export function createInvestigations({ restore, attach, reset }) {
         current = {session_id:created.session_id,revision:created.revision}; save();
       } else { const detail = await session(current.session_id); if(token!==generation)throw new Error('Superseded investigation request'); current.revision=detail.revision;save(); }
       show(`Saved investigation · ${current.session_id}`);
-      return { protocol_version:2,session_id:current.session_id,parent_turn_id:follow?current.turn_id??null:null,expected_revision:current.revision,request_id:crypto.randomUUID() };
+      return { protocol_version:2,session_id:current.session_id,parent_turn_id:follow?current.turn_id??null:null,expected_revision:current.revision,request_id:requestId() };
     } catch (e) {
       show(`Could not save the investigation: ${e.message}`); throw e;
     }

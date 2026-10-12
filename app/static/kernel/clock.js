@@ -37,10 +37,11 @@ export const clock = {
     clock.playing = false;
     bus.emit('clock:play', false);
   },
-  setRange(t0, t1) {
+  // t: the time to land on in the new range (a domain change re-bases the clock).
+  setRange(t0, t1, t = clock.t) {
     clock.range = { t0, t1 };
     bus.emit('clock:range', clock.range);
-    clock.seek(clock.t);
+    clock.seek(t);
   },
   onTick(fn) {
     bus.on('clock:tick', fn);

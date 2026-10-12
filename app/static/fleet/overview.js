@@ -22,6 +22,18 @@ const M_PER_PX0 = 40075016.686 / 512;
 const ARROW = '<svg class="fl-arrow" viewBox="-12 -12 24 24" aria-hidden="true"><path d="M0,-9 L7,8 L0,4 L-7,8Z"/></svg>';
 const empty = { type: 'FeatureCollection', features: [] };
 const line = (coordinates, properties = {}) => ({ type: 'Feature', properties, geometry: { type: 'LineString', coordinates } });
+// A map marker element that works as a button: focusable, named, activated by click, Enter or Space.
+function asButton(div, label, fn) {
+  Object.assign(div, { tabIndex: 0 });
+  div.setAttribute('role', 'button');
+  div.setAttribute('aria-label', label);
+  div.addEventListener('click', fn);
+  div.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    fn();
+  });
+}
 
 function fovPolygon(lon, lat, headingDeg, cam) {
   if (!cam || !cam.K) return null;
@@ -168,7 +180,7 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
     div.dataset.trip = trip.id;
     div.style.setProperty('--trip', trip.color);
     div.innerHTML = `${ARROW}<span class="fl-tag"><span class="mono">${esc(trip.id)}</span><span class="fl-age mono"></span></span>${trip.cam || trip.summary?.full ? '<span class="fl-chip empty" data-message="Select to load video"><img alt=""></span>' : ''}`;
-    div.addEventListener('click', () => onCar(trip.id));
+    asButton(div, `Trip ${trip.id}`, () => onCar(trip.id));
     return { trip, div, s: null, marker: new maplibregl.Marker({ element: div }).setLngLat([trip.pts[0].lon, trip.pts[0].lat]).addTo(map) };
   };
   const cars = trips.filter((trip) => trip.pts.length).map(createCar);
@@ -189,7 +201,7 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
     div.className = `fl-pin sev-${v.e.severity}`;
     div.title = `${v.trip.id} ${v.e.id} ${v.e.type} · severity ${v.e.severity}`;
     div.innerHTML = '<i></i>';
-    div.addEventListener('click', () => onEvent(v.trip, v.e));
+    asButton(div, `${v.e.type.replace(/_/g, ' ')} event, trip ${v.trip.id}, severity ${v.e.severity}`, () => onEvent(v.trip, v.e));
     return new maplibregl.Marker({ element: div, anchor: 'bottom' }).setLngLat(v.lngLat);
   };
   const cluster = (f) => {
@@ -198,7 +210,7 @@ export async function createOverview(el, { trips, api, onCar, onEvent, onBuildin
     div.className = `fl-cluster sev-${sev} mono`;
     div.title = `${count(n, 'event')} · click to zoom in`;
     div.textContent = n;
-    div.addEventListener('click', async () => map.easeTo({ center, zoom: await map.getSource('fl-ev').getClusterExpansionZoom(id) }));
+    asButton(div, `${count(n, 'event')}, zoom in`, async () => map.easeTo({ center, zoom: await map.getSource('fl-ev').getClusterExpansionZoom(id) }));
     return new maplibregl.Marker({ element: div }).setLngLat(center);
   };
   let clusters = new Map(), shown = new Set();

@@ -17,7 +17,7 @@
     <form id="ask-form" class="ask" autocomplete="off">
       <svg class="i"><use href="icons.svg#search"/></svg>
       <button type="button" id="source-tag" class="source-tag mono" title="Scene or trip the question is about"></button>
-      <input id="ask-input" maxlength="500" placeholder="Ask about this scene: when, where, how far apart">
+      <input id="ask-input" aria-label="Ask about this scene" maxlength="500" placeholder="Ask about this scene: when, where, how far apart">
       <span class="ask-hint mono">Esc steps back</span>
     </form>
     <span class="top-right"><span id="dependency-status" role="status" hidden></span>
@@ -72,6 +72,24 @@
       <input class="cmdk-input" placeholder="Scene, trip, or ask a question">
       <ul></ul>
       <footer class="cmdk-foot"><span id="data-badge" class="data-badge"></span><span>Esc closes · ↵ opens</span></footer>
+    </div>
+  </div>
+
+  <div id="keysheet" class="keysheet" role="dialog" aria-modal="true" aria-labelledby="keysheet-title" hidden>
+    <div class="keysheet-box">
+      <div class="keysheet-head"><h2 id="keysheet-title">Keyboard shortcuts</h2><button type="button" class="ghost keysheet-close" aria-label="Close keyboard shortcuts"><svg class="i"><use href="icons.svg#x"/></svg></button></div>
+      <dl>
+        <dt><kbd>Space</kbd></dt><dd>Play / pause</dd>
+        <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Step 1 s (with Shift: 5 s)</dd>
+        <dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Step one frame</dd>
+        <dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Previous / next evidence mark</dd>
+        <dt><kbd>Shift</kbd> + <kbd>[</kbd> <kbd>]</kbd></dt><dd>Previous / next trip event</dd>
+        <dt><kbd>Z</kbd></dt><dd>Zoom the timeline to the current evidence</dd>
+        <dt><kbd>0</kbd></dt><dd>Reset the timeline zoom</dd>
+        <dt><kbd>⌘K</kbd></dt><dd>Go to a scene or trip, or ask</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Step back one layer</dd>
+        <dt><kbd>?</kbd></dt><dd>This sheet</dd>
+      </dl>
     </div>
   </div>
 </body>

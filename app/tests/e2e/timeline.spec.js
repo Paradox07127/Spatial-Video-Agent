@@ -107,6 +107,8 @@ test('long Fleet ruler labels fit at 486px and redraw on paused desktop/narrow r
   await page.locator('#ask-input').fill('Did a pedestrian cross near Queen and Spadina?');
   await page.locator('#ask-input').press('Enter');
   await expect(page.locator('body')).toHaveAttribute('data-run', 'done');
+  // The answer's own ruler zoom lands first.
+  await expect(page.locator('body')).toHaveAttribute('data-stage', 'evidence');
   await kernel(page, 'clock', '(k.clock.pause(), k.clock.setRange(0, 36000000), k.clock.seek(3000))');
   const ruler = page.locator('#timeline .tl-ruler .tl-track');
   const labels = () => ruler.evaluate((el) => {
@@ -127,7 +129,8 @@ test('long Fleet ruler labels fit at 486px and redraw on paused desktop/narrow r
   expect(await kernel(page, 'clock', 'k.clock.t')).toBe(3000);
   expect(await evidence.evaluate((e) => e.style.left)).toBe(evidencePercent);
 
-  const track = await page.locator('#timeline [data-lane="agent"] .tl-track').boundingBox();
+  // At narrow widths the fleet timeline keeps the ruler, Speed and Evidence lanes.
+  const track = await page.locator('#timeline [data-lane="speed"] .tl-track').boundingBox();
   await page.mouse.move(track.x + track.width * .2, track.y + track.height / 2); await page.mouse.down();
   await page.mouse.move(track.x + track.width * .6, track.y + track.height / 2); await page.mouse.up();
   const brush = page.locator('.tl-brush');

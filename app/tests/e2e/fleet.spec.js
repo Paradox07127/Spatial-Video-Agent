@@ -85,8 +85,16 @@ test('default state: dashcam view of the trip with video and the most events, bo
   await mod(page, 'kernel/clock.js', 'm.clock.play()');
   await expect.poll(() => video.evaluate((v) => !v.paused && v.readyState >= 2)).toBe(true);
   await mod(page, 'kernel/clock.js', 'm.clock.pause()');
-  // Outside the trip's coverage the video panel says so instead of a frozen frame.
-  await seek(page, 20000);
+});
+
+test('outside the trip coverage the video panel says so instead of a frozen frame', async ({ page }) => {
+  const route = JSON.parse(fs.readFileSync(path.join(OUT, T1, 'trip.geojson'), 'utf8'));
+  route.features[0].properties.replay.coverage_intervals = [[0, 8000]];
+  await page.route(new RegExp(`/api/assets/${T1}/trip.geojson$`), (r) => r.fulfill({ json: route }));
+  await page.reload();
+  await expect.poll(() => mod(page, 'fleet/page.js', 'm.view.ix?.trip.id')).toBe(T1);
+  // The ruler is the trip's own time, so the uncovered tail is still on it.
+  await seek(page, 9000);
   await expect(page.locator('.fl-novid')).toContainText('No video at this time');
   await expect(page.locator('.fl-novid')).toBeVisible();
   await expect(page.locator('.fl-vbox')).toBeHidden();
@@ -189,6 +197,7 @@ test('a cluster on top of a car arrow still leaves the trip tag to select the ca
 });
 
 test('clock.map uses each trip ReplayMapping', async ({ page }) => {
+  await toOverview(page);
   const maps = [replayOf(T1), replayOf(T2)];
   const expected = (wall) => {
     for (const m of maps) {
